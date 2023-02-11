@@ -8,7 +8,7 @@ import {
 } from '../../types.js';
 import CommandRegistry from './command-registry.js';
 import debug from '../../debug/index.js';
-import { dirname, isAbsolute, join, parse } from 'node:path';
+import { dirname, join, parse } from 'node:path';
 import fs from 'node:fs/promises';
 import { initArg } from '../argument/init-arg.js';
 import { initOption } from '../option/init-option.js';
@@ -302,7 +302,7 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 		throw new Error(`Failed to JSON parse ${pkgFile}: ${err.message}`);
 	}
 
-	let { description, exports, main, name } = pkgJson;
+	const { description, exports, main, name } = pkgJson;
 
 	let entry = exports || main;
 	if (entry && typeof entry === 'object') {
