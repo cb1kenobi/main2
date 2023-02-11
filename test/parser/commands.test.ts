@@ -13,13 +13,13 @@ describe('commands', () => {
 				schema: {
 					commands: 123 as any
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected commands to be one or more paths or an object');
+			})).rejects.toThrow(new TypeError('Expected commands to be one or more paths or an object'));
 
 			await expect(parse({
 				schema: {
 					commands: null as any
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected commands to be one or more paths or an object');
+			})).rejects.toThrow(new TypeError('Expected commands to be one or more paths or an object'));
 		});
 
 		it('should error if command has an invalid name', async () => {
@@ -31,7 +31,7 @@ describe('commands', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected command name to be a non-empty string');
+			})).rejects.toThrow(new TypeError('Expected command name to be a non-empty string'));
 		});
 
 		it('should error if run function is invalid', async () => {
@@ -43,7 +43,7 @@ describe('commands', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Invalid run function in "foo" command');
+			})).rejects.toThrow(new TypeError('Invalid run function in "foo" command'));
 		});
 	});
 
@@ -53,7 +53,7 @@ describe('commands', () => {
 				schema: {
 					commands: ''
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected commands to be one or more paths or an object');
+			})).rejects.toThrow(new TypeError('Expected commands to be one or more paths or an object'));
 		});
 
 		it('should error if path is unsupported file type', async () => {
@@ -61,7 +61,7 @@ describe('commands', () => {
 				schema: {
 					commands: 'unsupported.txt'
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Unsupported command module "unsupported.txt"');
+			})).rejects.toThrow('Unsupported command module "unsupported.txt"');
 		});
 
 		it('should load a command by file path', async () => {
@@ -95,7 +95,7 @@ describe('commands', () => {
 				schema: {
 					commands: [ '', 'foo' ]
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected commands to be one or more paths or an object');
+			})).rejects.toThrow(new TypeError('Expected commands to be one or more paths or an object'));
 		});
 
 		it('should error if path is unsupported file type', async () => {
@@ -103,7 +103,7 @@ describe('commands', () => {
 				schema: {
 					commands: [ 'unsupported.txt' ]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Unsupported command module "unsupported.txt"');
+			})).rejects.toThrow('Unsupported command module "unsupported.txt"');
 		});
 
 		it('should load a command by file path', async () => {
@@ -149,7 +149,7 @@ describe('commands', () => {
 						{ name: undefined as any }
 					]
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected command name to be a non-empty string');
+			})).rejects.toThrow(new TypeError('Expected command name to be a non-empty string'));
 
 			await expect(parse({
 				argv: [ 'foo' ],
@@ -158,7 +158,7 @@ describe('commands', () => {
 						{ name: 123 as any }
 					]
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected command name to be a non-empty string');
+			})).rejects.toThrow(new TypeError('Expected command name to be a non-empty string'));
 		});
 	});
 
@@ -289,7 +289,7 @@ describe('commands', () => {
 						foo: 'does_not_exist.js'
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Command module not found: does_not_exist.js');
+			})).rejects.toThrow('Command module not found: does_not_exist.js');
 		});
 
 		it('should error if command module has invalid syntax', async () => {
@@ -300,7 +300,7 @@ describe('commands', () => {
 						foo: path.join(__dirname, 'fixtures/bad-syntax.js'),
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Failed to load command module: Unexpected end of input');
+			})).rejects.toThrow('Failed to load command module:');
 		});
 
 		it('should error if command module does not export default', async () => {
@@ -311,7 +311,7 @@ describe('commands', () => {
 						foo: path.join(__dirname, 'fixtures/no-default.js'),
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, /^Command module default export is not a valid command object/);
+			})).rejects.toThrow('Command module default export is not a valid command object');
 		});
 
 		it('should error if command module exports invalid definition', async () => {
@@ -322,7 +322,7 @@ describe('commands', () => {
 						foo: path.join(__dirname, 'fixtures/invalid.js'),
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, /^Command module default export is not a valid command object:/);
+			})).rejects.toThrow('Command module default export is not a valid command object:');
 		});
 
 		it('should error if commands definition is invalid', async () => {
@@ -332,7 +332,7 @@ describe('commands', () => {
 						foo: ''
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected commands to be one or more paths or an object');
+			})).rejects.toThrow('Expected commands to be one or more paths or an object');
 		});
 	});
 
@@ -376,7 +376,7 @@ describe('commands', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected command alias to be a string or list of strings');
+			})).rejects.toThrow(new TypeError('Expected command alias to be a string or list of strings'));
 
 			await expect(parse({
 				schema: {
@@ -386,7 +386,7 @@ describe('commands', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected command alias to be a string or list of strings');
+			})).rejects.toThrow(new TypeError('Expected command alias to be a string or list of strings'));
 		});
 	});
 

@@ -7,11 +7,14 @@ import {
 	Schema
 } from '../../types.js';
 import CommandRegistry from './command-registry.js';
+import debug from '../../debug/index.js';
+import { dirname, isAbsolute, join, parse } from 'node:path';
 import fs from 'node:fs/promises';
 import { initArg } from '../argument/init-arg.js';
 import { initOption } from '../option/init-option.js';
 import OptionRegistry from '../option/option-registry.js';
-import path from 'node:path';
+
+const { log } = debug('main2:init-commands');
 
 const fileTypeRegExp = /^\.[cm]?js$/;
 
@@ -28,7 +31,7 @@ const fileTypeRegExp = /^\.[cm]?js$/;
 
 type CommandsLike = Command | InternalCommand | Schema;
 
-export default async function initCommand(it: CommandsLike, commandPath?: string): Promise<InternalCommand> {
+export default async function initCommand(it: CommandsLike, entryFile?: string): Promise<InternalCommand> {
 	if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
 		return it as InternalCommand;
 	}
@@ -38,6 +41,8 @@ export default async function initCommand(it: CommandsLike, commandPath?: string
 	if (!it.name || typeof it.name !== 'string') {
 		throw new TypeError('Expected command name to be a non-empty string');
 	}
+
+	log(`Initializing command "${it.name}"`);
 
 	const aliases = new Set<string>();
 	const args: InternalArgument[] = [];
@@ -79,7 +84,7 @@ export default async function initCommand(it: CommandsLike, commandPath?: string
 	// commands
 	if (it.commands !== undefined) {
 		if (it.commands && typeof it.commands === 'string') {
-			await registerCommandFile({
+			await registerCommandPath({
 				commands,
 				file: it.commands
 			});
@@ -138,21 +143,28 @@ export default async function initCommand(it: CommandsLike, commandPath?: string
 	}
 
 	// create the `version` option
-	const { version } = it;
-	if (version) {
-		//  && !commands.has('__version')
+	// const { version } = it;
+	// if (version) {
+	// 	//  && !commands.has('__version')
 
-		const versionCmd: InternalCommand = await initCommand({
-			name: 'version',
-			run(state) {
-				// state.terminal.write(schema.version);
-			}
-		});
+	// 	const versionCmd: InternalCommand = await initCommand({
+	// 		name: 'version',
+	// 		run(state) {
+	// 			// state.terminal.write(schema.version);
+	// 		}
+	// 	});
 
-		options.add(await initOption({
-			format: '-v, --version'
-			// TODO: use hooks to unshift `versionCmd` onto contexts
-		}));
+	// 	options.add(await initOption({
+	// 		format: '-v, --version'
+	// 		// TODO: use hooks to unshift `versionCmd` onto contexts
+	// 	}));
+	// }
+
+	entryFile ??= it[Internal]?.path;
+
+	const { path: commandPath } = it as Command;
+	if (commandPath) {
+		entryFile = entryFile ? join(dirname(entryFile), commandPath) : commandPath;
 	}
 
 	return new Proxy(Object.defineProperty(
@@ -164,7 +176,7 @@ export default async function initCommand(it: CommandsLike, commandPath?: string
 				args,
 				commands,
 				options,
-				path: commandPath || it[Internal]?.path || (Object.hasOwn(it, 'path') ? (it as Command).path : undefined),
+				path: entryFile,
 				state: InternalState.OK
 			}
 		}
@@ -212,7 +224,7 @@ async function registerCommand({
 	name?: string;
 }): Promise<void> {
 	if (cmdOrPath && typeof cmdOrPath === 'string') {
-		await registerCommandFile({
+		await registerCommandPath({
 			commands,
 			file: cmdOrPath,
 			name
@@ -227,7 +239,7 @@ async function registerCommand({
 	}
 }
 
-async function registerCommandFile({
+async function registerCommandPath({
 	commands,
 	file,
 	name
@@ -237,25 +249,31 @@ async function registerCommandFile({
 	name?: string;
 }): Promise<void> {
 	if (!name) {
-		try {
-			// check if `file` is a directory
-			const files = await fs.readdir(file);
+		const cmd = await registerCommandPackage(file);
+		if (cmd) {
+			commands.add(cmd);
+			return;
+		}
+
+		const files = await fs.readdir(file).catch(err => err);
+		if (!(files instanceof Error)) {
 			for (const filename of files) {
-				const { ext, name } = path.parse(filename);
+				const { ext, name } = parse(filename);
 				if (fileTypeRegExp.test(ext)) {
-					commands.add(await initCommand({ name }, path.join(file, filename)));
+					const cmdFile = join(file, filename);
+					commands.add(await initCommand({ name }, cmdFile));
 				}
 			}
 			return;
-		} catch {
-			// not a directory, fall through
 		}
+
+		// not a package, not a directory
 	}
 
-	// `file` is not a directory or `name` is set and we didn't want to treat
-	// it as a directory
+	// `file` is not a package or directory or `name` is set and we didn't want
+	// to treat it as a directory
 
-	const { ext, name: filename } = path.parse(file);
+	const { ext, name: filename } = parse(file);
 
 	if (!name) {
 		name = filename;
@@ -266,4 +284,44 @@ async function registerCommandFile({
 	}
 
 	commands.add(await initCommand({ name }, file));
+}
+
+async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
+	const pkgFile = join(dir, 'package.json');
+	const json = await fs.readFile(pkgFile, 'utf-8').catch(err => err);
+
+	if (json instanceof Error) {
+		// no package.json, not a package
+		return;
+	}
+
+	let pkgJson;
+	try {
+		pkgJson = JSON.parse(json);
+	} catch (err: any) {
+		throw new Error(`Failed to JSON parse ${pkgFile}: ${err.message}`);
+	}
+
+	let { description, exports, main, name } = pkgJson;
+
+	let entry = exports || main;
+	if (entry && typeof entry === 'object') {
+		entry = entry['.'] || entry.default;
+	}
+
+	if (!entry || typeof entry !== 'string') {
+		throw new Error(`Command package does not have a valid main: ${dir}`);
+	}
+
+	const entryFile = join(dir, entry);
+	const { default: cmd } = await import(entryFile);
+
+	if (!cmd || typeof cmd !== 'object') {
+		throw new TypeError(`Expected command package "${name}" to default export an object`);
+	}
+
+	cmd.name ??= name;
+	cmd.desc ??= description;
+
+	return initCommand(cmd, entryFile);
 }

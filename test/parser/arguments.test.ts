@@ -5,28 +5,28 @@ import { parse } from '../../src/parser/index.js';
 
 describe('arguments', () => {
 	describe('Error Handling', () => {
-		it('should error if argument list is not an array', async () => {
+		test('should error if argument list is not an array', async () => {
 			await expect(parse({
 				schema: {
 					args: null as any
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected argument list to be an array');
+			})).rejects.toThrow('Expected argument list to be an array');
 
 			await expect(parse({
 				schema: {
 					args: 123 as any
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected argument list to be an array');
+			})).rejects.toThrow('Expected argument list to be an array');
 		});
 
-		it('should error if argument definition is not an object', async () => {
+		test('should error if argument definition is not an object', async () => {
 			await expect(parse({
 				schema: {
 					args: [
 						null as any
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Invalid argument definition: null');
+			})).rejects.toThrow('Invalid argument definition: null');
 
 			await expect(parse({
 				schema: {
@@ -34,17 +34,17 @@ describe('arguments', () => {
 						123 as any
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Invalid argument definition: 123');
+			})).rejects.toThrow('Invalid argument definition: 123');
 		});
 
-		it('should error if argument name is invalid', async () => {
+		test('should error if argument name is invalid', async () => {
 			await expect(parse({
 				schema: {
 					args: [
 						{ name: undefined as any }
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected argument to have a name');
+			})).rejects.toThrow('Expected argument to have a name');
 
 			await expect(parse({
 				schema: {
@@ -52,7 +52,7 @@ describe('arguments', () => {
 						{ name: '' }
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected argument to have a name');
+			})).rejects.toThrow('Expected argument to have a name');
 
 			await expect(parse({
 				schema: {
@@ -60,10 +60,10 @@ describe('arguments', () => {
 						{ name: '\n' }
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Invalid argument name: "\\n"');
+			})).rejects.toThrow('Invalid argument name: "\\n"');
 		});
 
-		it('should error if argument definition type is invalid', async () => {
+		test('should error if argument definition type is invalid', async () => {
 			await expect(parse({
 				schema: {
 					args: [
@@ -73,10 +73,10 @@ describe('arguments', () => {
 						}
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Argument "foo" has unsupported data type "bar"');
+			})).rejects.toThrow('Argument "foo" has unsupported data type "bar"');
 		});
 
-		it('should error if argument transform is invalid', async () => {
+		test('should error if argument transform is invalid', async () => {
 			await expect(parse({
 				schema: {
 					args: [
@@ -86,10 +86,10 @@ describe('arguments', () => {
 						}
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected argument transform function to be a function');
+			})).rejects.toThrow('Expected argument transform function to be a function');
 		});
 
-		it('should error if env is invalid', async () => {
+		test('should error if env is invalid', async () => {
 			await expect(parse({
 				schema: {
 					args: [
@@ -99,12 +99,12 @@ describe('arguments', () => {
 						}
 					]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected argument environment variable to be a string or array of strings');
+			})).rejects.toThrow('Expected argument environment variable to be a string or array of strings');
 		});
 	});
 
 	describe('parse', () => {
-		it('should not error with no args', async () => {
+		test('should not error with no args', async () => {
 			let result = await parse();
 			expect(result.$).to.deep.equal([]);
 			expect(result._).to.deep.equal([]);
@@ -115,13 +115,13 @@ describe('arguments', () => {
 			expect(result.argv).to.deep.equal({});
 		});
 
-		it('should error if argument is unexpected', async () => {
+		test('should error if argument is unexpected', async () => {
 			await expect(parse({
 				argv: [ 'a' ]
-			})).to.eventually.be.rejectedWith(Error, 'Unexpected argument "a"');
+			})).rejects.toThrow('Unexpected argument "a"');
 		});
 
-		it('should handle unnamed arguments', async () => {
+		test('should handle unnamed arguments', async () => {
 			const result = await parse({
 				argv: [ 'a', 'b', 'c' ],
 				schema: {
@@ -134,7 +134,7 @@ describe('arguments', () => {
 			expect(result.argv).to.deep.equal({});
 		});
 
-		it('should handle named arguments', async () => {
+		test('should handle named arguments', async () => {
 			const result = await parse({
 				argv: [ 'a', 'b', 'c' ],
 				schema: {
@@ -154,23 +154,23 @@ describe('arguments', () => {
 			});
 		});
 
-		it('should error if required argument is missing', async () => {
+		test('should error if required argument is missing', async () => {
 			await expect(parse({
 				schema: {
 					args: [ '<a>' ]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Missing required arguments: <a>');
+			})).rejects.toThrow('Missing required arguments: <a>');
 		});
 
-		it('should error if required argument is missing after optional argument', async () => {
+		test('should error if required argument is missing after optional argument', async () => {
 			await expect(parse({
 				schema: {
 					args: [ 'a', '<b>', 'c' ]
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Missing required arguments: <a> <b>');
+			})).rejects.toThrow('Missing required arguments: <a> <b>');
 		});
 
-		it('should not error if required argument has default', async () => {
+		test('should not error if required argument has default', async () => {
 			const result = await parse({
 				env: {
 					FOO: 'bar'
@@ -185,7 +185,7 @@ describe('arguments', () => {
 			expect(result.argv.foo).to.equal('bar');
 		});
 
-		it('should try to default to a single env variable', async () => {
+		test('should try to default to a single env variable', async () => {
 			const result = await parse({
 				env: {
 					FOO: 'bar'
@@ -200,7 +200,7 @@ describe('arguments', () => {
 			expect(result.argv.foo).to.equal('bar');
 		});
 
-		it('should try to default to multiple env variables', async () => {
+		test('should try to default to multiple env variables', async () => {
 			const result = await parse({
 				env: {
 					BAR: 'baz'
@@ -215,7 +215,7 @@ describe('arguments', () => {
 			expect(result.argv.foo).to.equal('baz');
 		});
 
-		it('should allow extra arguments', async () => {
+		test('should allow extra arguments', async () => {
 			const result = await parse({
 				argv: [ '--', 'a', 'b', 'c' ],
 				schema: {
@@ -228,13 +228,13 @@ describe('arguments', () => {
 			expect(result.argv).to.deep.equal({});
 		});
 
-		it('should error if extra arguments are not allowed', async () => {
+		test('should error if extra arguments are not allowed', async () => {
 			await expect(parse({
 				argv: [ '--', 'a', 'b', 'c' ]
-			})).to.eventually.be.rejectedWith(Error, 'Extra arguments are not allowed: a b c');
+			})).rejects.toThrow('Extra arguments are not allowed: a b c');
 		});
 
-		it('should capture multiple arguments as an array', async () => {
+		test('should capture multiple arguments as an array', async () => {
 			let result = await parse({
 				argv: [ 'a', 'b', 'c' ],
 				schema: {
@@ -266,7 +266,7 @@ describe('arguments', () => {
 			});
 		});
 
-		it('should allow argument name that is a number', async () => {
+		test('should allow argument name that is a number', async () => {
 			const result = await parse({
 				argv: [ 'a' ],
 				schema: {
@@ -281,7 +281,7 @@ describe('arguments', () => {
 			});
 		});
 
-		it('should apply defaults to optional arguments', async () => {
+		test('should apply defaults to optional arguments', async () => {
 			const result = await parse({
 				argv: [ 'a', 'b' ],
 				schema: {
@@ -303,7 +303,7 @@ describe('arguments', () => {
 			});
 		});
 
-		it('should camel case argv name', async () => {
+		test('should camel case argv name', async () => {
 			const result = await parse({
 				argv: [ 'dist' ],
 				schema: {
@@ -320,7 +320,7 @@ describe('arguments', () => {
 	});
 
 	describe('transform', () => {
-		it('should fire argument callback on parse', async () => {
+		test('should fire argument callback on parse', async () => {
 			const result = await parse({
 				argv: [ 'a' ],
 				schema: {
@@ -343,7 +343,7 @@ describe('arguments', () => {
 			});
 		});
 
-		it('should not transform transformed values', async () => {
+		test('should not transform transformed values', async () => {
 			const now = Date.now();
 			const result = await parse({
 				argv: [ 'a' ],
@@ -369,7 +369,7 @@ describe('arguments', () => {
 	});
 
 	describe('type', () => {
-		it('should automatically parse simple data types', async () => {
+		test('should automatically parse simple data types', async () => {
 			const schema = {
 				args: [
 					{
@@ -463,7 +463,7 @@ describe('arguments', () => {
 			});
 		});
 
-		it('should parse argument as boolean', async () => {
+		test('should parse argument as boolean', async () => {
 			const schema = {
 				args: [
 					{
@@ -501,7 +501,7 @@ describe('arguments', () => {
 			});
 		});
 
-		it('should parse argument as date', async () => {
+		test('should parse argument as date', async () => {
 			const schema = {
 				args: [
 					{
@@ -551,10 +551,10 @@ describe('arguments', () => {
 			await expect(parse({
 				argv: [ '9999-99-99' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid date: "9999-99-99"');
+			})).rejects.toThrow('Invalid date: "9999-99-99"');
 		});
 
-		it('should parse argument as integer', async () => {
+		test('should parse argument as integer', async () => {
 			const schema = {
 				args: [
 					{
@@ -576,15 +576,15 @@ describe('arguments', () => {
 			await expect(parse({
 				argv: [ '1.23' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid integer: 1.23');
+			})).rejects.toThrow('Invalid integer: 1.23');
 
 			await expect(parse({
 				argv: [ 'foo' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid integer: foo');
+			})).rejects.toThrow('Invalid integer: foo');
 		});
 
-		it('should parse argument as json', async () => {
+		test('should parse argument as json', async () => {
 			const schema = {
 				args: [
 					{
@@ -606,10 +606,10 @@ describe('arguments', () => {
 			await expect(parse({
 				argv: [ '{{{' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, /^Invalid JSON:/);
+			})).rejects.toThrow(/^Invalid JSON:/);
 		});
 
-		it('should parse argument as number', async () => {
+		test('should parse argument as number', async () => {
 			const schema = {
 				args: [
 					{
@@ -640,10 +640,10 @@ describe('arguments', () => {
 			await expect(parse({
 				argv: [ 'foo' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid number: foo');
+			})).rejects.toThrow('Invalid number: foo');
 		});
 
-		it('should parse argument as yes/no boolean', async () => {
+		test('should parse argument as yes/no boolean', async () => {
 			const schema = {
 				args: [
 					{
@@ -674,7 +674,7 @@ describe('arguments', () => {
 			await expect(parse({
 				argv: [ 'foo' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Value must be "yes" or "no"');
+			})).rejects.toThrow('Value must be "yes" or "no"');
 		});
 	});
 });

@@ -5,8 +5,7 @@ module.exports = {
     },
 	extends: [
         'eslint:recommended',
-        'plugin:@typescript-eslint/recommended',
-        'prettier'
+        'plugin:@typescript-eslint/recommended'
     ],
     parser: '@typescript-eslint/parser',
     parserOptions: {
@@ -16,10 +15,7 @@ module.exports = {
 	plugins: [
         '@typescript-eslint',
         '@typescript-eslint/eslint-plugin',
-		'chai-expect',
         'eslint-plugin-tsdoc',
-		'mocha',
-        'prettier',
 		'promise',
 		'security'
 	],
@@ -28,8 +24,6 @@ module.exports = {
         'array-bracket-spacing': [ 'warn', 'always' ],
         'brace-style': [ 2, '1tbs', { 'allowSingleLine': true } ],
         'camelcase': 'off',
-        'chai-expect/missing-assertion': 'error',
-        'chai-expect/terminating-properties': 'warn',
         'curly': [ 'error', 'all' ],
         'eol-last': 'error',
         'indent': [ 'error', 'tab', { 'SwitchCase': 1 } ],

@@ -1,5 +1,11 @@
 import CommandRegistry from './parser/command/command-registry.js';
 import OptionRegistry from './parser/option/option-registry.js';
+import Terminal from './terminal/index.js';
+
+export type AppOptions = {
+	schema:   Schema;
+	terminal: Terminal;
+};
 
 export type Callback = (schema: Schema) => Promise<string>;
 
@@ -137,6 +143,7 @@ export interface InternalOptionBase extends InternalBase {
 export interface ParseOptions {
 	argv?:         string[];
 	env?:          Record<string, string | undefined>;
+	cwd?:          string;
 	schema?:       Schema;
 }
 

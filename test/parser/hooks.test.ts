@@ -6,7 +6,7 @@ describe('hooks', () => {
 			schema: {
 				hooks: 123 as any
 			}
-		})).to.eventually.be.rejectedWith(TypeError, 'Expected hooks to be an object of hook names and callbacks');
+		})).rejects.toThrow(new TypeError('Expected hooks to be an object of hook names and callbacks'));
 
 		await expect(parse({
 			schema: {
@@ -14,7 +14,7 @@ describe('hooks', () => {
 					beforeParse: 123 as any
 				}
 			}
-		})).to.eventually.be.rejectedWith(TypeError, 'Expected "beforeParse" hook to be an array of functions');
+		})).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
 
 		await expect(parse({
 			schema: {
@@ -22,7 +22,7 @@ describe('hooks', () => {
 					beforeParse: [ 123 as any ]
 				}
 			}
-		})).to.eventually.be.rejectedWith(TypeError, 'Expected "beforeParse" hook to be an array of functions');
+		})).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
 	});
 
 	it('should fire hooks during parsing', async () => {
@@ -48,7 +48,7 @@ describe('hooks', () => {
 			}
 		});
 
-		expect(result).to.deep.equal({
+		expect(result).toStrictEqual({
 			beforeParseCalled: true,
 			afterParseCalled: true
 		});

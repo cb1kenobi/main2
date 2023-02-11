@@ -1,23 +1,19 @@
 import debug from '../debug/index.js';
 import initCommand from './command/init-command.js';
+import { inspect } from 'node:util';
 import {
 	Internal,
 	ParsedBase,
 	ParsedOption,
 	ParsedType,
 	ParseOptions,
-	ParseState,
-	Schema
+	ParseState
 } from '../types.js';
 import loadCommand from './command/load-command.js';
 import { optionLongRE } from './option/init-option.js';
 import { transformValue } from '../util/transform.js';
 
-export type {
-	Schema
-};
-
-const { log } = debug('opentl:parser');
+const { log } = debug('main2:parser');
 
 const optionGroupRegExp = /^-(\w+)$/;
 const optionLikeRegExp = /^--?\w/;
@@ -80,7 +76,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		schema
 	};
 
-	await processArgv(state);
+	await initArgv(state);
 	await parseArgv(state);
 	await processArgs(state);
 	await processOptions(state);
@@ -90,7 +86,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 
 export default parse;
 
-async function processArgv(state: ParseState): Promise<void> {
+async function initArgv(state: ParseState): Promise<void> {
 	const argv = state.$orig;
 	log(`Processing ${argv.length} argument${argv.length === 1 ? '' : 's'}${argv.length ? `: ${argv.join(', ')}` : ''}`);
 
@@ -239,7 +235,7 @@ async function parseArgv(state: ParseState): Promise<void> {
  * @param state - The parse state.
  */
 export async function processArgs(state: ParseState): Promise<void> {
-	log('Applying arguments:', state.$);
+	log('Applying arguments:', inspect(state.$, { colors: true, depth: null, showHidden: true }));
 	const ctx = state.contexts[0];
 	const internal = ctx[Internal];
 	const { schema } = state;

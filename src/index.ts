@@ -1,32 +1,43 @@
+import { parse } from './parser/index.js';
 import {
-	parse,
+	AppOptions,
+	ParseState,
 	Schema
-} from './parser/index.js';
+} from './types.js';
 
-export {
-	parse
-};
+export * from './types.js';
 
-export async function exec(schema: Schema, argv: string[] | undefined): Promise<void> {
-	const results = await parse({
-		argv: argv || process.argv.slice(2),
-		env: process.env,
-		schema
-	});
-
-	// if (!state.cmd) {
-	// 	state.cmd = state.contexts[0]?.commands?.default;
-	// }
-
-	// await applyDefaults(state);
-	// await fillArgv(state);
-
-	// if (state.required.size) {
-	// 	throw new Error(`Missing required options: ${Array.from(state.required).map(opt => opt.name).join(', ')}`);
-	// }
-	// delete state.required;
-
-	// return results;
+export default function init(opts) {
+	const app = new App(opts);
+	return app.exec.bind(app);
 }
 
-export default exec;
+export class App {
+	schema: Schema;
+
+	constructor(opts: AppOptions) {
+		this.schema = opts.schema;
+	}
+
+	async exec(argv: string[] | undefined): Promise<ParseState> {
+		const results = await parse({
+			argv:   argv || process.argv.slice(2),
+			env:    process.env,
+			schema: this.schema
+		});
+
+		// if (!state.cmd) {
+		// 	state.cmd = state.contexts[0]?.commands?.default;
+		// }
+
+		// await applyDefaults(state);
+		// await fillArgv(state);
+
+		// if (state.required.size) {
+		// 	throw new Error(`Missing required options: ${Array.from(state.required).map(opt => opt.name).join(', ')}`);
+		// }
+		// delete state.required;
+
+		return results;
+	}
+}

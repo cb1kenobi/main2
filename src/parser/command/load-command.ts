@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { Internal, InternalCommand } from '../../types.js';
 
-const { log } = debug('opentl:parser:load-command');
+const { log } = debug('main2:parser:load-command');
 
 export default async function loadCommand(cmd: InternalCommand): Promise<InternalCommand> {
 	const internal = cmd[Internal];

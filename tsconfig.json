@@ -20,9 +20,11 @@
     "strict": true,
     "sourceMap": true,
     "target": "ES2022",
+    "types": [
+      "vitest/globals"
+    ],
     "typeRoots": [
-      "./node_modules/@types",
-      "./types"
+      "./node_modules/@types"
     ]
   },
   "exclude": ["node_modules", "**/*/dist"],

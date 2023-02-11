@@ -10,13 +10,13 @@ describe('options', () => {
 				schema: {
 					options: 123 as any
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected options to be an object');
+			})).rejects.toThrow(new TypeError('Expected options to be an object'));
 
 			await expect(parse({
 				schema: {
 					options: null as any
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected options to be an object');
+			})).rejects.toThrow(new TypeError('Expected options to be an object'));
 		});
 
 		it('should error if option is invalid', async () => {
@@ -26,7 +26,7 @@ describe('options', () => {
 						foo: 123 as any
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected option to be an object');
+			})).rejects.toThrow(new TypeError('Expected option to be an object'));
 		});
 
 		it('should error if format is invalid', async () => {
@@ -36,7 +36,7 @@ describe('options', () => {
 						'': null
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected option format to be a non-empty string');
+			})).rejects.toThrow(new TypeError('Expected option format to be a non-empty string'));
 		});
 
 		it('should error if option transform is invalid', async () => {
@@ -48,7 +48,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Expected option transform function to be a function');
+			})).rejects.toThrow('Expected option transform function to be a function');
 		});
 
 		it('should error if option env is invalid', async () => {
@@ -60,7 +60,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected option environment variable to be a string or array of strings');
+			})).rejects.toThrow(new TypeError('Expected option environment variable to be a string or array of strings'));
 		});
 	});
 
@@ -325,7 +325,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Option "foo" has unsupported data type "bar"');
+			})).rejects.toThrow('Option "foo" has unsupported data type "bar"');
 		});
 
 		it('should parse option with auto type', async () => {
@@ -525,7 +525,7 @@ describe('options', () => {
 			await expect(parse({
 				argv: [ '--foo', '9999-99-99' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid date: "9999-99-99"');
+			})).rejects.toThrow('Invalid date: "9999-99-99"');
 		});
 
 		it('should parse option as integer', async () => {
@@ -548,12 +548,12 @@ describe('options', () => {
 			await expect(parse({
 				argv: [ '--foo', '1.23' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid integer: 1.23');
+			})).rejects.toThrow('Invalid integer: 1.23');
 
 			await expect(parse({
 				argv: [ '--foo', 'foo' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid integer: foo');
+			})).rejects.toThrow('Invalid integer: foo');
 		});
 
 		it('should parse option as json', async () => {
@@ -576,7 +576,7 @@ describe('options', () => {
 			await expect(parse({
 				argv: [ '--foo', '{{{' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, /^Invalid JSON:/);
+			})).rejects.toThrow(/^Invalid JSON:/);
 		});
 
 		it('should parse option as number', async () => {
@@ -607,7 +607,7 @@ describe('options', () => {
 			await expect(parse({
 				argv: [ '--foo', 'foo' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Invalid number: foo');
+			})).rejects.toThrow('Invalid number: foo');
 		});
 
 		it('should parse option as yes/no boolean', async () => {
@@ -638,7 +638,7 @@ describe('options', () => {
 			await expect(parse({
 				argv: [ '--foo', 'foo' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Value must be "yes" or "no"');
+			})).rejects.toThrow('Value must be "yes" or "no"');
 		});
 	});
 
@@ -652,7 +652,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Option "foo" has unsupported data type "bar"');
+			})).rejects.toThrow('Option "foo" has unsupported data type "bar"');
 
 			await expect(parse({
 				schema: {
@@ -662,7 +662,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Option flags must have type of \'auto\', \'bool\', \'count\', or \'yesno\'');
+			})).rejects.toThrow('Option flags must have type of \'auto\', \'bool\', \'count\', or \'yesno\'');
 		});
 
 		it('should parse flag with auto type', async () => {
@@ -722,7 +722,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Only flags can be of type "count"');
+			})).rejects.toThrow('Only flags can be of type "count"');
 		});
 
 		it('should count multiple instances of a flag', async () => {
@@ -847,7 +847,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected option alias to be a string or list of strings');
+			})).rejects.toThrow(new TypeError('Expected option alias to be a string or list of strings'));
 
 			await expect(parse({
 				schema: {
@@ -857,7 +857,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Expected option alias to be a string or list of strings');
+			})).rejects.toThrow(new TypeError('Expected option alias to be a string or list of strings'));
 
 			await expect(parse({
 				schema: {
@@ -867,7 +867,7 @@ describe('options', () => {
 						}
 					}
 				}
-			})).to.eventually.be.rejectedWith(TypeError, 'Invalid option alias "-"');
+			})).rejects.toThrow(new TypeError('Invalid option alias "-"'));
 		});
 	});
 
@@ -875,7 +875,7 @@ describe('options', () => {
 		it('should error if option is unknown', async () => {
 			await expect(parse({
 				argv: [ '--foo' ]
-			})).to.eventually.be.rejectedWith(Error, 'Unknown option "--foo"');
+			})).rejects.toThrow('Unknown option "--foo"');
 		});
 
 		it('should parse a flag using long name', async () => {
@@ -938,7 +938,7 @@ describe('options', () => {
 			await expect(parse({
 				argv: [ '--foo' ],
 				schema
-			})).to.eventually.be.rejectedWith(Error, 'Unknown option "--foo"');
+			})).rejects.toThrow('Unknown option "--foo"');
 		});
 
 		it('should parse several short flags', async () => {
@@ -1031,7 +1031,7 @@ describe('options', () => {
 						'--foo <bar>': ''
 					}
 				}
-			})).to.eventually.be.rejectedWith(Error, 'Missing required options: --foo=<bar>');
+			})).rejects.toThrow('Missing required options: --foo=<bar>');
 		});
 
 		it('should use default if required option is not specified', async () => {
