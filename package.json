@@ -10,12 +10,12 @@
   },
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "pnpm run lint && tsc --build tsconfig.build.json",
+    "build": "pnpm run lint:src && tsc --build tsconfig.build.json",
     "coverage": "vitest run --coverage",
-    "lint": "eslint --cache src/**/*.ts",
-    "lint:test": "eslint --cache src/**/*.ts test/**/*.ts",
+    "lint": "eslint --cache 'src/**/*.ts' 'test/**/*.ts'",
+    "lint:src": "eslint --cache 'src/**/*.ts'",
     "prepublishOnly": "pnpm run build",
-    "test": "pnpm run lint:test && vitest",
+    "test": "pnpm run lint && vitest",
     "watch": "tsc --watch --project tsconfig.build.json"
   },
   "devDependencies": {

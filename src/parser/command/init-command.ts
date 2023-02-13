@@ -232,7 +232,7 @@ function parseName(unparsedName: string): {
 	let name;
 
 	for (let label of unparsedName.split(nameSplitRegExp)) {
-		let c = label[0];
+		const c = label[0];
 		if ('<['.includes(c)) {
 			args.push(label);
 			continue;
@@ -263,7 +263,7 @@ function parseName(unparsedName: string): {
 		hidden,
 		label: labels.join(', '),
 		name
-	}
+	};
 }
 
 async function registerCommand({
@@ -361,12 +361,12 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 		entry = entry['.'] || entry.default;
 	}
 
-	let filepaths = entry ?
+	const filePaths = entry ?
 		[ entry ] :
 		[ 'index.js', 'index.mjs', 'index.cjs' ];
 	let entryFile;
 
-	for (const filepath of filepaths) {
+	for (const filepath of filePaths) {
 		try {
 			const file = join(dir, filepath);
 			const stat = await fs.stat(file);
@@ -374,7 +374,9 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 				entryFile = file;
 				break;
 			}
-		} catch {}
+		} catch {
+			// not a file or does not exist
+		}
 	}
 
 	if (!entryFile) {
