@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Argument } from '../../src/types.js';
-import { parse } from '../../src/parser/index.js';
+import { parse } from '../../src/parser/parse.js';
 
 describe('arguments', () => {
 	describe('Error Handling', () => {
@@ -10,13 +10,13 @@ describe('arguments', () => {
 				schema: {
 					args: null as any
 				}
-			})).rejects.toThrow('Expected argument list to be an array');
+			})).rejects.toThrow('Expected arguments to be an array');
 
 			await expect(parse({
 				schema: {
 					args: 123 as any
 				}
-			})).rejects.toThrow('Expected argument list to be an array');
+			})).rejects.toThrow('Expected arguments to be an array');
 		});
 
 		test('should error if argument definition is not an object', async () => {

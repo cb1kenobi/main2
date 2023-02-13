@@ -1,6 +1,6 @@
 import debug from '../debug/index.js';
 import initCommand from './command/init-command.js';
-import { inspect } from 'node:util';
+// import { inspect } from 'node:util';
 import {
 	Internal,
 	ParsedBase,
@@ -235,7 +235,7 @@ async function parseArgv(state: ParseState): Promise<void> {
  * @param state - The parse state.
  */
 export async function processArgs(state: ParseState): Promise<void> {
-	log('Applying arguments:', inspect(state.$, { colors: true, depth: null, showHidden: true }));
+	// log('Applying arguments:', inspect(state.$, { colors: true, depth: null, showHidden: true }));
 	const ctx = state.contexts[0];
 	const internal = ctx[Internal];
 	const { schema } = state;

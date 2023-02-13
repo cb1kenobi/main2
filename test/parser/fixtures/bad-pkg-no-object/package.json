@@ -1,0 +1,7 @@
+{
+	"name": "bad-pkg-no-object",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"exports": "./index.js"
+  }

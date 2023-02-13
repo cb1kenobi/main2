@@ -1,4 +1,4 @@
-import { parse } from '../../src/parser/index.js';
+import { parse } from '../../src/parser/parse.js';
 
 describe('hooks', () => {
 	it('should error if hooks are invalid', async () => {

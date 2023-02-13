@@ -14,9 +14,10 @@ import { initArg } from '../argument/init-arg.js';
 import { initOption } from '../option/init-option.js';
 import OptionRegistry from '../option/option-registry.js';
 
-const { log } = debug('main2:init-commands');
+const { log } = debug('main2:init-command');
 
 const fileTypeRegExp = /^\.[cm]?js$/;
+const nameSplitRegExp = /[, ]+/;
 
 /**
  * "-a"
@@ -53,6 +54,12 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 		throw new TypeError(`Invalid run function in "${it.name}" command`);
 	}
 
+	const parsed = parseName(it.name);
+
+	for (const alias of parsed.aliases) {
+		aliases.add(alias);
+	}
+
 	if (command.alias !== undefined) {
 		const aliasList = typeof command.alias === 'string' ? [ command.alias ] : command.alias;
 		if (Array.isArray(aliasList)) {
@@ -68,9 +75,16 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 	}
 
 	// args
+	if (parsed.args.length) {
+		if (it.args?.length) {
+			throw new Error(`Cannot combine command arguments with inline arguments "${it.name}"`);
+		}
+		it.args = parsed.args;
+	}
+
 	if (it.args !== undefined) {
 		if (!Array.isArray(it.args)) {
-			throw new TypeError('Expected argument list to be an array');
+			throw new TypeError('Expected arguments to be an array');
 		}
 
 		for (let i = it.args.length - 1, j = i; i >= 0; i--) {
@@ -79,6 +93,13 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 				args[i].required = args[i + 1].required;
 			}
 		}
+	}
+
+	(it as Command).hidden = parsed.hidden;
+
+	if (parsed.name !== it.name) {
+		log(`Command name changed "${it.name}" -> "${parsed.name}"`);
+		it.name = parsed.name;
 	}
 
 	// commands
@@ -142,24 +163,6 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 		}
 	}
 
-	// create the `version` option
-	// const { version } = it;
-	// if (version) {
-	// 	//  && !commands.has('__version')
-
-	// 	const versionCmd: InternalCommand = await initCommand({
-	// 		name: 'version',
-	// 		run(state) {
-	// 			// state.terminal.write(schema.version);
-	// 		}
-	// 	});
-
-	// 	options.add(await initOption({
-	// 		format: '-v, --version'
-	// 		// TODO: use hooks to unshift `versionCmd` onto contexts
-	// 	}));
-	// }
-
 	entryFile ??= it[Internal]?.path;
 
 	const { path: commandPath } = it as Command;
@@ -175,6 +178,7 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 				aliases,
 				args,
 				commands,
+				label: parsed.label,
 				options,
 				path: entryFile,
 				state: InternalState.OK
@@ -214,6 +218,54 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 	}) as InternalCommand;
 }
 
+function parseName(unparsedName: string): {
+	aliases: string[],
+	args: string[],
+	hidden: boolean,
+	label: string,
+	name: string
+} {
+	const aliases: string[] = [];
+	const args: string[] = [];
+	const labels: string[] = [];
+	let hidden = false;
+	let name;
+
+	for (let label of unparsedName.split(nameSplitRegExp)) {
+		let c = label[0];
+		if ('<['.includes(c)) {
+			args.push(label);
+			continue;
+		}
+
+		if ('!@'.includes(c)) {
+			label = label.slice(1);
+			aliases.push(label);
+			name ??= label;
+		} else {
+			name = label;
+		}
+
+		if (c === '!') {
+			hidden = true;
+		} else {
+			labels.push(label);
+		}
+	}
+
+	if (!name) {
+		throw new Error(`Unable to determine command name from "${unparsedName}"`);
+	}
+
+	return {
+		aliases,
+		args,
+		hidden,
+		label: labels.join(', '),
+		name
+	}
+}
+
 async function registerCommand({
 	cmdOrPath,
 	commands,
@@ -248,13 +300,13 @@ async function registerCommandPath({
 	file: string;
 	name?: string;
 }): Promise<void> {
-	if (!name) {
-		const cmd = await registerCommandPackage(file);
-		if (cmd) {
-			commands.add(cmd);
-			return;
-		}
+	const cmd = await registerCommandPackage(file);
+	if (cmd) {
+		commands.add(cmd);
+		return;
+	}
 
+	if (!name) {
 		const files = await fs.readdir(file).catch(err => err);
 		if (!(files instanceof Error)) {
 			for (const filename of files) {
@@ -302,22 +354,40 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 		throw new Error(`Failed to JSON parse ${pkgFile}: ${err.message}`);
 	}
 
-	const { description, exports, main, name } = pkgJson;
+	const { description, exports, main, name, type } = pkgJson;
 
 	let entry = exports || main;
 	if (entry && typeof entry === 'object') {
 		entry = entry['.'] || entry.default;
 	}
 
-	if (!entry || typeof entry !== 'string') {
-		throw new Error(`Command package does not have a valid main: ${dir}`);
+	let filepaths = entry ?
+		[ entry ] :
+		[ 'index.js', 'index.mjs', 'index.cjs' ];
+	let entryFile;
+
+	for (const filepath of filepaths) {
+		try {
+			const file = join(dir, filepath);
+			const stat = await fs.stat(file);
+			if (stat.isFile()) {
+				entryFile = file;
+				break;
+			}
+		} catch {}
 	}
 
-	const entryFile = join(dir, entry);
+	if (!entryFile) {
+		throw new Error(`Command package does not have a valid ${
+			type === 'module' ? 'export' : 'main'
+		}: ${dir}`);
+	}
+
+
 	const { default: cmd } = await import(entryFile);
 
 	if (!cmd || typeof cmd !== 'object') {
-		throw new TypeError(`Expected command package "${name}" to default export an object`);
+		throw new TypeError(`Expected command package to default export an object: ${entryFile}`);
 	}
 
 	cmd.name ??= name;

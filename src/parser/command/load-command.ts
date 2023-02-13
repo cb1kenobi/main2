@@ -2,6 +2,7 @@ import debug from '../../debug/index.js';
 import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { Internal, InternalCommand } from '../../types.js';
+import initCommand from './init-command.js';
 
 const { log } = debug('main2:parser:load-command');
 
@@ -11,6 +12,8 @@ export default async function loadCommand(cmd: InternalCommand): Promise<Interna
 	if (internal.loaded) {
 		return cmd;
 	}
+
+	cmd[Internal].loaded = true;
 
 	if (internal.path) {
 		const file = pathToFileURL(internal.path).toString();
@@ -35,11 +38,16 @@ export default async function loadCommand(cmd: InternalCommand): Promise<Interna
 
 		if (def) {
 			// let the setter update the internals
-			Object.assign(cmd, def);
+
+			for (const [ key, value ] of Object.entries(cmd)) {
+				if (def[key] === undefined) {
+					def[key] = value;
+				}
+			}
+
+			return initCommand(def, file);
 		}
 	}
-
-	cmd[Internal].loaded = true;
 
 	return cmd;
 }

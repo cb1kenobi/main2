@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Internal, Option } from '../../src/types.js';
-import { parse } from '../../src/parser/index.js';
+import { parse } from '../../src/parser/parse.js';
 
 describe('options', () => {
 	describe('Error Handling', () => {

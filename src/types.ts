@@ -3,8 +3,9 @@ import OptionRegistry from './parser/option/option-registry.js';
 import Terminal from './terminal/index.js';
 
 export type AppOptions = {
-	schema:   Schema;
-	terminal: Terminal;
+	argv?:     string[],
+	schema?:   Schema;
+	terminal?: Terminal;
 };
 
 export type Callback = (schema: Schema) => Promise<string>;
@@ -60,14 +61,14 @@ export type CommandRunHandler = (state: ParseState) => unknown | Promise<unknown
 export interface Command {
 	[key: string]: unknown; // custom data
 	alias?:        string | string[];
-	args?:         Argument[];
+	args?:         (string | Argument)[];
 	choices?:      unknown[];
 	commands?:     Record<string, Command>;
 	default?:      boolean;
 	desc?:         string;
 	file?:         string;
 	help?:         string | Callback;
-	hidden?:       string;
+	hidden?:       boolean;
 	name?:         string;
 	options?:      Record<string, string | Option | undefined | null>;
 	path?:         string;
@@ -83,6 +84,7 @@ export interface InternalCommandBase extends InternalBase {
 	aliases:       Set<string>;
 	args:          InternalArgument[];
 	commands:      CommandRegistry;
+	label:         string;
 	loaded:        boolean;
 	options:       OptionRegistry;
 	path?:         string;
