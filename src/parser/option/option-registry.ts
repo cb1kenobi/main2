@@ -3,7 +3,7 @@ import {
 	InternalOption
 } from '../../types.js';
 
-export default class OptionRegistry extends Map<string, InternalOption> {
+export class OptionRegistry extends Map<string, InternalOption> {
 	#chars = {};
 	#lookup = {};
 

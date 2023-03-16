@@ -6,13 +6,13 @@ import {
 	InternalState,
 	Schema
 } from '../../types.js';
-import CommandRegistry from './command-registry.js';
+import { CommandRegistry } from './command-registry.js';
 import debug from '../../debug/index.js';
 import { dirname, join, parse } from 'node:path';
 import fs from 'node:fs/promises';
 import { initArg } from '../argument/init-arg.js';
 import { initOption } from '../option/init-option.js';
-import OptionRegistry from '../option/option-registry.js';
+import { OptionRegistry } from '../option/option-registry.js';
 
 const { log } = debug('main2:init-command');
 

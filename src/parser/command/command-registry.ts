@@ -3,7 +3,7 @@ import {
 	InternalCommand
 } from '../../types.js';
 
-export default class CommandRegistry extends Map<string, InternalCommand> {
+export class CommandRegistry extends Map<string, InternalCommand> {
 	#lookup: Record<string, string> = {};
 
 	add(cmd: InternalCommand) {

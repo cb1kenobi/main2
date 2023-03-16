@@ -1,4 +1,4 @@
-import camelCase from '../../util/camel-case.js';
+import { camelCase } from '../../util/camel-case.js';
 import {
 	Internal,
 	InternalOption,
