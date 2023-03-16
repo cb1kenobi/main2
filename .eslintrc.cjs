@@ -64,8 +64,8 @@ module.exports = {
         'tsdoc/syntax': 'warn'
     },
     settings: {
-        "import/resolver": {
-            "typescript": {}
+        'import/resolver': {
+            'typescript': {}
         }
     }
 };
