@@ -350,8 +350,8 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 	let pkgJson;
 	try {
 		pkgJson = JSON.parse(json);
-	} catch (err: any) {
-		throw new Error(`Failed to JSON parse ${pkgFile}: ${err.message}`);
+	} catch (err) {
+		throw new Error(`Failed to JSON parse ${pkgFile}: ${err instanceof Error ? err.message : err}`);
 	}
 
 	const { description, exports, main, name, type } = pkgJson;

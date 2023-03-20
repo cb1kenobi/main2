@@ -1031,7 +1031,33 @@ describe('options', () => {
 						'--foo <bar>': ''
 					}
 				}
-			})).rejects.toThrow('Missing required options: --foo=<bar>');
+			})).rejects.toThrow('Missing required options: --foo');
+		});
+
+		it('should error if a flag has choices', async () => {
+			await expect(parse({
+				argv: [],
+				schema: {
+					options: {
+						'--foo': {
+							choices: [ 'foo' ]
+						}
+					}
+				}
+			})).rejects.toThrow('Option flags cannot have choices');
+		});
+
+		it('should error if invalid option choice', async () => {
+			await expect(parse({
+				argv: [ '--foo', 'baz' ],
+				schema: {
+					options: {
+						'--foo <bar>': {
+							choices: [ 'bar', 'wiz' ]
+						}
+					}
+				}
+			})).rejects.toThrow('Invalid value "baz" for option --foo');
 		});
 
 		it('should use default if required option is not specified', async () => {

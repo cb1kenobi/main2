@@ -143,9 +143,20 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		}
 	}
 
+	if (it.choices !== undefined) {
+		if (isFlag) {
+			throw new Error('Option flags cannot have choices');
+		}
+		if (!Array.isArray(it.choices)) {
+			throw new TypeError('Expected option choices to be an array');
+		}
+	}
+
 	if (it.transform && typeof it.transform !== 'function') {
 		throw new TypeError('Expected option transform function to be a function');
 	}
+
+	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
 
 	return new Proxy(Object.defineProperty(
 		it,
@@ -156,8 +167,8 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 				dest: camelCase(it.name),
 				envs,
 				isFlag,
-				label: (long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value) +
-					(isFlag ? '' : it.required ? `=<${it.hint}>` : `=[${it.hint}]`),
+				label,
+				format: label + (isFlag ? '' : it.required ? `=<${it.hint}>` : `=[${it.hint}]`),
 				long,
 				short
 			}

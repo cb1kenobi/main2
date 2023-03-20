@@ -348,8 +348,8 @@ export async function processOptions(state: ParseState): Promise<void> {
 		const { options } = ctx[Internal];
 
 		for (const opt of options.values()) {
-			const { required } = opt;
-			const { dest, envs } = opt[Internal];
+			const { choices, required } = opt;
+			const { dest, envs, label } = opt[Internal];
 
 			if (opt.default !== undefined) {
 				state.argv[dest] ??= opt.default;
@@ -366,6 +366,10 @@ export async function processOptions(state: ParseState): Promise<void> {
 				if (!existing && state.argv[dest] === undefined) {
 					missingOptions.unshift(opt[Internal].label);
 				}
+			}
+
+			if (choices?.length && !choices.includes(state.argv[dest])) {
+				throw new Error(`Invalid value "${state.argv[dest]}" for option ${label}`);
 			}
 		}
 	}
