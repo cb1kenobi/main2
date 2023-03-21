@@ -16,6 +16,12 @@ export default async function main2(opts: AppOptions): Promise<ParseState | unkn
 		schema: opts.schema
 	});
 
+	let { terminal } = opts;
+	if (!terminal) {
+		const { Terminal } = await import('./terminal.js');
+		terminal = new Terminal();
+	}
+
 	const { cmd } = results;
 	if (cmd?.run) {
 		log(`Executing command "${cmd.name}"`);

@@ -31,7 +31,7 @@ const paths = {
 			'~/AppData/Local'
 		]
 	}
-};
+} as const;
 
 let _cache: string | undefined;
 let _config: string | undefined;

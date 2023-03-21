@@ -1,6 +1,6 @@
 import { CommandRegistry } from './parser/command/command-registry.js';
 import { OptionRegistry } from './parser/option/option-registry.js';
-import { Terminal } from './terminal/index.js';
+import { Terminal } from './terminal.js';
 
 export type AppOptions = {
 	argv?:     string[],
