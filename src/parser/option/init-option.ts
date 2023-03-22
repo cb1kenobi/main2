@@ -158,10 +158,6 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
 
-	console.log({
-		label,
-		isFlag
-	});
 	return new Proxy(Object.defineProperty(
 		it,
 		Internal,
