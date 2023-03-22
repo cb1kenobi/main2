@@ -671,4 +671,49 @@ describe('commands', () => {
 			})).rejects.toThrow(new TypeError('Expected command alias to be a string or list of strings'));
 		});
 	});
+
+	describe('hooks', () => {
+		it('should fire command hooks', async () => {
+			await parse({
+				argv: [ 'foo', '--color', 'red', '--shape', 'triangle' ],
+				schema: {
+					commands: {
+						foo: {
+							hooks: {
+								init: [
+									async ({ options }) => {
+										const color = options.get('color');
+										if (color) {
+											color.choices = [
+												'red',
+												'green',
+												'blue'
+											];
+										}
+									}
+								],
+								parse: [
+									async ({ options }) => {
+										options.add({
+											name: 'shape',
+											choices: [
+												'circle',
+												'square',
+												'triangle'
+											]
+										});
+									}
+								]
+							},
+							options: {
+								'--color [value]': {
+									choices: []
+								}
+							}
+						}
+					}
+				}
+			});
+		});
+	});
 });

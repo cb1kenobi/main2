@@ -69,6 +69,10 @@ export interface Command {
 	file?:         string;
 	help?:         string | Callback;
 	hidden?:       boolean;
+	hooks?: {
+		init?:  CommandHook[];
+		parse?: CommandHook[];
+	};
 	name?:         string;
 	options?:      Record<string, string | Option | undefined | null>;
 	path?:         string;
@@ -90,18 +94,14 @@ export interface InternalCommandBase extends InternalBase {
 	path?:         string;
 }
 
-export type DataTransformer = (value: string) => unknown;
+export type CommandHook = (() => Promise<void> | void) |
+	((state: CommandHookData) => Promise<void> | void);
 
-export type Hook = (() => Promise<void> | void) |
-	((state: ParseState) => Promise<void> | void);
-
-export type BeforeErrorHook = (error: Error, state: ParseState) => Promise<void>;
-
-export type Hooks = {
-	beforeParse: Hook[];
-	afterParse:  Hook[];
-	beforeError: BeforeErrorHook[];
+export type CommandHookData = InternalCommandBase & {
+	cmd: Command;
 };
+
+export type DataTransformer = (value: string) => unknown;
 
 export type OptionDataType = DataType | 'count';
 
@@ -190,7 +190,6 @@ export interface ParseState {
 	cmd?:          InternalCommand;
 	contexts:      InternalCommand[];
 	env:           Record<string, string | undefined>;
-	hooks:         Hooks;
 	schema:        Schema;
 }
 
@@ -198,12 +197,21 @@ export interface Schema {
 	args?:         (string | Argument)[];
 	commands?:     string | (string | Command)[] | Record<string, string | Command>;
 	help?:         boolean;
-	hooks?:        Partial<Hooks>;
+	hooks?: {
+		beforeParse?: SchemaHook[];
+		afterParse?:  SchemaHook[];
+		beforeError?: BeforeErrorHook[];
+	};
 	name?:         string;
 	options?:      Record<string, string | Option | undefined | null>;
 	settings?:     Settings;
 	version?:      unknown;
 }
+
+export type BeforeErrorHook = (error: Error, state: ParseState) => Promise<void>;
+
+export type SchemaHook = (() => Promise<void> | void) |
+	((state: ParseState) => Promise<void> | void);
 
 export interface Settings {
 	allowExtraArguments?:      boolean;

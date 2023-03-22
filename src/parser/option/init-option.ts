@@ -32,7 +32,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	const long = new Set<string>();
 	const short = new Set<string>();
-	let isFlag = !it.hint;
+	let isFlag = !it.hint && !Array.isArray(it.choices);
 
 	if (it.format !== undefined) {
 		const parts = it.format && typeof it.format === 'string' && new Set(it.format.split(optionSplitRE));
@@ -62,9 +62,11 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 				long.add(`--${it.negate ? 'no-' : ''}${it.name}`);
 			}
 		}
-	}
 
-	it.name ??= short[Symbol.iterator]().next().value?.slice(1);
+		it.name ??= short[Symbol.iterator]().next().value?.slice(1);
+	} else if (it.name) {
+		long.add(`--${it.name}`);
+	}
 
 	if (!it.name) {
 		throw new TypeError('Expected option name to be a non-empty string');
@@ -144,12 +146,10 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 	}
 
 	if (it.choices !== undefined) {
-		if (isFlag) {
-			throw new Error('Option flags cannot have choices');
-		}
 		if (!Array.isArray(it.choices)) {
 			throw new TypeError('Expected option choices to be an array');
 		}
+		it.hint ??= 'value';
 	}
 
 	if (it.transform && typeof it.transform !== 'function') {
@@ -158,6 +158,10 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
 
+	console.log({
+		label,
+		isFlag
+	});
 	return new Proxy(Object.defineProperty(
 		it,
 		Internal,

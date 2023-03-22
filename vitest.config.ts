@@ -9,6 +9,7 @@ export default defineConfig({
 		globals: true,
 		include: [
 			'test/**/*.test.ts'
-		]
+		],
+		watch: false
 	}
 });

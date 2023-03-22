@@ -11,7 +11,6 @@ import debug from '../../debug/index.js';
 import { dirname, join, parse } from 'node:path';
 import fs from 'node:fs/promises';
 import { initArg } from '../argument/init-arg.js';
-import { initOption } from '../option/init-option.js';
 import { OptionRegistry } from '../option/option-registry.js';
 
 const { log } = debug('main2:init-command');
@@ -159,7 +158,7 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 				throw new TypeError('Expected option to be an object');
 			}
 
-			options.add(await initOption(params));
+			await options.add(params);
 		}
 	}
 
@@ -170,7 +169,7 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 		entryFile = entryFile ? join(dirname(entryFile), commandPath) : commandPath;
 	}
 
-	return new Proxy(Object.defineProperty(
+	const cmd = new Proxy(Object.defineProperty(
 		it,
 		Internal, {
 			configurable: true,
@@ -216,6 +215,17 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 			return true;
 		}
 	}) as InternalCommand;
+
+	if (command.hooks?.init !== undefined) {
+		if (!Array.isArray(command.hooks.init)) {
+			throw new TypeError('Expected command init hooks to be an array');
+		}
+		for (const hook of command.hooks.init) {
+			await hook({ cmd, ...cmd[Internal] });
+		}
+	}
+
+	return cmd;
 }
 
 function parseName(unparsedName: string): {

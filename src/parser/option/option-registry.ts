@@ -1,13 +1,16 @@
+import { initOption } from './init-option.js';
 import {
 	Internal,
-	InternalOption
+	InternalOption,
+	Option
 } from '../../types.js';
 
 export class OptionRegistry extends Map<string, InternalOption> {
 	#chars = {};
 	#lookup = {};
 
-	add(opt: InternalOption) {
+	async add(it: Option | InternalOption) {
+		const opt = Internal in it ? it : await initOption(it);
 		const { name } = opt;
 
 		this.set(name, opt);

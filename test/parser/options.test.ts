@@ -1034,19 +1034,6 @@ describe('options', () => {
 			})).rejects.toThrow('Missing required options: --foo');
 		});
 
-		it('should error if a flag has choices', async () => {
-			await expect(parse({
-				argv: [],
-				schema: {
-					options: {
-						'--foo': {
-							choices: [ 'foo' ]
-						}
-					}
-				}
-			})).rejects.toThrow('Option flags cannot have choices');
-		});
-
 		it('should error if invalid option choice', async () => {
 			await expect(parse({
 				argv: [ '--foo', 'baz' ],

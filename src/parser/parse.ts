@@ -71,7 +71,6 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 			await initCommand(schema)
 		],
 		env,
-		hooks,
 		schema
 	};
 
@@ -134,8 +133,10 @@ async function parseArgv(state: ParseState): Promise<void> {
 	const { $, contexts } = state;
 	let ctx = contexts[0];
 
-	for (const hook of state.hooks.beforeParse) {
-		await hook(state);
+	if (state.schema.hooks?.beforeParse) {
+		for (const hook of state.schema.hooks.beforeParse) {
+			await hook(state);
+		}
 	}
 
 	// loop over contexts and identify commands and options
@@ -173,6 +174,13 @@ async function parseArgv(state: ParseState): Promise<void> {
 				};
 				contexts.unshift(ctx);
 				state.cmd = ctx;
+
+				if (ctx.hooks?.parse) {
+					for (const hook of ctx.hooks.parse) {
+						await hook({ cmd: ctx, ...ctx[Internal] });
+					}
+				}
+
 				continue;
 			}
 
@@ -221,8 +229,10 @@ async function parseArgv(state: ParseState): Promise<void> {
 		}
 	}
 
-	for (const hook of state.hooks.afterParse) {
-		await hook(state);
+	if (state.schema.hooks?.afterParse) {
+		for (const hook of state.schema.hooks.afterParse) {
+			await hook(state);
+		}
 	}
 }
 
@@ -368,7 +378,7 @@ export async function processOptions(state: ParseState): Promise<void> {
 				}
 			}
 
-			if (choices?.length && !choices.includes(state.argv[dest])) {
+			if (choices !== undefined && !choices.includes(state.argv[dest])) {
 				throw new Error(`Invalid value "${state.argv[dest]}" for option ${label}`);
 			}
 		}
