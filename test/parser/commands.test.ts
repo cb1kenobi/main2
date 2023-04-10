@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { fileURLToPath } from 'node:url';
 import { Internal } from '../../src/types.js';
 import { parse } from '../../src/parser/parse.js';
@@ -102,7 +100,7 @@ describe('commands', () => {
 		it('should error if path is an empty string', async () => {
 			await expect(parse({
 				schema: {
-					commands: [ '', 'foo' ]
+					commands: ['', 'foo']
 				}
 			})).rejects.toThrow(new TypeError('Expected commands to be one or more paths or an object'));
 		});
@@ -110,7 +108,7 @@ describe('commands', () => {
 		it('should error if path is unsupported file type', async () => {
 			await expect(parse({
 				schema: {
-					commands: [ 'unsupported.txt' ]
+					commands: ['unsupported.txt']
 				}
 			})).rejects.toThrow('Unsupported command module "unsupported.txt"');
 		});
@@ -138,7 +136,7 @@ describe('commands', () => {
 
 		it('should handle array of objects', async () => {
 			const result = await parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: [
 						{ name: 'foo' },
@@ -152,7 +150,7 @@ describe('commands', () => {
 
 		it('should error if name is invalid', async () => {
 			await expect(parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: [
 						{ name: undefined as any }
@@ -161,7 +159,7 @@ describe('commands', () => {
 			})).rejects.toThrow(new TypeError('Expected command name to be a non-empty string'));
 
 			await expect(parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: [
 						{ name: 123 as any }
@@ -186,7 +184,7 @@ describe('commands', () => {
 
 		it('should detect a command', async () => {
 			const result = await parse({
-				argv: [ 'baz' ],
+				argv: ['baz'],
 				schema: {
 					commands: {
 						bar: path.join(__dirname, 'fixtures/simple/bar.js'),
@@ -201,7 +199,7 @@ describe('commands', () => {
 
 		it('should detect a nested command', async () => {
 			const result = await parse({
-				argv: [ 'foo', 'bar' ],
+				argv: ['foo', 'bar'],
 				schema: {
 					commands: {
 						foo: {
@@ -221,7 +219,7 @@ describe('commands', () => {
 
 		it('should lazy load command module as .js file path', async () => {
 			const result = await parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: path.join(__dirname, 'fixtures/simple/foo.js')
@@ -238,7 +236,7 @@ describe('commands', () => {
 
 		it('should lazy load command module as .mjs file path', async () => {
 			const result = await parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: path.join(__dirname, 'fixtures/esm/foo.mjs')
@@ -255,7 +253,7 @@ describe('commands', () => {
 
 		it('should lazy load command module as .cjs file path', async () => {
 			const result = await parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: path.join(__dirname, 'fixtures/esm/foo.cjs')
@@ -272,7 +270,7 @@ describe('commands', () => {
 
 		it('should lazy load a command module as object', async () => {
 			const result = await parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: {
@@ -292,7 +290,7 @@ describe('commands', () => {
 
 		it('should register command as hidden', async () => {
 			const { contexts } = await parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						'!foo': {}
@@ -314,61 +312,61 @@ describe('commands', () => {
 			};
 
 			let result = await parse({
-				argv: [ 'get', 'foo' ],
+				argv: ['get', 'foo'],
 				schema
 			});
-			expect(result._).to.deep.equal([ 'foo' ]);
+			expect(result._).to.deep.equal(['foo']);
 			expect(result.argv.key).to.equal('foo');
 			await expect(parse({
-				argv: [ 'get' ],
+				argv: ['get'],
 				schema
 			})).rejects.toThrow('Missing required arguments: <key>');
 
 			result = await parse({
-				argv: [ 'set', 'foo', 'bar' ],
+				argv: ['set', 'foo', 'bar'],
 				schema
 			});
-			expect(result._).to.deep.equal([ 'foo', 'bar' ]);
+			expect(result._).to.deep.equal(['foo', 'bar']);
 			expect(result.argv.key).to.equal('foo');
 			expect(result.argv.value).to.equal('bar');
 			await expect(parse({
-				argv: [ 'set' ],
+				argv: ['set'],
 				schema
 			})).rejects.toThrow('Missing required arguments: <key>');
 			await expect(parse({
-				argv: [ 'set', 'foo' ],
+				argv: ['set', 'foo'],
 				schema
 			})).rejects.toThrow('Missing required arguments: <value>');
 
 			result = await parse({
-				argv: [ 'build', 'foo' ],
+				argv: ['build', 'foo'],
 				schema
 			});
-			expect(result._).to.deep.equal([ 'foo' ]);
+			expect(result._).to.deep.equal(['foo']);
 			expect(result.argv.path).to.equal('foo');
 			result = await parse({
-				argv: [ 'build' ],
+				argv: ['build'],
 				schema
 			});
 			expect(result._).to.deep.equal([]);
 			expect(result.argv.path).to.equal(undefined);
 
 			result = await parse({
-				argv: [ 'compile', 'foo', 'bar' ],
+				argv: ['compile', 'foo', 'bar'],
 				schema
 			});
-			expect(result._).to.deep.equal([ 'foo', 'bar' ]);
+			expect(result._).to.deep.equal(['foo', 'bar']);
 			expect(result.argv.mode).to.equal('foo');
 			expect(result.argv.path).to.equal('bar');
 			result = await parse({
-				argv: [ 'compile', 'foo' ],
+				argv: ['compile', 'foo'],
 				schema
 			});
-			expect(result._).to.deep.equal([ 'foo' ]);
+			expect(result._).to.deep.equal(['foo']);
 			expect(result.argv.mode).to.equal('foo');
 			expect(result.argv.path).to.equal(undefined);
 			await expect(parse({
-				argv: [ 'compile' ],
+				argv: ['compile'],
 				schema
 			})).rejects.toThrow('Missing required arguments: <mode>');
 		});
@@ -378,7 +376,7 @@ describe('commands', () => {
 				schema: {
 					commands: {
 						'get <key>': {
-							args: [ '<name>' ]
+							args: ['<name>']
 						}
 					}
 				}
@@ -387,7 +385,7 @@ describe('commands', () => {
 
 		it('should error if command module does not exist', async () => {
 			await expect(parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: 'does_not_exist.js'
@@ -398,7 +396,7 @@ describe('commands', () => {
 
 		it('should error if command module has invalid syntax', async () => {
 			await expect(parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: path.join(__dirname, 'fixtures/bad-syntax.js'),
@@ -409,7 +407,7 @@ describe('commands', () => {
 
 		it('should error if command module does not export default', async () => {
 			await expect(parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: path.join(__dirname, 'fixtures/no-default.js'),
@@ -420,7 +418,7 @@ describe('commands', () => {
 
 		it('should error if command module exports invalid definition', async () => {
 			await expect(parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema: {
 					commands: {
 						foo: path.join(__dirname, 'fixtures/invalid.js'),
@@ -496,7 +494,7 @@ describe('commands', () => {
 			expect(results.contexts[0][Internal].commands.get('lazy')?.desc).to.equal('Command not loaded yet');
 
 			results = await parse({
-				argv: [ 'lazy' ],
+				argv: ['lazy'],
 				schema: {
 					commands: {
 						foo: path.join(__dirname, 'fixtures/good-pkg-lazy')
@@ -580,7 +578,7 @@ describe('commands', () => {
 	describe('aliases', () => {
 		it('should detect a command with single alias', async () => {
 			const result = await parse({
-				argv: [ 'bar' ],
+				argv: ['bar'],
 				schema: {
 					commands: {
 						foo: {
@@ -595,11 +593,11 @@ describe('commands', () => {
 
 		it('should detect a command with multiple aliases', async () => {
 			const result = await parse({
-				argv: [ 'baz' ],
+				argv: ['baz'],
 				schema: {
 					commands: {
 						foo: {
-							alias: [ 'bar', 'baz', '' ]
+							alias: ['bar', 'baz', '']
 						}
 					}
 				}
@@ -618,32 +616,32 @@ describe('commands', () => {
 			};
 
 			let result = await parse({
-				argv: [ 'ls' ],
+				argv: ['ls'],
 				schema
 			});
 			expect(result.contexts[0].name).to.equal('list');
 			expect(result.contexts[0][Internal].label).to.equal('ls, list');
 
 			result = await parse({
-				argv: [ 'list' ],
+				argv: ['list'],
 				schema
 			});
 			expect(result.contexts[0].name).to.equal('list');
 
 			result = await parse({
-				argv: [ 'report' ],
+				argv: ['report'],
 				schema
 			});
 			expect(result.contexts[0].name).to.equal('list');
 
 			result = await parse({
-				argv: [ 'foo' ],
+				argv: ['foo'],
 				schema
 			});
 			expect(result.contexts[0].name).to.equal('foo');
 
 			result = await parse({
-				argv: [ 'bar' ],
+				argv: ['bar'],
 				schema
 			});
 			expect(result.contexts[0].name).to.equal('bar');
@@ -664,7 +662,7 @@ describe('commands', () => {
 				schema: {
 					commands: {
 						foo: {
-							alias: [ 123 as any ]
+							alias: [123 as any]
 						}
 					}
 				}
@@ -675,7 +673,7 @@ describe('commands', () => {
 	describe('hooks', () => {
 		it('should fire command hooks', async () => {
 			await parse({
-				argv: [ 'foo', '--color', 'red', '--shape', 'triangle' ],
+				argv: ['foo', '--color', 'red', '--shape', 'triangle'],
 				schema: {
 					commands: {
 						foo: {

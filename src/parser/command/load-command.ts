@@ -39,7 +39,7 @@ export default async function loadCommand(cmd: InternalCommand): Promise<Interna
 		if (def) {
 			// let the setter update the internals
 
-			for (const [ key, value ] of Object.entries(cmd)) {
+			for (const [key, value] of Object.entries(cmd)) {
 				if (def[key] === undefined) {
 					def[key] = value;
 				}

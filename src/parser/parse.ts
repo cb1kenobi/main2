@@ -47,7 +47,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		beforeError: [],
 		...schema.hooks
 	};
-	for (const [ name, hookList ] of Object.entries(hooks)) {
+	for (const [name, hookList] of Object.entries(hooks)) {
 		if (!Array.isArray(hookList) || hookList.some(h => typeof h !== 'function')) {
 			throw new TypeError(`Expected "${name}" hook to be an array of functions`);
 		}
@@ -101,7 +101,7 @@ async function initArgv(state: ParseState): Promise<void> {
 			if (m) {
 				const chars = m[1].split('');
 				for (let i = 0, len = chars.length; i < len; i++) {
-					const inputs = [ `-${chars[i]}` ];
+					const inputs = [`-${chars[i]}`];
 					if (i + 1 === len && value !== undefined) {
 						inputs.push(value);
 					}
@@ -111,7 +111,7 @@ async function initArgv(state: ParseState): Promise<void> {
 					});
 				}
 			} else {
-				const inputs = [ arg ];
+				const inputs = [arg];
 				if (value !== undefined) {
 					inputs.push(value);
 				}
@@ -122,7 +122,7 @@ async function initArgv(state: ParseState): Promise<void> {
 			}
 		} else {
 			state.$.push({
-				inputs: [ arg ],
+				inputs: [arg],
 				type: ParsedType.Unknown
 			});
 		}
@@ -283,7 +283,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 				if (typeof arg.transform === 'function') {
 					const result = await arg.transform(multiple ? inputs : inputs[0], state);
 					if (result !== undefined) {
-						inputs = multiple && Array.isArray(result) ? result : [ result ];
+						inputs = multiple && Array.isArray(result) ? result : [result];
 					}
 				}
 
@@ -315,7 +315,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 				if (Array.isArray(state.argv[dest])) {
 					(state.argv[dest] as unknown[]).push(value);
 				} else {
-					state.argv[dest] = [ value ];
+					state.argv[dest] = [value];
 				}
 			} else {
 				state.argv[dest] = value;

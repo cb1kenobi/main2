@@ -19,7 +19,7 @@ describe('hooks', () => {
 		await expect(parse({
 			schema: {
 				hooks: {
-					beforeParse: [ 123 as any ]
+					beforeParse: [123 as any]
 				}
 			}
 		})).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));

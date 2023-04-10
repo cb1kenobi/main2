@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { parse } from '../../src/parser/parse.js';
 
 describe('error handling', () => {

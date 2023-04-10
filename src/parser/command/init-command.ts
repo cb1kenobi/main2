@@ -9,9 +9,9 @@ import {
 import { CommandRegistry } from './command-registry.js';
 import debug from '../../debug/index.js';
 import { dirname, join, parse } from 'node:path';
-import fs from 'node:fs/promises';
 import { initArg } from '../argument/init-arg.js';
 import { OptionRegistry } from '../option/option-registry.js';
+import { readdir, readFile, stat } from 'node:fs/promises';
 
 const { log } = debug('main2:init-command');
 
@@ -60,7 +60,7 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 	}
 
 	if (command.alias !== undefined) {
-		const aliasList = typeof command.alias === 'string' ? [ command.alias ] : command.alias;
+		const aliasList = typeof command.alias === 'string' ? [command.alias] : command.alias;
 		if (Array.isArray(aliasList)) {
 			for (const alias of aliasList) {
 				if (typeof alias !== 'string') {
@@ -120,7 +120,7 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 		} else if (it.commands && typeof it.commands === 'object') {
 			await Promise.all(
 				Object.entries(it.commands)
-					.map(([ name, cmdOrPath ]) => registerCommand({
+					.map(([name, cmdOrPath]) => registerCommand({
 						cmdOrPath,
 						commands,
 						name
@@ -139,7 +139,7 @@ export default async function initCommand(it: CommandsLike, entryFile?: string):
 		}
 
 		// eslint-disable-next-line prefer-const
-		for (let [ format, params ] of Object.entries(it.options)) {
+		for (let [format, params] of Object.entries(it.options)) {
 			if (params === undefined || params === null) {
 				params = {
 					format
@@ -317,7 +317,7 @@ async function registerCommandPath({
 	}
 
 	if (!name) {
-		const files = await fs.readdir(file).catch(err => err);
+		const files = await readdir(file).catch(err => err);
 		if (!(files instanceof Error)) {
 			for (const filename of files) {
 				const { ext, name } = parse(filename);
@@ -350,7 +350,7 @@ async function registerCommandPath({
 
 async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
 	const pkgFile = join(dir, 'package.json');
-	const json = await fs.readFile(pkgFile, 'utf-8').catch(err => err);
+	const json = await readFile(pkgFile, 'utf-8').catch(err => err);
 
 	if (json instanceof Error) {
 		// no package.json, not a package
@@ -372,15 +372,15 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 	}
 
 	const filePaths = entry ?
-		[ entry ] :
-		[ 'index.js', 'index.mjs', 'index.cjs' ];
+		[entry] :
+		['index.js', 'index.mjs', 'index.cjs'];
 	let entryFile;
 
 	for (const filepath of filePaths) {
 		try {
 			const file = join(dir, filepath);
-			const stat = await fs.stat(file);
-			if (stat.isFile()) {
+			const st = await stat(file);
+			if (st.isFile()) {
 				entryFile = file;
 				break;
 			}

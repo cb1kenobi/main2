@@ -21,7 +21,7 @@ module.exports = {
 	],
 	root: true,
 	rules: {
-        'array-bracket-spacing': [ 'warn', 'always' ],
+        'array-bracket-spacing': [ 'warn', 'never' ],
         'brace-style': [ 2, '1tbs', { 'allowSingleLine': true } ],
         'camelcase': 'off',
         'curly': [ 'error', 'all' ],
@@ -34,7 +34,7 @@ module.exports = {
         'no-cond-assign': 'off',
         'no-console': 'off',
         'no-control-regex': 'off',
-        'no-empty': 'warn',
+        'no-empty': 'off',
         'no-inner-declarations': 'off',
         'no-mixed-spaces-and-tabs': 'error',
         'no-multi-str': 'error',

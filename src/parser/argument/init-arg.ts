@@ -46,7 +46,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 
 	const envs = new Set();
 	if (it.env !== undefined) {
-		const env = typeof it.env === 'string' ? [ it.env ] : it.env;
+		const env = typeof it.env === 'string' ? [it.env] : it.env;
 
 		if (!Array.isArray(env)) {
 			throw new TypeError('Expected argument environment variable to be a string or array of strings');

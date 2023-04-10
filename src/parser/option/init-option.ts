@@ -132,7 +132,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	const envs = new Set();
 	if (it.env !== undefined) {
-		const env = typeof it.env === 'string' ? [ it.env ] : it.env;
+		const env = typeof it.env === 'string' ? [it.env] : it.env;
 
 		if (!Array.isArray(env)) {
 			throw new TypeError('Expected option environment variable to be a string or array of strings');

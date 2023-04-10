@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { Internal, Option } from '../../src/types.js';
 import { parse } from '../../src/parser/parse.js';
 
@@ -156,7 +154,7 @@ describe('options', () => {
 
 		it('should parse short and long option with required value', async () => {
 			const result = await parse({
-				argv: [ '--directory', '/foo' ],
+				argv: ['--directory', '/foo'],
 				schema: {
 					options: {
 						'-d, --directory <path>': {}
@@ -220,7 +218,7 @@ describe('options', () => {
 	describe('multiple', () => {
 		it('should parse multiple option value', async () => {
 			const result = await parse({
-				argv: [ '--include', 'foo' ],
+				argv: ['--include', 'foo'],
 				schema: {
 					options: {
 						'--include <file>': {
@@ -336,7 +334,7 @@ describe('options', () => {
 			};
 
 			let result = await parse({
-				argv: [ '--foo', 'true' ],
+				argv: ['--foo', 'true'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -344,7 +342,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', 'false' ],
+				argv: ['--foo', 'false'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -354,7 +352,7 @@ describe('options', () => {
 			const now = new Date();
 
 			result = await parse({
-				argv: [ '--foo', now.toISOString() ],
+				argv: ['--foo', now.toISOString()],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -371,7 +369,7 @@ describe('options', () => {
 			const now2 = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
 
 			result = await parse({
-				argv: [ '--foo', nowFormatted ],
+				argv: ['--foo', nowFormatted],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -379,7 +377,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', '123' ],
+				argv: ['--foo', '123'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -387,7 +385,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', '3.14' ],
+				argv: ['--foo', '3.14'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -395,7 +393,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', '{"bar": "baz"}' ],
+				argv: ['--foo', '{"bar": "baz"}'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -403,7 +401,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', 'bar' ],
+				argv: ['--foo', 'bar'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -421,7 +419,7 @@ describe('options', () => {
 			};
 
 			let result = await parse({
-				argv: [ '--foo', 'true' ],
+				argv: ['--foo', 'true'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -429,7 +427,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', 'baz' ],
+				argv: ['--foo', 'baz'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -437,7 +435,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', 'false' ],
+				argv: ['--foo', 'false'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -455,7 +453,7 @@ describe('options', () => {
 			};
 
 			let result = await parse({
-				argv: [ '-f', 'true' ],
+				argv: ['-f', 'true'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -463,7 +461,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '-f', 'baz' ],
+				argv: ['-f', 'baz'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -471,7 +469,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '-f', 'false' ],
+				argv: ['-f', 'false'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -499,7 +497,7 @@ describe('options', () => {
 			const now2 = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
 
 			let result = await parse({
-				argv: [ '--foo', `${now.getTime()}` ],
+				argv: ['--foo', `${now.getTime()}`],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -507,7 +505,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', now.toISOString() ],
+				argv: ['--foo', now.toISOString()],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -515,7 +513,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', nowFormatted ],
+				argv: ['--foo', nowFormatted],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -523,7 +521,7 @@ describe('options', () => {
 			});
 
 			await expect(parse({
-				argv: [ '--foo', '9999-99-99' ],
+				argv: ['--foo', '9999-99-99'],
 				schema
 			})).rejects.toThrow('Invalid date: "9999-99-99"');
 		});
@@ -538,7 +536,7 @@ describe('options', () => {
 			};
 
 			const result = await parse({
-				argv: [ '--foo', '123' ],
+				argv: ['--foo', '123'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -546,12 +544,12 @@ describe('options', () => {
 			});
 
 			await expect(parse({
-				argv: [ '--foo', '1.23' ],
+				argv: ['--foo', '1.23'],
 				schema
 			})).rejects.toThrow('Invalid integer: 1.23');
 
 			await expect(parse({
-				argv: [ '--foo', 'foo' ],
+				argv: ['--foo', 'foo'],
 				schema
 			})).rejects.toThrow('Invalid integer: foo');
 		});
@@ -566,7 +564,7 @@ describe('options', () => {
 			};
 
 			const result = await parse({
-				argv: [ '--foo', '{"bar":"baz"}' ],
+				argv: ['--foo', '{"bar":"baz"}'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -574,7 +572,7 @@ describe('options', () => {
 			});
 
 			await expect(parse({
-				argv: [ '--foo', '{{{' ],
+				argv: ['--foo', '{{{'],
 				schema
 			})).rejects.toThrow(/^Invalid JSON:/);
 		});
@@ -589,7 +587,7 @@ describe('options', () => {
 			};
 
 			let result = await parse({
-				argv: [ '--foo', '123' ],
+				argv: ['--foo', '123'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -597,7 +595,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', '3.14' ],
+				argv: ['--foo', '3.14'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -605,7 +603,7 @@ describe('options', () => {
 			});
 
 			await expect(parse({
-				argv: [ '--foo', 'foo' ],
+				argv: ['--foo', 'foo'],
 				schema
 			})).rejects.toThrow('Invalid number: foo');
 		});
@@ -620,7 +618,7 @@ describe('options', () => {
 			};
 
 			let result = await parse({
-				argv: [ '--foo', 'yes' ],
+				argv: ['--foo', 'yes'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -628,7 +626,7 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: [ '--foo', 'no' ],
+				argv: ['--foo', 'no'],
 				schema
 			});
 			expect(result.argv).to.deep.equal({
@@ -636,7 +634,7 @@ describe('options', () => {
 			});
 
 			await expect(parse({
-				argv: [ '--foo', 'foo' ],
+				argv: ['--foo', 'foo'],
 				schema
 			})).rejects.toThrow('Value must be "yes" or "no"');
 		});
@@ -667,7 +665,7 @@ describe('options', () => {
 
 		it('should parse flag with auto type', async () => {
 			const result = await parse({
-				argv: [ '--foo' ],
+				argv: ['--foo'],
 				schema: {
 					options: {
 						'--foo': {
@@ -683,7 +681,7 @@ describe('options', () => {
 
 		it('should parse long option as boolean', async () => {
 			const result = await parse({
-				argv: [ '--foo' ],
+				argv: ['--foo'],
 				schema: {
 					options: {
 						'--foo': {
@@ -699,7 +697,7 @@ describe('options', () => {
 
 		it('should parse long option as yes/no boolean', async () => {
 			const result = await parse({
-				argv: [ '--foo' ],
+				argv: ['--foo'],
 				schema: {
 					options: {
 						'--foo': {
@@ -818,7 +816,7 @@ describe('options', () => {
 				schema: {
 					options: {
 						'--foo': {
-							alias: [ '-f', '--bar', '--baz' ]
+							alias: ['-f', '--bar', '--baz']
 						}
 					}
 				}
@@ -826,7 +824,7 @@ describe('options', () => {
 			const { options } = result.contexts[0][Internal];
 			const inc = options.get('foo');
 			expect(inc).to.deep.equal({
-				alias: [ '-f', '--bar', '--baz' ],
+				alias: ['-f', '--bar', '--baz'],
 				default: false,
 				format: '--foo',
 				name: 'foo',
@@ -853,7 +851,7 @@ describe('options', () => {
 				schema: {
 					options: {
 						'--foo': {
-							alias: [ null, 123 ] as any
+							alias: [null, 123] as any
 						}
 					}
 				}
@@ -874,7 +872,7 @@ describe('options', () => {
 	describe('parse', () => {
 		it('should error if option is unknown', async () => {
 			await expect(parse({
-				argv: [ '--foo' ]
+				argv: ['--foo']
 			})).rejects.toThrow('Unknown option "--foo"');
 		});
 
@@ -936,7 +934,7 @@ describe('options', () => {
 			expect(result.argv.foo).to.equal(true);
 
 			await expect(parse({
-				argv: [ '--foo' ],
+				argv: ['--foo'],
 				schema
 			})).rejects.toThrow('Unknown option "--foo"');
 		});
@@ -962,7 +960,7 @@ describe('options', () => {
 
 		it('should parse an option with arg value', async () => {
 			const result = await parse({
-				argv: [ '--output-dir', 'dist' ],
+				argv: ['--output-dir', 'dist'],
 				schema: {
 					options: {
 						'--output-dir <path>': {}
@@ -974,7 +972,7 @@ describe('options', () => {
 
 		it('should parse an option with = value', async () => {
 			const result = await parse({
-				argv: [ '--output-dir=dist' ],
+				argv: ['--output-dir=dist'],
 				schema: {
 					options: {
 						'--output-dir <path>': {}
@@ -1036,11 +1034,11 @@ describe('options', () => {
 
 		it('should error if invalid option choice', async () => {
 			await expect(parse({
-				argv: [ '--foo', 'baz' ],
+				argv: ['--foo', 'baz'],
 				schema: {
 					options: {
 						'--foo <bar>': {
-							choices: [ 'bar', 'wiz' ]
+							choices: ['bar', 'wiz']
 						}
 					}
 				}
@@ -1085,7 +1083,7 @@ describe('options', () => {
 				schema: {
 					options: {
 						'--output <path>': {
-							env: [ 'DIST', 'OUTPUT' ]
+							env: ['DIST', 'OUTPUT']
 						}
 					}
 				}
@@ -1138,7 +1136,7 @@ describe('options', () => {
 	describe('transform', () => {
 		it('should fire argument callback on parse', async () => {
 			const result = await parse({
-				argv: [ '--foo', 'a' ],
+				argv: ['--foo', 'a'],
 				schema: {
 					options: {
 						'--foo <bar>': {
@@ -1160,7 +1158,7 @@ describe('options', () => {
 		it('should not transform transformed values', async () => {
 			const now = Date.now();
 			const result = await parse({
-				argv: [ '--foo', 'a' ],
+				argv: ['--foo', 'a'],
 				schema: {
 					options: {
 						'--foo <bar>': {
