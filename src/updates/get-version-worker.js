@@ -76,7 +76,7 @@ try {
 		await writeFile(cacheFile, JSON.stringify(cache));
 	}
 
-	console.log(version);
+	process.stdout.write(version);
 } catch (err) {
 	console.error(err);
 	process.exit(1);

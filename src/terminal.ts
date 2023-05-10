@@ -1,5 +1,30 @@
+interface TerminalOptions {
+	stdout: NodeJS.WriteStream;
+	stderr: NodeJS.WriteStream;
+}
+
 export class Terminal {
-	//
+	stdout: NodeJS.WriteStream;
+	stderr: NodeJS.WriteStream;
+
+	constructor(opts: TerminalOptions) {
+		this.stdout = this.initStream(opts.stdout || process.stdout);
+		this.stderr = this.initStream(opts.stderr || process.stderr);
+	}
+
+	initStream(stream: NodeJS.WriteStream): NodeJS.WriteStream {
+		stream.on('error', function epipeListener(err) {
+			if (err.code === 'EPIPE') {
+				process.exit(1);
+			} else {
+				stream.removeAllListeners();
+				stream.emit('error', err);
+				stream.on('error', epipeListener);
+			}
+		});
+
+		return stream;
+	}
 }
 
 /*

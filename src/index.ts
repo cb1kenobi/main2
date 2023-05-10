@@ -9,6 +9,10 @@ export * from './types.js';
 const { log } = debug('main2');
 
 export default async function main2(opts: AppOptions): Promise<ParseState | unknown> {
+	if (opts?.settings?.assertCwd !== false) {
+		assertCwd();
+	}
+
 	const { parse } = await import('./parser/parse.js');
 	const results = await parse({
 		argv:   opts.argv || process.argv.slice(2),
@@ -29,4 +33,14 @@ export default async function main2(opts: AppOptions): Promise<ParseState | unkn
 	}
 
 	return results;
+}
+
+function assertCwd() {
+	try {
+		process.cwd();
+	} catch (err) {
+		if (err instanceof Error && err.message.includes('uv_cwd')) {
+			throw new Error('Current working directory does not exist');
+		}
+	}
 }

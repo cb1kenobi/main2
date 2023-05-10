@@ -16,14 +16,15 @@ import {
  * "--opt [value]"
  */
 
-const optionAliasSplitRE  = /[ ,|]+/;
-const optionFormatOnlyRE  = /^(-\w)|(--(?:no-)?\w[\w-]*)|(\w[\w-]*)$/;
-const optionHintRE        = /^(\[(?=.+\]$)|<(?=.+>$))(.+?)[\]>]$/;
-export const optionLongRE = /^--(\w.*)$/;
-const optionNegateRE      = /^no-(\w.*)$/;
-const optionShortRE       = /^-\w$/;
-const optionSplitRE       = /[ ,|=]+/;
-const optionTypesRE       = /^auto|bool|count|date|int|json|number|string|yesno$/;
+const optionAliasSplitRE      = /[ ,|]+/;
+const optionHintRE            = /^(\[(?=.+\]$)|<(?=.+>$))(.+?)[\]>]$/;
+const optionLongLikeRE        = /^--(.*)$/;
+export const optionLongRE     = /^--(\w[\w-]*)$/;
+const optionLongMaybeDashesRE = /^(?:--)?(\w[\w-]*)$/;
+const optionNegateRE          = /^no-(\w[\w-]*)$/;
+const optionShortRE           = /^-\w$/;
+const optionSplitRE           = /[ ,|=]+/;
+const optionTypesRE           = /^auto|bool|count|date|int|json|number|string|yesno$/;
 
 export async function initOption(it: Option | InternalOption): Promise<InternalOption> {
 	if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
@@ -42,7 +43,11 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 		for (const p of parts) {
 			let m;
-			if (m = p.match(optionLongRE)) {
+			if (m = p.match(optionLongLikeRE)) {
+				m = p.match(optionLongRE);
+				if (!m) {
+					throw new TypeError(`Invalid option format: ${p}`);
+				}
 				long.add(p);
 				it.name ??= m[1];
 
@@ -114,19 +119,19 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		}
 
 		for (const alias of aliases) {
-			const m = alias.match(optionFormatOnlyRE);
-			if (!m) {
-				throw new TypeError(`Invalid option alias "${alias}"`);
+			let m = alias.match(optionShortRE);
+			if (m) {
+				short.add(m[0]);
+				continue;
 			}
-			if (m[1]) {
-				short.add(m[1]);
+
+			m = alias.match(optionLongMaybeDashesRE);
+			if (m) {
+				long.add(`--${m[1]}`);
+				continue;
 			}
-			if (m[2]) {
-				long.add(m[2]);
-			}
-			if (m[3]) {
-				long.add(`--${m[3]}`);
-			}
+
+			throw new TypeError(`Invalid option alias "${alias}"`);
 		}
 	}
 

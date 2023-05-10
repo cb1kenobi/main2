@@ -35,6 +35,30 @@ describe('options', () => {
 					}
 				}
 			})).rejects.toThrow(new TypeError('Expected option format to be a non-empty string'));
+
+			await expect(parse({
+				schema: {
+					options: {
+						'--f(': null
+					}
+				}
+			})).rejects.toThrow(new TypeError('Invalid option format: --f('));
+
+			await expect(parse({
+				schema: {
+					options: {
+						'--f"': null
+					}
+				}
+			})).rejects.toThrow(new TypeError('Invalid option format: --f"'));
+
+			await expect(parse({
+				schema: {
+					options: {
+						'--f\'': null
+					}
+				}
+			})).rejects.toThrow(new TypeError('Invalid option format: --f\''));
 		});
 
 		it('should error if option transform is invalid', async () => {
@@ -980,6 +1004,38 @@ describe('options', () => {
 				}
 			});
 			expect(result.argv.outputDir).to.equal('dist');
+		});
+
+		it('should parse an option with immediate quoted value', async () => {
+			const schema = {
+				options: {
+					'-m, --message <msg>': {}
+				}
+			};
+
+			let result = await parse({
+				argv: ['--message"hello"'],
+				schema
+			});
+			expect(result.argv.message).to.equal('hello');
+
+			result = await parse({
+				argv: ['--message\'hello\''],
+				schema
+			});
+			expect(result.argv.message).to.equal('hello');
+
+			result = await parse({
+				argv: ['-m"hello"'],
+				schema
+			});
+			expect(result.argv.message).to.equal('hello');
+
+			result = await parse({
+				argv: ['-m\'hello\''],
+				schema
+			});
+			expect(result.argv.message).to.equal('hello');
 		});
 
 		it('should parse several short flags followed by a value', async () => {

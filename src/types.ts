@@ -5,6 +5,7 @@ import { Terminal } from './terminal.js';
 export type AppOptions = {
 	argv?:     string[],
 	schema?:   Schema;
+	settings?: Settings;
 	terminal?: Terminal;
 };
 
@@ -204,8 +205,6 @@ export interface Schema {
 	};
 	name?:         string;
 	options?:      Record<string, string | Option | undefined | null>;
-	settings?:     Settings;
-	version?:      unknown;
 }
 
 export type BeforeErrorHook = (error: Error, state: ParseState) => Promise<void>;
@@ -216,5 +215,6 @@ export type SchemaHook = (() => Promise<void> | void) |
 export interface Settings {
 	allowExtraArguments?:      boolean;
 	allowUnexpectedArguments?: boolean;
+	assertCwd?:                boolean;
 	helpExitCode?:             number;
 }

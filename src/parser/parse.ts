@@ -14,8 +14,9 @@ import { transformValue } from '../util/transform.js';
 
 const { log } = debug('main2:parser');
 
-const optionGroupRegExp = /^-(\w+)$/;
-const optionLikeRegExp = /^--?\w/;
+const optionGroupRE = /^-(\w+)$/;
+const optionLikeRE = /^--?\w/;
+const optionNoSpaceRE = /^([^'"]*)(['"])(.*)\2$/;
 
 export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 	if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
@@ -89,15 +90,24 @@ async function initArgv(state: ParseState): Promise<void> {
 	log(`Processing ${argv.length} argument${argv.length === 1 ? '' : 's'}${argv.length ? `: ${argv.join(', ')}` : ''}`);
 
 	for (let arg of argv) {
-		if (optionLikeRegExp.test(arg)) {
-			const p = arg.indexOf('=');
+		if (optionLikeRE.test(arg)) {
 			let value;
+
+			// check if we have --option=value
+			const p = arg.indexOf('=');
 			if (p > 0) {
 				value = arg.slice(p + 1).trim();
 				arg = arg.slice(0, p).trim();
+			} else {
+				// check if we have --option"value"
+				const m = arg.match(optionNoSpaceRE);
+				if (m) {
+					arg = m[1];
+					value = m[3];
+				}
 			}
 
-			const m = arg.match(optionGroupRegExp);
+			const m = arg.match(optionGroupRE);
 			if (m) {
 				const chars = m[1].split('');
 				for (let i = 0, len = chars.length; i < len; i++) {
