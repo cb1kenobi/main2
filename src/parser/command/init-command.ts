@@ -11,7 +11,7 @@ import debug from '../../debug/index.js';
 import { dirname, join, parse } from 'node:path';
 import { initArg } from '../argument/init-arg.js';
 import { OptionRegistry } from '../option/option-registry.js';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 
 const { log } = debug('main2:init-command');
 
@@ -31,7 +31,7 @@ const nameSplitRegExp = /[, ]+/;
 
 type CommandsLike = Command | InternalCommand | Schema;
 
-export default async function initCommand(it: CommandsLike, entryFile?: string): Promise<InternalCommand> {
+export async function initCommand(it: CommandsLike, entryFile?: string): Promise<InternalCommand> {
 	if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
 		return it as InternalCommand;
 	}
@@ -317,8 +317,8 @@ async function registerCommandPath({
 	}
 
 	if (!name) {
-		const files = await readdir(file).catch(err => err);
-		if (!(files instanceof Error)) {
+		try {
+			const files = readdirSync(file);
 			for (const filename of files) {
 				const { ext, name } = parse(filename);
 				if (fileTypeRegExp.test(ext)) {
@@ -327,9 +327,9 @@ async function registerCommandPath({
 				}
 			}
 			return;
+		} catch {
+			// not a package, not a directory
 		}
-
-		// not a package, not a directory
 	}
 
 	// `file` is not a package or directory or `name` is set and we didn't want
@@ -350,9 +350,11 @@ async function registerCommandPath({
 
 async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
 	const pkgFile = join(dir, 'package.json');
-	const json = await readFile(pkgFile, 'utf-8').catch(err => err);
 
-	if (json instanceof Error) {
+	let json;
+	try {
+		json = readFileSync(pkgFile, 'utf-8');
+	} catch {
 		// no package.json, not a package
 		return;
 	}
@@ -379,7 +381,7 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 	for (const filepath of filePaths) {
 		try {
 			const file = join(dir, filepath);
-			const st = await stat(file);
+			const st = statSync(file);
 			if (st.isFile()) {
 				entryFile = file;
 				break;

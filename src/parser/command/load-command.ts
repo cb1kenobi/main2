@@ -1,12 +1,12 @@
 import debug from '../../debug/index.js';
-import fs from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { existsSync } from 'node:fs';
 import { Internal, InternalCommand } from '../../types.js';
-import initCommand from './init-command.js';
+import { initCommand } from './init-command.js';
+import { pathToFileURL } from 'node:url';
 
 const { log } = debug('main2:parser:load-command');
 
-export default async function loadCommand(cmd: InternalCommand): Promise<InternalCommand> {
+export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand> {
 	const internal = cmd[Internal];
 
 	if (internal.loaded) {
@@ -19,9 +19,7 @@ export default async function loadCommand(cmd: InternalCommand): Promise<Interna
 		const file = pathToFileURL(internal.path).toString();
 		log(`Loading command: ${file}`);
 
-		try {
-			await fs.access(internal.path);
-		} catch {
+		if (!existsSync(internal.path)) {
 			throw new Error(`Command module not found: ${internal.path}`);
 		}
 

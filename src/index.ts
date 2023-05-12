@@ -8,16 +8,17 @@ export * from './types.js';
 
 const { log } = debug('main2');
 
-export default async function main2(opts: AppOptions): Promise<ParseState | unknown> {
+export async function main2(opts: AppOptions): Promise<ParseState | unknown> {
 	if (opts?.settings?.assertCwd !== false) {
 		assertCwd();
 	}
 
 	const { parse } = await import('./parser/parse.js');
 	const results = await parse({
-		argv:   opts.argv || process.argv.slice(2),
-		env:    process.env,
-		schema: opts.schema
+		argv:     opts.argv || process.argv.slice(2),
+		env:      process.env,
+		schema:   opts.schema,
+		settings: opts.settings
 	});
 
 	let { terminal } = opts;
@@ -44,3 +45,5 @@ function assertCwd() {
 		}
 	}
 }
+
+export default main2;

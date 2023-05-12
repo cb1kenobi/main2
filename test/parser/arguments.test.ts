@@ -122,10 +122,8 @@ describe('arguments', () => {
 		test('should handle unnamed arguments', async () => {
 			const result = await parse({
 				argv: ['a', 'b', 'c'],
-				schema: {
-					settings: {
-						allowUnexpectedArguments: true
-					}
+				settings: {
+					allowUnexpectedArguments: true
 				}
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);
@@ -140,9 +138,9 @@ describe('arguments', () => {
 						'first',
 						'second'
 					],
-					settings: {
-						allowUnexpectedArguments: true
-					}
+				},
+				settings: {
+					allowUnexpectedArguments: true
 				}
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);
@@ -216,10 +214,8 @@ describe('arguments', () => {
 		test('should allow extra arguments', async () => {
 			const result = await parse({
 				argv: ['--', 'a', 'b', 'c'],
-				schema: {
-					settings: {
-						allowExtraArguments: true
-					}
+				settings: {
+					allowExtraArguments: true
 				}
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);

@@ -1,13 +1,13 @@
 interface TerminalOptions {
-	stdout: NodeJS.WriteStream;
-	stderr: NodeJS.WriteStream;
+	stdout?: NodeJS.WriteStream;
+	stderr?: NodeJS.WriteStream;
 }
 
 export class Terminal {
 	stdout: NodeJS.WriteStream;
 	stderr: NodeJS.WriteStream;
 
-	constructor(opts: TerminalOptions) {
+	constructor(opts: TerminalOptions = {}) {
 		this.stdout = this.initStream(opts.stdout || process.stdout);
 		this.stderr = this.initStream(opts.stderr || process.stderr);
 	}

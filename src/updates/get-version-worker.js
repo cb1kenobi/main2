@@ -1,6 +1,6 @@
 import https from 'node:https';
 import { dirname } from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 try {
 	const {
@@ -63,17 +63,18 @@ try {
 	}
 
 	if (cacheFile) {
-		await mkdir(dirname(cacheFile), { recursive: true });
+		const { mkdirOwnerSync } = await import('../util/mkdir-owner-sync.js');
+		mkdirOwnerSync(dirname(cacheFile));
 		let cache = {};
 		try {
-			const obj = JSON.parse(await readFile(cacheFile, 'utf-8'));
+			const obj = JSON.parse(readFileSync(cacheFile, 'utf-8'));
 			if (obj && typeof obj === 'object') {
 				cache = obj;
 			}
 		} catch {}
 		cache.ts = Date.now();
 		cache.version = version;
-		await writeFile(cacheFile, JSON.stringify(cache));
+		writeFileSync(cacheFile, JSON.stringify(cache));
 	}
 
 	process.stdout.write(version);

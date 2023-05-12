@@ -1,7 +1,7 @@
 import debug from '../debug/index.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 
 const { log } = debug('main2:updates');
@@ -56,13 +56,14 @@ export async function check(opts: CheckOptions) {
 	if (cacheFile) {
 		log(`Cache file: ${cacheFile}`);
 		try {
-			cache = JSON.parse(await readFile(cacheFile, 'utf-8'));
+			cache = JSON.parse(readFileSync(cacheFile, 'utf-8'));
 		} catch {}
 	}
 
 	if (force || !cache || !cache.ts || cache.ts + checkInterval < Date.now()) {
-		const workerFile = join(dirname(fileURLToPath(import.meta.url)), 'get-version-worker.js');
-		const workerScript = await readFile(workerFile, 'utf-8');
+		const cwd = dirname(fileURLToPath(import.meta.url));
+		const workerFile = join(cwd, 'get-version-worker.js');
+		const workerScript = readFileSync(workerFile, 'utf-8');
 		const env = {
 			...process.env,
 			CACHE_FILE:   cacheFile,
@@ -75,6 +76,7 @@ export async function check(opts: CheckOptions) {
 		const worker = spawn(process.execPath, [
 			'--input-type', 'module'
 		], {
+			cwd,
 			env,
 			stdio: ['pipe', 'pipe', 'pipe']
 		});
@@ -115,7 +117,7 @@ export async function check(opts: CheckOptions) {
 			log('Update worker finished successfully');
 			if (cacheFile) {
 				try {
-					cache = JSON.parse(await readFile(cacheFile, 'utf-8'));
+					cache = JSON.parse(readFileSync(cacheFile, 'utf-8'));
 				} catch {}
 			} else {
 				if (!cache) {

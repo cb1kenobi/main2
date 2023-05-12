@@ -148,14 +148,10 @@ export interface ParseOptions {
 	env?:          Record<string, string | undefined>;
 	cwd?:          string;
 	schema?:       Schema;
+	settings?:     Settings;
 }
 
-export enum ParsedType {
-	Command = 'Command',
-	Extra   = 'Extra',
-	Option  = 'Option',
-	Unknown = 'Unknown'
-}
+export type ParsedType = 'Command' | 'Extra' | 'Option' | 'Unknown';
 
 export interface ParsedBase {
 	inputs:        (string | undefined)[];
@@ -164,21 +160,21 @@ export interface ParsedBase {
 
 export interface ParsedCommand extends ParsedBase {
 	cmd:           InternalCommand;
-	type:          ParsedType.Command;
+	type:          'Command';
 }
 
 export interface ParsedExtra extends ParsedBase {
-	type:          ParsedType.Extra;
+	type:          'Extra';
 }
 
 export interface ParsedOption extends ParsedBase {
 	option:        InternalOption;
-	type:          ParsedType.Option;
+	type:          'Option';
 	value?:        unknown;
 }
 
 export interface ParsedUnknown extends ParsedBase {
-	type:          ParsedType.Unknown;
+	type:          'Unknown';
 }
 
 export type ParsedValue = ParsedCommand | ParsedExtra | ParsedOption | ParsedUnknown;
@@ -192,6 +188,7 @@ export interface ParseState {
 	contexts:      InternalCommand[];
 	env:           Record<string, string | undefined>;
 	schema:        Schema;
+	settings:      Settings;
 }
 
 export interface Schema {

@@ -7,6 +7,14 @@ async function generateTmpDir() {
 }
 
 describe('updates', () => {
+	beforeAll(() => {
+		process.env.NODE_OPTIONS = '--loader ts-node/esm';
+	});
+
+	afterAll(() => {
+		delete process.env.NODE_OPTIONS;
+	});
+
 	describe('Error Handling', () => {
 		it('should error if cache directory is invalid', async () => {
 			await expect(check(undefined as any))

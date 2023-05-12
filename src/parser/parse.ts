@@ -1,14 +1,13 @@
 import debug from '../debug/index.js';
-import initCommand from './command/init-command.js';
+import { initCommand } from './command/init-command.js';
 import {
 	Internal,
 	ParsedBase,
 	ParsedOption,
-	ParsedType,
 	ParseOptions,
 	ParseState
 } from '../types.js';
-import loadCommand from './command/load-command.js';
+import { loadCommand } from './command/load-command.js';
 import { optionLongRE } from './option/init-option.js';
 import { transformValue } from '../util/transform.js';
 
@@ -62,7 +61,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		throw new TypeError('Expected environment option to be an object');
 	}
 
-	const state = {
+	const state: ParseState = {
 		$: [],
 		$orig: argv || [],
 		_: [],
@@ -72,7 +71,8 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 			await initCommand(schema)
 		],
 		env,
-		schema
+		schema,
+		settings: opts.settings || {}
 	};
 
 	await initArgv(state);
@@ -117,7 +117,7 @@ async function initArgv(state: ParseState): Promise<void> {
 					}
 					state.$.push({
 						inputs,
-						type: ParsedType.Unknown
+						type: 'Unknown'
 					});
 				}
 			} else {
@@ -127,13 +127,13 @@ async function initArgv(state: ParseState): Promise<void> {
 				}
 				state.$.push({
 					inputs,
-					type: ParsedType.Unknown
+					type: 'Unknown'
 				});
 			}
 		} else {
 			state.$.push({
 				inputs: [arg],
-				type: ParsedType.Unknown
+				type: 'Unknown'
 			});
 		}
 	}
@@ -158,7 +158,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 		for (let j = 0; j < $.length; j++) {
 			const arg = $[j];
 
-			if (arg.type !== ParsedType.Unknown) {
+			if (arg.type !== 'Unknown') {
 				continue;
 			}
 
@@ -167,7 +167,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 			if (subject === '--') {
 				$[j] = {
 					inputs: $.splice(j, $.length).slice(1).flatMap(a => a.inputs),
-					type: ParsedType.Extra
+					type: 'Extra'
 				};
 				break;
 			}
@@ -180,7 +180,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 				$[j] = {
 					cmd: ctx,
 					inputs: arg.inputs,
-					type: ParsedType.Command
+					type: 'Command'
 				};
 				contexts.unshift(ctx);
 				state.cmd = ctx;
@@ -209,7 +209,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 					value = inputs[1];
 				} else {
 					const next = j + 1 < $.length ? $[j + 1] : undefined;
-					if (next?.type === ParsedType.Unknown) {
+					if (next?.type === 'Unknown') {
 						value = next.inputs[0];
 						inputs.push(value);
 						$.splice(j + 1, 1);
@@ -232,7 +232,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 				$[j] = {
 					inputs,
 					option,
-					type: ParsedType.Option,
+					type: 'Option',
 					value
 				};
 			}
@@ -256,7 +256,6 @@ async function parseArgv(state: ParseState): Promise<void> {
 export async function processArgs(state: ParseState): Promise<void> {
 	const ctx = state.contexts[0];
 	const internal = ctx[Internal];
-	const { schema } = state;
 
 	let argIdx = 0;
 
@@ -266,10 +265,10 @@ export async function processArgs(state: ParseState): Promise<void> {
 		const parsedType = parsed.type;
 		let { inputs } = parsed;
 
-		if (parsedType === ParsedType.Unknown) {
+		if (parsedType === 'Unknown') {
 			const arg = internal.args[argIdx++];
 
-			if (!schema.settings?.allowUnexpectedArguments && !arg) {
+			if (!state.settings?.allowUnexpectedArguments && !arg) {
 				throw new Error(
 					optionLongRE.test(`${inputs[0]}`)
 						? `Unknown option "${inputs[0]}"`
@@ -283,7 +282,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 				if (multiple) {
 					for (i++; i < state.$.length; i++) {
 						const parsed: ParsedBase = state.$[i];
-						if (parsed.type === ParsedType.Unknown) {
+						if (parsed.type === 'Unknown') {
 							inputs.push(...parsed.inputs);
 							state.$.splice(i--, 1);
 						}
@@ -308,14 +307,14 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 			state._.push(...inputs);
 
-		} else if (parsedType === ParsedType.Extra) {
-			if (schema.settings?.allowExtraArguments) {
+		} else if (parsedType === 'Extra') {
+			if (state.settings?.allowExtraArguments) {
 				state._.push(...inputs);
 			} else {
 				throw new Error(`Extra arguments are not allowed: ${inputs.join(' ')}`);
 			}
 
-		} else if (parsedType === ParsedType.Option) {
+		} else if (parsedType === 'Option') {
 			const { option, value } = parsed as ParsedOption;
 			const { dest, isFlag } = option[Internal];
 
@@ -382,7 +381,7 @@ export async function processOptions(state: ParseState): Promise<void> {
 			}
 
 			if (required) {
-				const existing = state.$.find(parsed => parsed.type === ParsedType.Option && parsed.option === opt);
+				const existing = state.$.find(parsed => parsed.type === 'Option' && parsed.option === opt);
 				if (!existing && state.argv[dest] === undefined) {
 					missingOptions.unshift(opt[Internal].label);
 				}
