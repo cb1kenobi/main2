@@ -7,7 +7,8 @@
     ".": "./dist/index.js",
     "./*": "./*",
     "./error-handler": "./dist/error-handler.js",
-    "./paths": "./dist/paths.js"
+    "./paths": "./dist/paths.js",
+    "./updates": "./dist/updates.js"
   },
   "types": "./dist/index.d.ts",
   "scripts": {

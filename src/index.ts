@@ -8,6 +8,16 @@ export * from './types.js';
 
 const { log } = debug('main2');
 
+/*
+get cwd(): string {
+    return process.cwd();
+  }
+
+  set cwd(v: string) {
+    process.chdir(v);
+	}
+*/
+
 export async function main2(opts: AppOptions): Promise<ParseState | unknown> {
 	if (opts?.settings?.assertCwd !== false) {
 		assertCwd();
