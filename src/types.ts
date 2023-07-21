@@ -59,6 +59,11 @@ export interface InternalArgumentBase extends InternalBase {
 
 export type CommandRunHandler = (state: ParseState) => unknown | Promise<unknown>;
 
+export interface CommandExample {
+	label: string;
+	text: string;
+}
+
 export interface Command {
 	[key: string]: unknown; // custom data
 	alias?:        string | string[];
@@ -67,6 +72,7 @@ export interface Command {
 	commands?:     Record<string, Command>;
 	default?:      boolean;
 	desc?:         string;
+	examples?:     CommandExample;
 	file?:         string;
 	help?:         string | Callback;
 	hidden?:       boolean;

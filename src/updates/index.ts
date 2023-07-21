@@ -30,7 +30,6 @@ export async function check(opts: CheckOptions) {
 		checkInterval = oneDay,
 		distTag = 'latest',
 		force = false,
-		notifyInterval = oneDay,
 		packageName,
 		packageVersion,
 		registryURL,

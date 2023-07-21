@@ -8,3 +8,4 @@ TODO:
 * ansi
 * canvas
 * components
+* main namespaces

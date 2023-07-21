@@ -22,19 +22,20 @@
     "watch": "tsc --watch --project tsconfig.build.json"
   },
   "devDependencies": {
-    "@types/node": "20.1.3",
-    "@typescript-eslint/eslint-plugin": "5.59.5",
-    "@typescript-eslint/parser": "5.59.5",
-    "@vitest/coverage-c8": "0.31.0",
-    "eslint": "8.40.0",
+    "@types/node": "20.4.2",
+    "@typescript-eslint/eslint-plugin": "6.1.0",
+    "@typescript-eslint/parser": "6.1.0",
+    "@vitest/coverage-c8": "0.33.0",
+    "@vitest/coverage-v8": "^0.33.0",
+    "eslint": "8.45.0",
     "eslint-import-resolver-typescript": "3.5.5",
     "eslint-plugin-import": "2.27.5",
     "eslint-plugin-promise": "6.1.1",
     "eslint-plugin-security": "1.7.1",
     "eslint-plugin-tsdoc": "0.2.17",
     "ts-node": "10.9.1",
-    "typescript": "5.0.4",
-    "vitest": "0.31.0"
+    "typescript": "5.1.6",
+    "vitest": "0.33.0"
   },
   "keywords": [],
   "author": "Chris Barber <me@chrisbarber.dev>",
@@ -42,5 +43,5 @@
   "engines": {
     "node": ">=16.13.0"
   },
-  "packageManager": "pnpm@7.26.2"
+  "packageManager": "pnpm@8.6.5"
 }
