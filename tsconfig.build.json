@@ -1,8 +1,10 @@
 {
-	"compilerOptions": {
-		"outDir": "./dist",
-		"rootDir": "./src"
-	},
-	"exclude": ["./test"],
-	"extends": "./tsconfig.json"
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "Bundler",
+    "rootDir": "./src",
+    "sourceMap": true
+  },
+  "extends": "./tsconfig.json",
+  "include": ["./src"]
 }

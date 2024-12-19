@@ -1,46 +1,37 @@
 name: Test
 on:
-  - pull_request
   - push
+  - pull_request
 
 jobs:
-  Lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v3
-        with:
-          node-version: '18.x'
-      - uses: pnpm/action-setup@v2
-        name: Install pnpm
-      - name: Install dependencies
-        run: pnpm install
-      - name: Lint
-        run: pnpm lint
-
-  Test:
-    needs: Lint
-    name: ${{ matrix.os }} ${{ matrix.nodeVersion }} Tests
+  test:
+    name: Test on node ${{ matrix.node }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        nodeVersion: [ '16.13.0', '18.x', '19.x' ]
-        os: [ macos-latest, ubuntu-latest, windows-latest ]
+        node: [16, 18, 20, 22]
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v3
+          node-version: ${{ matrix.node }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          node-version: ${{ matrix.nodeVersion }}
-      - uses: pnpm/action-setup@v2
-        name: Install pnpm
+          version: latest
+
       - name: Install dependencies
         run: pnpm install
-      - name: Build
-        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
       - name: Run tests
-        run: pnpm test
+        run: pnpm coverage

@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "dist",
+    "test/parser/fixtures"
+  ],
+  "rules": {
+    "no-cond-assign": "off"
+  }
+}
