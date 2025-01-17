@@ -27,8 +27,8 @@ importers:
         specifier: 1.9.3
         version: 1.9.3
       npm-check-updates:
-        specifier: 17.1.11
-        version: 17.1.11
+        specifier: 17.1.14
+        version: 17.1.14
       oxlint:
         specifier: 0.15.3
         version: 0.15.3
@@ -876,8 +876,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  npm-check-updates@17.1.11:
-    resolution: {integrity: sha512-TR2RuGIH7P3Qrb0jfdC/nT7JWqXPKjDlxuNQt3kx4oNVf1Pn5SBRB7KLypgYZhruivJthgTtfkkyK4mz342VjA==}
+  npm-check-updates@17.1.14:
+    resolution: {integrity: sha512-dr4bXIxETubLI1tFGeock5hN8yVjahvaVpx+lPO4/O2md3zJuxB7FgH3MIoTvQSCgsgkIRpe0skti01IEAA5tA==}
     engines: {node: ^18.18.0 || >=20.0.0, npm: '>=8.12.1'}
     hasBin: true
 
@@ -1774,7 +1774,7 @@ snapshots:
 
   nanoid@3.3.8: {}
 
-  npm-check-updates@17.1.11: {}
+  npm-check-updates@17.1.14: {}
 
   oxlint@0.15.3:
     optionalDependencies:
