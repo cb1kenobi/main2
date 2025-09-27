@@ -22,8 +22,11 @@ export function transformValue(value: string, type: DataType | string) {
 			if (!isNaN(num) && num > 0) {
 				date = new Date(num);
 			}
-		} else if (m = value.match(dateRE)) {
-			date = new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
+		} else {
+			m = value.match(dateRE);
+			if (m) {
+				date = new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
+			}
 		}
 
 		if (!date || dateInvalid.test(date.toString())) {

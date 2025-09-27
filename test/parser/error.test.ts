@@ -1,7 +1,8 @@
+import { describe, it, expect } from 'vitest';
 import { parse } from '../../src/parser/parse.js';
 
 describe('error handling', () => {
-	test('should error if parse options are invalid', async () => {
+	it('should error if parse options are invalid', async () => {
 		await expect(parse('' as any))
 			.rejects.toThrow(new TypeError('Expected parse options to be an object'));
 
@@ -15,7 +16,7 @@ describe('error handling', () => {
 			.rejects.toThrow(new TypeError('Expected parse options to be an object'));
 	});
 
-	test('should error if schema is invalid', async () => {
+	it('should error if schema is invalid', async () => {
 		await expect(parse({ schema: '' as any }))
 			.rejects.toThrow(new TypeError('Expected schema to be an object'));
 
@@ -29,7 +30,7 @@ describe('error handling', () => {
 			.rejects.toThrow(new TypeError('Expected schema to be an object'));
 	});
 
-	test('should error if argv is invalid', async () => {
+	it('should error if argv is invalid', async () => {
 		await expect(parse({ argv: '' as any }))
 			.rejects.toThrow(new TypeError('Expected argv to be an array'));
 
@@ -43,7 +44,7 @@ describe('error handling', () => {
 			.rejects.toThrow(new TypeError('Expected argv to be an array'));
 	});
 
-	test('should error if env is invalid', async () => {
+	it('should error if env is invalid', async () => {
 		await expect(parse({ env: '' as any }))
 			.rejects.toThrow(new TypeError('Expected environment option to be an object'));
 
@@ -57,7 +58,7 @@ describe('error handling', () => {
 			.rejects.toThrow(new TypeError('Expected environment option to be an object'));
 	});
 
-	test('should error if schema has an invalid name', async () => {
+	it('should error if schema has an invalid name', async () => {
 		await expect(parse({
 			schema: {
 				name: 123 as any

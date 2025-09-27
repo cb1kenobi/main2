@@ -42,29 +42,34 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		}
 
 		for (const p of parts) {
-			let m;
-			if (m = p.match(optionLongLikeRE)) {
+			let m = p.match(optionLongLikeRE);
+			if (m) {
 				m = p.match(optionLongRE);
 				if (!m) {
 					throw new TypeError(`Invalid option format: ${p}`);
 				}
 				long.add(p);
 				it.name ??= m[1];
+				continue;
+			}
 
-			} else if (m = p.match(optionShortRE)) {
+			m = p.match(optionShortRE);
+			if (m) {
 				short.add(m[0]);
+			} else {
+				m = p.match(optionHintRE);
+				if (m) {
+					// we have an option, not a flag
+					it.hint ??= m[2];
+					isFlag = false;
+					if (m[1] === '<') {
+						it.required ??= true;
+					}
 
-			} else if (m = p.match(optionHintRE)) {
-				// we have an option, not a flag
-				it.hint ??= m[2];
-				isFlag = false;
-				if (m[1] === '<') {
-					it.required ??= true;
+				} else if (!it.name) {
+					it.name = p;
+					long.add(`--${it.negate ? 'no-' : ''}${it.name}`);
 				}
-
-			} else if (!it.name) {
-				it.name = p;
-				long.add(`--${it.negate ? 'no-' : ''}${it.name}`);
 			}
 		}
 

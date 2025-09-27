@@ -1,16 +1,16 @@
 {
   "compilerOptions": {
     "allowJs": true,
-    "composite": true,
-    "declaration": true,
-    "declarationMap": true,
-    "esModuleInterop": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "esModuleInterop": false,
     "forceConsistentCasingInFileNames": true,
     "inlineSources": false,
     "isolatedModules": true,
-    "lib": [ "ES2022" ],
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "lib": ["esnext"],
+    "module": "esnext",
+    "moduleResolution": "node",
     "noImplicitAny": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -19,12 +19,10 @@
     "removeComments": true,
     "skipLibCheck": true,
     "strict": true,
-    "sourceMap": true,
-    "target": "ES2022",
-    "types": [
-      "vitest/globals"
-    ]
+    "sourceMap": false,
+    "target": "esnext",
+    "typeRoots": ["./node_modules/@types"],
+    "types": ["node"]
   },
-  "exclude": ["dist", "node_modules"],
-  "include": ["./src", "./test"]
+  "include": ["./rollup.config.ts", "./rollup.dts.config.ts", "./src"]
 }

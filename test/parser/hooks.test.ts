@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { parse } from '../../src/parser/parse.js';
 
 describe('hooks', () => {

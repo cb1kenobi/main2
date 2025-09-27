@@ -155,7 +155,8 @@ function resolveTypePath(type: string) {
 	const dirs = paths[process.platform][type];
 	if (Array.isArray(dirs)) {
 		for (let dir of dirs) {
-			if (dir = expand(dir)) {
+			dir = expand(dir);
+			if (dir) {
 				return dir;
 			}
 		}

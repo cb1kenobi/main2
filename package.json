@@ -2,6 +2,8 @@
   "name": "main2",
   "version": "0.0.1",
   "description": "CLI framework 2",
+  "author": "Chris Barber <me@chrisbarber.dev>",
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
@@ -12,36 +14,50 @@
   },
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "pnpm run lint:src && tsc --build tsconfig.build.json",
-    "coverage": "vitest run --coverage",
-    "lint": "pnpm run lint:src && pnpm run lint:test  ",
-    "lint:src": "eslint --cache \"src/**/*.ts\"",
-    "lint:test": "eslint --cache --config \"test/.eslintrc.cjs\" \"test/**/*.ts\"",
+    "build": "pnpm build:bundle && pnpm build:types",
+    "build:bundle": "rimraf dist && rollup -c rollup.config.ts --configPlugin typescript",
+    "build:types": "pnpm build:types:temp && pnpm build:types:roll && pnpm build:types:check",
+    "build:types:temp": "tsc --declaration --emitDeclarationOnly --outDir temp --project tsconfig.build.json",
+    "build:types:roll": "rollup --config rollup.dts.config.ts --configPlugin typescript && rimraf temp",
+    "build:types:check": "tsc --project tsconfig.check.json",
+    "check": "pnpm type-check && pnpm lint",
+    "coverage": "vitest --coverage",
+    "lint": "oxlint",
     "prepublishOnly": "pnpm run build",
-    "test": "pnpm run lint && vitest",
-    "watch": "tsc --watch --project tsconfig.build.json"
+    "test": "vitest",
+    "test:bun": "bun --bun test",
+    "type-check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "20.4.2",
-    "@typescript-eslint/eslint-plugin": "6.1.0",
-    "@typescript-eslint/parser": "6.1.0",
-    "@vitest/coverage-c8": "0.33.0",
-    "@vitest/coverage-v8": "^0.33.0",
-    "eslint": "8.45.0",
-    "eslint-import-resolver-typescript": "3.5.5",
-    "eslint-plugin-import": "2.27.5",
-    "eslint-plugin-promise": "6.1.1",
-    "eslint-plugin-security": "1.7.1",
-    "eslint-plugin-tsdoc": "0.2.17",
-    "ts-node": "10.9.1",
-    "typescript": "5.1.6",
-    "vitest": "0.33.0"
+    "@rollup/plugin-node-resolve": "16.0.1",
+    "@rollup/plugin-typescript": "12.1.4",
+    "@types/node": "24.5.2",
+    "@vitest/coverage-v8": "3.2.4",
+    "esbuild": "0.25.10",
+    "lefthook": "1.13.2",
+    "oxlint": "1.16.0",
+    "rimraf": "6.0.1",
+    "rollup": "4.52.0",
+    "rollup-plugin-dts": "6.2.3",
+    "rollup-plugin-esbuild": "6.2.1",
+    "tslib": "2.8.1",
+    "tsx": "4.20.6",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
   },
+  "files": [
+    "dist"
+  ],
   "keywords": [],
-  "author": "Chris Barber <me@chrisbarber.dev>",
-  "license": "MIT",
+  "homepage": "https://github.com/cb1kenobi/main2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cb1kenobi/main2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cb1kenobi/main2/issues"
+  },
   "engines": {
     "node": ">=16.13.0"
-  },
-  "packageManager": "pnpm@8.6.5"
+  }
 }

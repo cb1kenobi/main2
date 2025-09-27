@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { Internal, Option } from '../../src/types.js';
 import { parse } from '../../src/parser/parse.js';
 
@@ -1197,7 +1198,7 @@ describe('options', () => {
 					options: {
 						'--foo <bar>': {
 							foo: 'BC',
-							async transform(value): Promise<string | undefined> {
+							async transform(value) {
 								if (typeof value === 'string') {
 									return value.toUpperCase() + (this as Option).foo;
 								}

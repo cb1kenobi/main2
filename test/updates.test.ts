@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { check } from '../src/updates/index.js';
 import { randomUUID } from 'node:crypto';
 import { tmp } from '../src/paths.js';
@@ -8,7 +9,8 @@ async function generateTmpDir() {
 
 describe('updates', () => {
 	beforeAll(() => {
-		process.env.NODE_OPTIONS = '--loader ts-node/esm';
+		const [major, minor] = process.versions.node.split('.').map(Number);
+		process.env.NODE_OPTIONS = `--loader tsx${major < 22 && (major === 22 && minor < 6) ? '/esm/api' : ''}`;
 	});
 
 	afterAll(() => {

@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { Internal } from '../../src/types.js';
 import { parse } from '../../src/parser/parse.js';
@@ -38,7 +39,7 @@ describe('commands', () => {
 						'<foo>': {}
 					}
 				}
-			})).rejects.toThrow(new TypeError('Unable to determine command name from "<foo>"'));
+			})).rejects.toThrow(new Error('Unable to determine command name from "<foo>"'));
 		});
 
 		it('should error if run function is invalid', async () => {
@@ -371,7 +372,7 @@ describe('commands', () => {
 			})).rejects.toThrow('Missing required arguments: <mode>');
 		});
 
-		it('should error if both arsg and inline args', async () => {
+		it('should error if both args and inline args', async () => {
 			await expect(parse({
 				schema: {
 					commands: {
