@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "allowJs": true,
+    "allowSyntheticDefaultImports": true,
     "composite": false,
     "declaration": false,
     "declarationMap": false,
@@ -24,5 +25,6 @@
     "typeRoots": ["./node_modules/@types"],
     "types": ["node"]
   },
-  "include": ["./rollup.config.ts", "./rollup.dts.config.ts", "./src"]
+  "include": ["./rollup.config.ts", "./rollup.dts.config.ts", "./benchmark", "./src", "./test", "./vitest.config.ts"],
+  "exclude": ["./test/parser/fixtures"]
 }
