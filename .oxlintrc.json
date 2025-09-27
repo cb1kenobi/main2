@@ -6,6 +6,9 @@
 	},
 	"ignorePatterns": [
 		"dist/**",
-		"test/**/fixtures/**"
-	]
+		"test/parser/fixtures/**"
+	],
+	"rules": {
+		"no-console": "off"
+	}
 }
