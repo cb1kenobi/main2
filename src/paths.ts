@@ -8,29 +8,20 @@ const paths = {
 		cache: '~/Library/Caches',
 		config: '~/Library/Preferences',
 		data: '~/Library/Application Support',
-		state: '~/Library/state'
+		state: '~/Library/state',
 	},
 	linux: {
 		cache: '~/.cache',
 		config: '~/.config',
 		data: '~/.local/share',
-		state: '~/.local/state'
+		state: '~/.local/state',
 	},
 	win32: {
-		cache: [
-			'%LOCALAPPDATA%',
-			'~/AppData/Local'
-		],
+		cache: ['%LOCALAPPDATA%', '~/AppData/Local'],
 		config: '~\\.config',
-		data: [
-			'%APPDATA%',
-			'~/AppData/Roaming'
-		],
-		state: [
-			'%LOCALAPPDATA%',
-			'~/AppData/Local'
-		]
-	}
+		data: ['%APPDATA%', '~/AppData/Roaming'],
+		state: ['%LOCALAPPDATA%', '~/AppData/Local'],
+	},
 } as const;
 
 let _cache: string | undefined;
@@ -42,42 +33,42 @@ let _home: string | undefined;
 let _state: string | undefined;
 let _tmp: string | undefined;
 
-export function cache(...paths: string[]) {
+export function cache(...paths: string[]): string | undefined {
 	if (!_cache) {
 		_cache = resolvePath('XDG_CACHE_HOME', 'cache');
 	}
 	return _cache && paths ? join(_cache, ...paths) : _cache;
 }
 
-export function config(...paths: string[]) {
+export function config(...paths: string[]): string | undefined {
 	if (!_config) {
 		_config = resolvePath('XDG_CONFIG_HOME', 'config');
 	}
 	return _config && paths ? join(_config, ...paths) : _config;
 }
 
-export function configDirs() {
+export function configDirs(): string[] | undefined {
 	if (!_configDirs) {
 		_configDirs = combinePaths(
 			config(),
-			process.env.XDG_CONFIG_DIRS?.split(delimiter).map(p => expand(p))
+			process.env.XDG_CONFIG_DIRS?.split(delimiter).map((p) => expand(p))
 		);
 	}
 	return _configDirs;
 }
 
-export function data(...paths: string[]) {
+export function data(...paths: string[]): string | undefined {
 	if (!_data) {
 		_data = resolvePath('XDG_DATA_HOME', 'data');
 	}
 	return _data && paths ? join(_data, ...paths) : _data;
 }
 
-export function dataDirs() {
+export function dataDirs(): string[] | undefined {
 	if (!_dataDirs) {
 		_dataDirs = combinePaths(
 			config(),
-			process.env.XDG_DATA_DIRS?.split(delimiter).map(p => expand(p))
+			process.env.XDG_DATA_DIRS?.split(delimiter).map((p) => expand(p))
 		);
 	}
 	return _dataDirs;
@@ -92,45 +83,50 @@ const winEnvVarRegExp = /(%([^%]*)%)/g;
  * @param segments - The path segments to join and resolvePath.
  * @returns the expanded path.
  */
-export function expand(...segments) {
+export function expand(...segments: string[]): string {
 	segments[0] = segments[0].replace(homeDirRegExp, `${home()}$1`);
 
 	if (process.platform === 'win32') {
-		return normalize(join(...segments).replace(winEnvVarRegExp, (s, m, n) => {
-			return process.env[n] || m;
-		}));
+		return normalize(
+			join(...segments).replace(winEnvVarRegExp, (s, m, n) => {
+				return process.env[n] || m;
+			})
+		);
 	}
 
 	return normalize(join(...segments));
 }
 
-export function home(...paths: string[]) {
+export function home(...paths: string[]): string | undefined {
 	if (!_home) {
 		_home = homedir();
 	}
 	return paths ? join(_home, ...paths) : _home;
 }
 
-export function runtime(...paths: string[]) {
+export function runtime(...paths: string[]): string | undefined {
 	const dir = resolvePath('XDG_RUNTIME_DIR');
 	return dir && paths ? join(dir, ...paths) : dir;
 }
 
-export function state(...paths: string[]) {
+export function state(...paths: string[]): string | undefined {
 	if (!_state) {
 		_state = resolvePath('XDG_STATE_HOME', 'state');
 	}
 	return _state && paths ? join(_state, ...paths) : _state;
 }
 
-export function tmp(...paths: string[]) {
+export function tmp(...paths: string[]): string | undefined {
 	if (!_tmp) {
 		_tmp = tmpdir();
 	}
 	return _tmp && paths ? join(_tmp, ...paths) : _tmp;
 }
 
-function combinePaths(primary: string | undefined, additional: string[] | undefined): string[] {
+function combinePaths(
+	primary: string | undefined,
+	additional: string[] | undefined
+): string[] | undefined {
 	const paths = new Set<string>();
 	if (primary) {
 		paths.add(primary);

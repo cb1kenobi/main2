@@ -8,7 +8,10 @@ const intRE = /^-?\d+$/;
 const noRE = /^no?$/i;
 const yesRE = /^y(es)?$/i;
 
-export function transformValue(value: string, type: DataType | string) {
+export function transformValue(
+	value: string,
+	type: DataType | string
+): Date | number | boolean | string | unknown {
 	if (type === 'bool') {
 		return !!value && value !== 'false';
 	}
@@ -38,7 +41,7 @@ export function transformValue(value: string, type: DataType | string) {
 
 	if (type === 'int') {
 		let num;
-		if ((!hexRE.test(value) && !intRE.test(value)) || isNaN(num = Number(value))) {
+		if ((!hexRE.test(value) && !intRE.test(value)) || isNaN((num = Number(value)))) {
 			throw new Error(`Invalid integer: ${value}`);
 		}
 		return num;
@@ -47,7 +50,7 @@ export function transformValue(value: string, type: DataType | string) {
 	if (type === 'json') {
 		try {
 			return JSON.parse(value);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		} catch (e: any) {
 			throw new Error(`Invalid JSON: ${e.message}`);
 		}

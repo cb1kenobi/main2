@@ -1,8 +1,8 @@
 import debug from '../debug/index.js';
+import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
 
 const { log } = debug('main2:updates');
 const oneDay = 86400000;
@@ -20,7 +20,9 @@ export interface CheckOptions {
 	wait?: boolean;
 }
 
-export async function check(opts: CheckOptions) {
+export async function check(
+	opts: CheckOptions
+): Promise<{ current: string; latest: string | undefined }> {
 	if (!opts || typeof opts !== 'object') {
 		throw new TypeError('Update check options must be an object');
 	}
@@ -34,7 +36,7 @@ export async function check(opts: CheckOptions) {
 		packageVersion,
 		registryURL,
 		timeout = 5000,
-		wait = false
+		wait = false,
 	} = opts;
 
 	if (!packageName || typeof packageName !== 'string') {
@@ -65,30 +67,28 @@ export async function check(opts: CheckOptions) {
 		const workerScript = readFileSync(workerFile, 'utf-8');
 		const env = {
 			...process.env,
-			CACHE_FILE:   cacheFile,
-			DIST_TAG:     distTag,
+			CACHE_FILE: cacheFile,
+			DIST_TAG: distTag,
 			PACKAGE_NAME: packageName,
-			REGISTRY_URL: registryURL
+			REGISTRY_URL: registryURL,
 		};
 
 		log('Spawning update worker...');
-		const worker = spawn(process.execPath, [
-			'--input-type', 'module'
-		], {
+		const worker = spawn(process.execPath, ['--input-type', 'module'], {
 			cwd,
 			env,
-			stdio: ['pipe', 'pipe', 'pipe']
+			stdio: ['pipe', 'pipe', 'pipe'],
 		});
 		worker.stdin.write(workerScript);
 		worker.stdin.end();
 
 		let stdout = '';
-		worker.stdout.on('data', data => {
+		worker.stdout.on('data', (data) => {
 			stdout += data.toString();
 		});
 
 		let stderr = '';
-		worker.stderr.on('data', data => {
+		worker.stderr.on('data', (data) => {
 			stderr += data.toString();
 		});
 
@@ -101,7 +101,7 @@ export async function check(opts: CheckOptions) {
 				}, timeout);
 			}
 
-			worker.on('close', code => {
+			worker.on('close', (code) => {
 				clearTimeout(timer);
 				if (code) {
 					reject(new Error(`Update worker error (code ${code})\n${stderr.trim()}`));
@@ -136,6 +136,6 @@ export async function check(opts: CheckOptions) {
 
 	return {
 		current: packageVersion,
-		latest: cache?.version
+		latest: cache?.version,
 	};
 }

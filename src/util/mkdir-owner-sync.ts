@@ -1,6 +1,6 @@
 import { chownSync, lchownSync, lstatSync, mkdirSync } from 'node:fs';
-import { dirname, parse, resolve } from 'node:path';
 import type { MakeDirectoryOptions } from 'node:fs';
+import { dirname, parse, resolve } from 'node:path';
 
 interface MkdirOwnerOptions extends MakeDirectoryOptions {
 	gid?: number;
@@ -9,7 +9,7 @@ interface MkdirOwnerOptions extends MakeDirectoryOptions {
 
 const changeOwner = lchownSync || chownSync;
 
-export function mkdirOwnerSync(dest: string, opts: MkdirOwnerOptions = {}) {
+export function mkdirOwnerSync(dest: string, opts: MkdirOwnerOptions = {}): void {
 	dest = resolve(dest);
 
 	let { gid, uid } = opts;
@@ -38,7 +38,7 @@ export function mkdirOwnerSync(dest: string, opts: MkdirOwnerOptions = {}) {
 	mkdirSync(dest, {
 		mode: 0o7777,
 		recursive: true,
-		...opts
+		...opts,
 	});
 
 	if (applyOwner && uid && gid) {

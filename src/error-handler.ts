@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export function errorHandler(err: any) {
+export function errorHandler(err: unknown): void {
 	// TODO: improve error rendering
 	console.error(err);
 
-	process.exitCode = err.exitCode || 1;
+	process.exitCode = (err as { exitCode?: number }).exitCode ?? 1;
 }

@@ -1,17 +1,15 @@
 {
   "compilerOptions": {
-    "allowJs": true,
-    "allowSyntheticDefaultImports": true,
     "composite": false,
-    "declaration": false,
+    "declaration": true,
     "declarationMap": false,
-    "esModuleInterop": false,
     "forceConsistentCasingInFileNames": true,
     "inlineSources": false,
+    "isolatedDeclarations": true,
     "isolatedModules": true,
     "lib": ["esnext"],
     "module": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "noImplicitAny": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -25,6 +23,6 @@
     "typeRoots": ["./node_modules/@types"],
     "types": ["node"]
   },
-  "include": ["./rollup.config.ts", "./rollup.dts.config.ts", "./benchmark", "./src", "./test", "./vitest.config.ts"],
+  "include": ["./benchmark", "./src", "./test", "./vitest.config.ts"],
   "exclude": ["./test/parser/fixtures"]
 }

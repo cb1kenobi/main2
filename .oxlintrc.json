@@ -1,14 +1,11 @@
 {
-	"$schema": "./node_modules/oxlint/configuration_schema.json",
-	"env": {
-		"node": true,
-		"es2024": true
-	},
-	"ignorePatterns": [
-		"dist/**",
-		"test/parser/fixtures/**"
-	],
-	"rules": {
-		"no-console": "off"
-	}
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": ["dist/**", "test/parser/fixtures/**"],
+  "rules": {
+    "no-console": "off"
+  }
 }

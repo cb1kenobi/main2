@@ -1,17 +1,17 @@
+import debug from '../../debug/index.js';
 import {
 	Command,
 	Internal,
 	InternalArgument,
 	InternalCommand,
 	InternalState,
-	Schema
+	Schema,
 } from '../../types.js';
-import { CommandRegistry } from './command-registry.js';
-import debug from '../../debug/index.js';
-import { dirname, join, parse } from 'node:path';
 import { initArg } from '../argument/init-arg.js';
 import { OptionRegistry } from '../option/option-registry.js';
+import { CommandRegistry } from './command-registry.js';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, parse } from 'node:path';
 
 const { log } = debug('main2:init-command');
 
@@ -106,27 +106,27 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		if (it.commands && typeof it.commands === 'string') {
 			await registerCommandPath({
 				commands,
-				file: it.commands
+				file: it.commands,
 			});
-
 		} else if (Array.isArray(it.commands)) {
 			await Promise.all(
-				it.commands.map(cmdOrPath => registerCommand({
-					cmdOrPath,
-					commands
-				}))
-			);
-
-		} else if (it.commands && typeof it.commands === 'object') {
-			await Promise.all(
-				Object.entries(it.commands)
-					.map(([name, cmdOrPath]) => registerCommand({
+				it.commands.map((cmdOrPath) =>
+					registerCommand({
 						cmdOrPath,
 						commands,
-						name
-					}))
+					})
+				)
 			);
-
+		} else if (it.commands && typeof it.commands === 'object') {
+			await Promise.all(
+				Object.entries(it.commands).map(([name, cmdOrPath]) =>
+					registerCommand({
+						cmdOrPath,
+						commands,
+						name,
+					})
+				)
+			);
 		} else {
 			throw new TypeError('Expected commands to be one or more paths or an object');
 		}
@@ -142,18 +142,15 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		for (let [format, params] of Object.entries(it.options)) {
 			if (params === undefined || params === null) {
 				params = {
-					format
+					format,
 				};
-
 			} else if (typeof params === 'string') {
 				params = {
 					desc: params,
-					format
+					format,
 				};
-
 			} else if (params && typeof params === 'object') {
 				params.format ??= format;
-
 			} else {
 				throw new TypeError('Expected option to be an object');
 			}
@@ -169,9 +166,8 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		entryFile = entryFile ? join(dirname(entryFile), commandPath) : commandPath;
 	}
 
-	const cmd = new Proxy(Object.defineProperty(
-		it,
-		Internal, {
+	const cmd = new Proxy(
+		Object.defineProperty(it, Internal, {
 			configurable: true,
 			value: {
 				aliases,
@@ -180,41 +176,42 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 				label: parsed.label,
 				options,
 				path: entryFile,
-				state: InternalState.OK
-			}
+				state: InternalState.OK,
+			},
+		}),
+		{
+			deleteProperty(target, prop) {
+				if (typeof prop !== 'string') {
+					return false;
+				}
+				if (prop === 'args') {
+					// TODO
+				} else if (prop === 'commands') {
+					// TODO
+				} else if (prop === 'options') {
+					// TODO
+				} else {
+					delete target[prop];
+				}
+				return true;
+			},
+			set(target, prop, value) {
+				if (typeof prop !== 'string') {
+					return false;
+				}
+				if (prop === 'args') {
+					// TODO
+				} else if (prop === 'commands') {
+					// TODO
+				} else if (prop === 'options') {
+					// TODO
+				} else {
+					target[prop] = value;
+				}
+				return true;
+			},
 		}
-	), {
-		deleteProperty(target, prop) {
-			if (typeof prop !== 'string') {
-				return false;
-			}
-			if (prop === 'args') {
-				// TODO
-			} else if (prop === 'commands') {
-				// TODO
-			} else if (prop === 'options') {
-				// TODO
-			} else {
-				delete target[prop];
-			}
-			return true;
-		},
-		set(target, prop, value) {
-			if (typeof prop !== 'string') {
-				return false;
-			}
-			if (prop === 'args') {
-				// TODO
-			} else if (prop === 'commands') {
-				// TODO
-			} else if (prop === 'options') {
-				// TODO
-			} else {
-				target[prop] = value;
-			}
-			return true;
-		}
-	}) as InternalCommand;
+	) as InternalCommand;
 
 	if (command.hooks?.init !== undefined) {
 		if (!Array.isArray(command.hooks.init)) {
@@ -229,11 +226,11 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 }
 
 function parseName(unparsedName: string): {
-	aliases: string[],
-	args: string[],
-	hidden: boolean,
-	label: string,
-	name: string
+	aliases: string[];
+	args: string[];
+	hidden: boolean;
+	label: string;
+	name: string;
 } {
 	const aliases: string[] = [];
 	const args: string[] = [];
@@ -272,14 +269,14 @@ function parseName(unparsedName: string): {
 		args,
 		hidden,
 		label: labels.join(', '),
-		name
+		name,
 	};
 }
 
 async function registerCommand({
 	cmdOrPath,
 	commands,
-	name
+	name,
 }: {
 	cmdOrPath: string | Command;
 	commands: CommandRegistry;
@@ -289,7 +286,7 @@ async function registerCommand({
 		await registerCommandPath({
 			commands,
 			file: cmdOrPath,
-			name
+			name,
 		});
 	} else if (cmdOrPath && typeof cmdOrPath === 'object') {
 		if (cmdOrPath.name === undefined) {
@@ -304,7 +301,7 @@ async function registerCommand({
 async function registerCommandPath({
 	commands,
 	file,
-	name
+	name,
 }: {
 	commands: CommandRegistry;
 	file: string;
@@ -373,9 +370,7 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 		entry = entry['.'] || entry.default;
 	}
 
-	const filePaths = entry ?
-		[entry] :
-		['index.js', 'index.mjs', 'index.cjs'];
+	const filePaths = entry ? [entry] : ['index.js', 'index.mjs', 'index.cjs'];
 	let entryFile;
 
 	for (const filepath of filePaths) {
@@ -392,11 +387,10 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 	}
 
 	if (!entryFile) {
-		throw new Error(`Command package does not have a valid ${
-			type === 'module' ? 'export' : 'main'
-		}: ${dir}`);
+		throw new Error(
+			`Command package does not have a valid ${type === 'module' ? 'export' : 'main'}: ${dir}`
+		);
 	}
-
 
 	const { default: cmd } = await import(entryFile);
 

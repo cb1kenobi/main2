@@ -1,6 +1,6 @@
 {
-	"name": "bad-pkg-main-missing",
-	"version": "1.0.0",
-	"private": true,
-	"main": "./index.js"
-  }
+  "name": "bad-pkg-main-missing",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./index.js"
+}

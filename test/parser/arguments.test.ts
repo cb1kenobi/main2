@@ -1,104 +1,116 @@
-import { describe, it, expect } from 'vitest';
-import { Argument } from '../../src/types.js';
 import { parse } from '../../src/parser/parse.js';
+import { Argument } from '../../src/types.js';
+import { describe, it, expect } from 'vitest';
 
 describe('arguments', () => {
 	describe('Error Handling', () => {
 		it('should error if argument list is not an array', async () => {
-			await expect(parse({
-				schema: {
-					args: null as any
-				}
-			})).rejects.toThrow('Expected arguments to be an array');
+			await expect(
+				parse({
+					schema: {
+						args: null as any,
+					},
+				})
+			).rejects.toThrow('Expected arguments to be an array');
 
-			await expect(parse({
-				schema: {
-					args: 123 as any
-				}
-			})).rejects.toThrow('Expected arguments to be an array');
+			await expect(
+				parse({
+					schema: {
+						args: 123 as any,
+					},
+				})
+			).rejects.toThrow('Expected arguments to be an array');
 		});
 
 		it('should error if argument definition is not an object', async () => {
-			await expect(parse({
-				schema: {
-					args: [
-						null as any
-					]
-				}
-			})).rejects.toThrow('Invalid argument definition: null');
+			await expect(
+				parse({
+					schema: {
+						args: [null as any],
+					},
+				})
+			).rejects.toThrow('Invalid argument definition: null');
 
-			await expect(parse({
-				schema: {
-					args: [
-						123 as any
-					]
-				}
-			})).rejects.toThrow('Invalid argument definition: 123');
+			await expect(
+				parse({
+					schema: {
+						args: [123 as any],
+					},
+				})
+			).rejects.toThrow('Invalid argument definition: 123');
 		});
 
 		it('should error if argument name is invalid', async () => {
-			await expect(parse({
-				schema: {
-					args: [
-						{ name: undefined as any }
-					]
-				}
-			})).rejects.toThrow('Expected argument to have a name');
+			await expect(
+				parse({
+					schema: {
+						args: [{ name: undefined as any }],
+					},
+				})
+			).rejects.toThrow('Expected argument to have a name');
 
-			await expect(parse({
-				schema: {
-					args: [
-						{ name: '' }
-					]
-				}
-			})).rejects.toThrow('Expected argument to have a name');
+			await expect(
+				parse({
+					schema: {
+						args: [{ name: '' }],
+					},
+				})
+			).rejects.toThrow('Expected argument to have a name');
 
-			await expect(parse({
-				schema: {
-					args: [
-						{ name: '\n' }
-					]
-				}
-			})).rejects.toThrow('Invalid argument name: "\\n"');
+			await expect(
+				parse({
+					schema: {
+						args: [{ name: '\n' }],
+					},
+				})
+			).rejects.toThrow('Invalid argument name: "\\n"');
 		});
 
 		it('should error if argument definition type is invalid', async () => {
-			await expect(parse({
-				schema: {
-					args: [
-						{
-							name: 'foo',
-							type: 'bar'
-						}
-					]
-				}
-			})).rejects.toThrow('Argument "foo" has unsupported data type "bar"');
+			await expect(
+				parse({
+					schema: {
+						args: [
+							{
+								name: 'foo',
+								type: 'bar',
+							},
+						],
+					},
+				})
+			).rejects.toThrow('Argument "foo" has unsupported data type "bar"');
 		});
 
 		it('should error if argument transform is invalid', async () => {
-			await expect(parse({
-				schema: {
-					args: [
-						{
-							name: 'foo',
-							transform: 'bar' as any
-						}
-					]
-				}
-			})).rejects.toThrow('Expected argument transform function to be a function');
+			await expect(
+				parse({
+					schema: {
+						args: [
+							{
+								name: 'foo',
+								transform: 'bar' as any,
+							},
+						],
+					},
+				})
+			).rejects.toThrow('Expected argument transform function to be a function');
 		});
 
 		it('should error if env is invalid', async () => {
-			await expect(parse({
-				schema: {
-					args: [
-						{
-							name: 'foo',
-							env: 123 as any
-						}
-					]
-				}
-			})).rejects.toThrow('Expected argument environment variable to be a string or array of strings');
+			await expect(
+				parse({
+					schema: {
+						args: [
+							{
+								name: 'foo',
+								env: 123 as any,
+							},
+						],
+					},
+				})
+			).rejects.toThrow(
+				'Expected argument environment variable to be a string or array of strings'
+			);
 		});
 	});
 
@@ -115,17 +127,19 @@ describe('arguments', () => {
 		});
 
 		it('should error if argument is unexpected', async () => {
-			await expect(parse({
-				argv: ['a']
-			})).rejects.toThrow('Unexpected argument "a"');
+			await expect(
+				parse({
+					argv: ['a'],
+				})
+			).rejects.toThrow('Unexpected argument "a"');
 		});
 
 		it('should handle unnamed arguments', async () => {
 			const result = await parse({
 				argv: ['a', 'b', 'c'],
 				settings: {
-					allowUnexpectedArguments: true
-				}
+					allowUnexpectedArguments: true,
+				},
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);
 			expect(result.argv).to.deep.equal({});
@@ -135,48 +149,47 @@ describe('arguments', () => {
 			const result = await parse({
 				argv: ['a', 'b', 'c'],
 				schema: {
-					args: [
-						'first',
-						'second'
-					],
+					args: ['first', 'second'],
 				},
 				settings: {
-					allowUnexpectedArguments: true
-				}
+					allowUnexpectedArguments: true,
+				},
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);
 			expect(result.argv).to.deep.equal({
 				first: 'a',
-				second: 'b'
+				second: 'b',
 			});
 		});
 
 		it('should error if required argument is missing', async () => {
-			await expect(parse({
-				schema: {
-					args: ['<a>']
-				}
-			})).rejects.toThrow('Missing required arguments: <a>');
+			await expect(
+				parse({
+					schema: {
+						args: ['<a>'],
+					},
+				})
+			).rejects.toThrow('Missing required arguments: <a>');
 		});
 
 		it('should error if required argument is missing after optional argument', async () => {
-			await expect(parse({
-				schema: {
-					args: ['a', '<b>', 'c']
-				}
-			})).rejects.toThrow('Missing required arguments: <a> <b>');
+			await expect(
+				parse({
+					schema: {
+						args: ['a', '<b>', 'c'],
+					},
+				})
+			).rejects.toThrow('Missing required arguments: <a> <b>');
 		});
 
 		it('should not error if required argument has default', async () => {
 			const result = await parse({
 				env: {
-					FOO: 'bar'
+					FOO: 'bar',
 				},
 				schema: {
-					args: [
-						{ name: 'foo', env: 'FOO', required: true }
-					]
-				}
+					args: [{ name: 'foo', env: 'FOO', required: true }],
+				},
 			});
 
 			expect(result.argv.foo).to.equal('bar');
@@ -185,13 +198,11 @@ describe('arguments', () => {
 		it('should try to default to a single env variable', async () => {
 			const result = await parse({
 				env: {
-					FOO: 'bar'
+					FOO: 'bar',
 				},
 				schema: {
-					args: [
-						{ name: 'foo', env: 'FOO' }
-					]
-				}
+					args: [{ name: 'foo', env: 'FOO' }],
+				},
 			});
 
 			expect(result.argv.foo).to.equal('bar');
@@ -200,13 +211,11 @@ describe('arguments', () => {
 		it('should try to default to multiple env variables', async () => {
 			const result = await parse({
 				env: {
-					BAR: 'baz'
+					BAR: 'baz',
 				},
 				schema: {
-					args: [
-						{ name: 'foo', env: ['FOO', 'BAR'] }
-					]
-				}
+					args: [{ name: 'foo', env: ['FOO', 'BAR'] }],
+				},
 			});
 
 			expect(result.argv.foo).to.equal('baz');
@@ -216,33 +225,32 @@ describe('arguments', () => {
 			const result = await parse({
 				argv: ['--', 'a', 'b', 'c'],
 				settings: {
-					allowExtraArguments: true
-				}
+					allowExtraArguments: true,
+				},
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);
 			expect(result.argv).to.deep.equal({});
 		});
 
 		it('should error if extra arguments are not allowed', async () => {
-			await expect(parse({
-				argv: ['--', 'a', 'b', 'c']
-			})).rejects.toThrow('Extra arguments are not allowed: a b c');
+			await expect(
+				parse({
+					argv: ['--', 'a', 'b', 'c'],
+				})
+			).rejects.toThrow('Extra arguments are not allowed: a b c');
 		});
 
 		it('should capture multiple arguments as an array', async () => {
 			let result = await parse({
 				argv: ['a', 'b', 'c'],
 				schema: {
-					args: [
-						'first',
-						'letters...'
-					]
-				}
+					args: ['first', 'letters...'],
+				},
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);
 			expect(result.argv).to.deep.equal({
 				first: 'a',
-				letters: ['b', 'c']
+				letters: ['b', 'c'],
 			});
 
 			result = await parse({
@@ -250,14 +258,14 @@ describe('arguments', () => {
 				schema: {
 					args: [
 						{ name: 'first', required: true },
-						{ name: 'letters', multiple: true }
-					]
-				}
+						{ name: 'letters', multiple: true },
+					],
+				},
 			});
 			expect(result._).to.deep.equal(['a', 'b', 'c']);
 			expect(result.argv).to.deep.equal({
 				first: 'a',
-				letters: ['b', 'c']
+				letters: ['b', 'c'],
 			});
 		});
 
@@ -265,14 +273,12 @@ describe('arguments', () => {
 			const result = await parse({
 				argv: ['a'],
 				schema: {
-					args: [
-						{ name: 123 as any }
-					]
-				}
+					args: [{ name: 123 as any }],
+				},
 			});
 			expect(result._).to.deep.equal(['a']);
 			expect(result.argv).to.deep.equal({
-				'123': 'a'
+				'123': 'a',
 			});
 		});
 
@@ -285,16 +291,16 @@ describe('arguments', () => {
 						'[b]',
 						{
 							default: 'foo',
-							name: '[c]'
-						}
-					]
-				}
+							name: '[c]',
+						},
+					],
+				},
 			});
 			expect(result._).to.deep.equal(['a', 'b']);
 			expect(result.argv).to.deep.equal({
 				a: 'a',
 				b: 'b',
-				c: 'foo'
+				c: 'foo',
 			});
 		});
 
@@ -302,14 +308,12 @@ describe('arguments', () => {
 			const result = await parse({
 				argv: ['dist'],
 				schema: {
-					args: [
-						'output-dir'
-					]
-				}
+					args: ['output-dir'],
+				},
 			});
 			expect(result._).to.deep.equal(['dist']);
 			expect(result.argv).to.deep.equal({
-				outputDir: 'dist'
+				outputDir: 'dist',
 			});
 		});
 	});
@@ -327,14 +331,14 @@ describe('arguments', () => {
 								if (typeof value === 'string') {
 									return value.toUpperCase() + (this as Argument).foo;
 								}
-							}
-						}
-					]
-				}
+							},
+						},
+					],
+				},
 			});
 			expect(result._).to.deep.equal(['ABC']);
 			expect(result.argv).to.deep.equal({
-				a: 'ABC'
+				a: 'ABC',
 			});
 		});
 
@@ -351,14 +355,14 @@ describe('arguments', () => {
 								if (typeof value === 'string') {
 									return now;
 								}
-							}
-						}
-					]
-				}
+							},
+						},
+					],
+				},
 			});
 			expect(result._).to.deep.equal([now]);
 			expect(result.argv).to.deep.equal({
-				a: now
+				a: now,
 			});
 		});
 	});
@@ -369,92 +373,89 @@ describe('arguments', () => {
 				args: [
 					{
 						name: 'foo',
-						type: 'auto'
-					}
-				]
+						type: 'auto',
+					},
+				],
 			};
 
 			let result = await parse({
 				argv: ['true'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([true]);
 			expect(result.argv).to.deep.equal({
-				foo: true
+				foo: true,
 			});
 
 			result = await parse({
 				argv: ['false'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([false]);
 			expect(result.argv).to.deep.equal({
-				foo: false
+				foo: false,
 			});
 
 			const now = new Date();
 
 			result = await parse({
 				argv: [now.toISOString()],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([now]);
 			expect(result.argv).to.deep.equal({
-				foo: now
+				foo: now,
 			});
 
-			const nowFormatted = `${
-				now.getFullYear()
-			}-${
-				String(now.getMonth() + 1).padStart(2, '0')
-			}-${
-				String(now.getDate()).padStart(2, '0')
-			}`;
+			const nowFormatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+				2,
+				'0'
+			)}-${String(now.getDate()).padStart(2, '0')}`;
 			const now2 = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
 
 			result = await parse({
 				argv: [nowFormatted],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([now2]);
 			expect(result.argv).to.deep.equal({
-				foo: now2
+				foo: now2,
 			});
 
 			result = await parse({
 				argv: ['123'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([123]);
 			expect(result.argv).to.deep.equal({
-				foo: 123
+				foo: 123,
 			});
 
 			result = await parse({
 				argv: ['3.14'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([3.14]);
 			expect(result.argv).to.deep.equal({
-				foo: 3.14
+				foo: 3.14,
 			});
 
 			result = await parse({
 				argv: ['{"bar": "baz"}'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([{ bar: 'baz' }]);
 			expect(result.argv).to.deep.equal({
-				foo: { bar: 'baz' }
+				foo: { bar: 'baz' },
 			});
 
 			result = await parse({
 				argv: ['bar'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal(['bar']);
 			expect(result.argv).to.deep.equal({
-				foo: 'bar'
+				foo: 'bar',
 			});
 		});
 
@@ -463,36 +464,36 @@ describe('arguments', () => {
 				args: [
 					{
 						name: 'foo',
-						type: 'bool'
-					}
-				]
+						type: 'bool',
+					},
+				],
 			};
 
 			let result = await parse({
 				argv: ['true'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([true]);
 			expect(result.argv).to.deep.equal({
-				foo: true
+				foo: true,
 			});
 
 			result = await parse({
 				argv: ['baz'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([true]);
 			expect(result.argv).to.deep.equal({
-				foo: true
+				foo: true,
 			});
 
 			result = await parse({
 				argv: ['false'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([false]);
 			expect(result.argv).to.deep.equal({
-				foo: false
+				foo: false,
 			});
 		});
 
@@ -501,52 +502,51 @@ describe('arguments', () => {
 				args: [
 					{
 						name: 'foo',
-						type: 'date'
-					}
-				]
+						type: 'date',
+					},
+				],
 			};
 
 			const now = new Date();
-			const nowFormatted = `${
-				now.getFullYear()
-			}-${
-				String(now.getMonth() + 1).padStart(2, '0')
-			}-${
-				String(now.getDate()).padStart(2, '0')
-			}`;
+			const nowFormatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+				2,
+				'0'
+			)}-${String(now.getDate()).padStart(2, '0')}`;
 			const now2 = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
 
 			let result = await parse({
 				argv: [`${now.getTime()}`],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([now]);
 			expect(result.argv).to.deep.equal({
-				foo: now
+				foo: now,
 			});
 
 			result = await parse({
 				argv: [now.toISOString()],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([now]);
 			expect(result.argv).to.deep.equal({
-				foo: now
+				foo: now,
 			});
 
 			result = await parse({
 				argv: [nowFormatted],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([now2]);
 			expect(result.argv).to.deep.equal({
-				foo: now2
+				foo: now2,
 			});
 
-			await expect(parse({
-				argv: ['9999-99-99'],
-				schema
-			})).rejects.toThrow('Invalid date: "9999-99-99"');
+			await expect(
+				parse({
+					argv: ['9999-99-99'],
+					schema,
+				})
+			).rejects.toThrow('Invalid date: "9999-99-99"');
 		});
 
 		it('should parse argument as integer', async () => {
@@ -554,29 +554,33 @@ describe('arguments', () => {
 				args: [
 					{
 						name: 'foo',
-						type: 'int'
-					}
-				]
+						type: 'int',
+					},
+				],
 			};
 
 			const result = await parse({
 				argv: ['123'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([123]);
 			expect(result.argv).to.deep.equal({
-				foo: 123
+				foo: 123,
 			});
 
-			await expect(parse({
-				argv: ['1.23'],
-				schema
-			})).rejects.toThrow('Invalid integer: 1.23');
+			await expect(
+				parse({
+					argv: ['1.23'],
+					schema,
+				})
+			).rejects.toThrow('Invalid integer: 1.23');
 
-			await expect(parse({
-				argv: ['foo'],
-				schema
-			})).rejects.toThrow('Invalid integer: foo');
+			await expect(
+				parse({
+					argv: ['foo'],
+					schema,
+				})
+			).rejects.toThrow('Invalid integer: foo');
 		});
 
 		it('should parse argument as json', async () => {
@@ -584,24 +588,26 @@ describe('arguments', () => {
 				args: [
 					{
 						name: 'foo',
-						type: 'json'
-					}
-				]
+						type: 'json',
+					},
+				],
 			};
 
 			const result = await parse({
 				argv: ['{"bar":"baz"}'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([{ bar: 'baz' }]);
 			expect(result.argv).to.deep.equal({
-				foo: { bar: 'baz' }
+				foo: { bar: 'baz' },
 			});
 
-			await expect(parse({
-				argv: ['{{{'],
-				schema
-			})).rejects.toThrow(/^Invalid JSON:/);
+			await expect(
+				parse({
+					argv: ['{{{'],
+					schema,
+				})
+			).rejects.toThrow(/^Invalid JSON:/);
 		});
 
 		it('should parse argument as number', async () => {
@@ -609,33 +615,35 @@ describe('arguments', () => {
 				args: [
 					{
 						name: 'foo',
-						type: 'number'
-					}
-				]
+						type: 'number',
+					},
+				],
 			};
 
 			let result = await parse({
 				argv: ['123'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([123]);
 			expect(result.argv).to.deep.equal({
-				foo: 123
+				foo: 123,
 			});
 
 			result = await parse({
 				argv: ['3.14'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([3.14]);
 			expect(result.argv).to.deep.equal({
-				foo: 3.14
+				foo: 3.14,
 			});
 
-			await expect(parse({
-				argv: ['foo'],
-				schema
-			})).rejects.toThrow('Invalid number: foo');
+			await expect(
+				parse({
+					argv: ['foo'],
+					schema,
+				})
+			).rejects.toThrow('Invalid number: foo');
 		});
 
 		it('should parse argument as yes/no boolean', async () => {
@@ -643,33 +651,35 @@ describe('arguments', () => {
 				args: [
 					{
 						name: 'foo',
-						type: 'yesno'
-					}
-				]
+						type: 'yesno',
+					},
+				],
 			};
 
 			let result = await parse({
 				argv: ['yes'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([true]);
 			expect(result.argv).to.deep.equal({
-				foo: true
+				foo: true,
 			});
 
 			result = await parse({
 				argv: ['no'],
-				schema
+				schema,
 			});
 			expect(result._).to.deep.equal([false]);
 			expect(result.argv).to.deep.equal({
-				foo: false
+				foo: false,
 			});
 
-			await expect(parse({
-				argv: ['foo'],
-				schema
-			})).rejects.toThrow('Value must be "yes" or "no"');
+			await expect(
+				parse({
+					argv: ['foo'],
+					schema,
+				})
+			).rejects.toThrow('Value must be "yes" or "no"');
 		});
 	});
 });

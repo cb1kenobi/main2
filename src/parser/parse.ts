@@ -1,15 +1,9 @@
 import debug from '../debug/index.js';
+import { Internal, ParsedBase, ParsedOption, ParseOptions, ParseState } from '../types.js';
+import { transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
-import {
-	Internal,
-	ParsedBase,
-	ParsedOption,
-	ParseOptions,
-	ParseState
-} from '../types.js';
 import { loadCommand } from './command/load-command.js';
 import { optionLongRE } from './option/init-option.js';
-import { transformValue } from '../util/transform.js';
 
 const { log } = debug('main2:parser');
 
@@ -22,11 +16,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		throw new TypeError('Expected parse options to be an object');
 	}
 
-	const {
-		argv,
-		env = {},
-		schema = {}
-	} = opts;
+	const { argv, env = {}, schema = {} } = opts;
 
 	if (!schema || typeof schema !== 'object') {
 		throw new TypeError('Expected schema to be an object');
@@ -45,10 +35,10 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		beforeParse: [],
 		afterParse: [],
 		beforeError: [],
-		...schema.hooks
+		...schema.hooks,
 	};
 	for (const [name, hookList] of Object.entries(hooks)) {
-		if (!Array.isArray(hookList) || hookList.some(h => typeof h !== 'function')) {
+		if (!Array.isArray(hookList) || hookList.some((h) => typeof h !== 'function')) {
 			throw new TypeError(`Expected "${name}" hook to be an array of functions`);
 		}
 	}
@@ -67,12 +57,10 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		_: [],
 		argv: {},
 		cmd: undefined,
-		contexts: [
-			await initCommand(schema)
-		],
+		contexts: [await initCommand(schema)],
 		env,
 		schema,
-		settings: opts.settings || {}
+		settings: opts.settings || {},
 	};
 
 	await initArgv(state);
@@ -87,7 +75,9 @@ export default parse;
 
 async function initArgv(state: ParseState): Promise<void> {
 	const argv = state.$orig;
-	log(`Processing ${argv.length} argument${argv.length === 1 ? '' : 's'}${argv.length ? `: ${argv.join(', ')}` : ''}`);
+	log(
+		`Processing ${argv.length} argument${argv.length === 1 ? '' : 's'}${argv.length ? `: ${argv.join(', ')}` : ''}`
+	);
 
 	for (let arg of argv) {
 		if (optionLikeRE.test(arg)) {
@@ -117,7 +107,7 @@ async function initArgv(state: ParseState): Promise<void> {
 					}
 					state.$.push({
 						inputs,
-						type: 'Unknown'
+						type: 'Unknown',
 					});
 				}
 			} else {
@@ -127,13 +117,13 @@ async function initArgv(state: ParseState): Promise<void> {
 				}
 				state.$.push({
 					inputs,
-					type: 'Unknown'
+					type: 'Unknown',
 				});
 			}
 		} else {
 			state.$.push({
 				inputs: [arg],
-				type: 'Unknown'
+				type: 'Unknown',
 			});
 		}
 	}
@@ -166,8 +156,10 @@ async function parseArgv(state: ParseState): Promise<void> {
 
 			if (subject === '--') {
 				$[j] = {
-					inputs: $.splice(j, $.length).slice(1).flatMap(a => a.inputs),
-					type: 'Extra'
+					inputs: $.splice(j, $.length)
+						.slice(1)
+						.flatMap((a) => a.inputs),
+					type: 'Extra',
 				};
 				break;
 			}
@@ -180,7 +172,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 				$[j] = {
 					cmd: ctx,
 					inputs: arg.inputs,
-					type: 'Command'
+					type: 'Command',
 				};
 				contexts.unshift(ctx);
 				state.cmd = ctx;
@@ -233,7 +225,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 					inputs,
 					option,
 					type: 'Option',
-					value
+					value,
 				};
 			}
 		}
@@ -263,7 +255,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 	for (let i = 0; i < state.$.length; i++) {
 		const parsed: ParsedBase = state.$[i];
 		const parsedType = parsed.type;
-		let { inputs } = parsed;
+		let inputs: unknown[] = parsed.inputs;
 
 		if (parsedType === 'Unknown') {
 			const arg = internal.args[argIdx++];
@@ -306,20 +298,19 @@ export async function processArgs(state: ParseState): Promise<void> {
 			}
 
 			state._.push(...inputs);
-
 		} else if (parsedType === 'Extra') {
 			if (state.settings?.allowExtraArguments) {
 				state._.push(...inputs);
 			} else {
 				throw new Error(`Extra arguments are not allowed: ${inputs.join(' ')}`);
 			}
-
 		} else if (parsedType === 'Option') {
 			const { option, value } = parsed as ParsedOption;
 			const { dest, isFlag } = option[Internal];
 
 			if (isFlag && option.type === 'count') {
-				state.argv[dest] = typeof state.argv[dest] !== 'number' ? 1 : ((state.argv[dest] as number) + 1);
+				state.argv[dest] =
+					typeof state.argv[dest] !== 'number' ? 1 : (state.argv[dest] as number) + 1;
 			} else if (option.multiple) {
 				if (Array.isArray(state.argv[dest])) {
 					(state.argv[dest] as unknown[]).push(value);
@@ -381,7 +372,9 @@ export async function processOptions(state: ParseState): Promise<void> {
 			}
 
 			if (required) {
-				const existing = state.$.find(parsed => parsed.type === 'Option' && parsed.option === opt);
+				const existing = state.$.find(
+					(parsed) => parsed.type === 'Option' && parsed.option === opt
+				);
 				if (!existing && state.argv[dest] === undefined) {
 					missingOptions.unshift(opt[Internal].label);
 				}

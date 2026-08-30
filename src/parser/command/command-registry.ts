@@ -1,12 +1,9 @@
-import {
-	Internal,
-	InternalCommand
-} from '../../types.js';
+import { Internal, InternalCommand } from '../../types.js';
 
 export class CommandRegistry extends Map<string, InternalCommand> {
 	#lookup: Record<string, string> = {};
 
-	add(cmd: InternalCommand) {
+	add(cmd: InternalCommand): void {
 		const { name } = cmd;
 
 		this.set(name, cmd);

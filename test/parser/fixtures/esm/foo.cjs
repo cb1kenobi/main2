@@ -1,3 +1,3 @@
 module.exports = {
-	desc: 'foo!'
+	desc: 'foo!',
 };

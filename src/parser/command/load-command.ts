@@ -1,7 +1,7 @@
 import debug from '../../debug/index.js';
-import { existsSync } from 'node:fs';
 import { Internal, InternalCommand } from '../../types.js';
 import { initCommand } from './init-command.js';
+import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const { log } = debug('main2:parser:load-command');
@@ -31,7 +31,9 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		}
 
 		if (typeof def !== 'object') {
-			throw new TypeError(`Command module default export is not a valid command object: ${internal.path}`);
+			throw new TypeError(
+				`Command module default export is not a valid command object: ${internal.path}`
+			);
 		}
 
 		if (def) {

@@ -1,8 +1,9 @@
 {
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-      "noEmit": true
-    },
-    "include": ["./dist"],
-    "exclude": []
-  }
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "noEmit": true
+  },
+  "include": ["./dist"],
+  "exclude": []
+}

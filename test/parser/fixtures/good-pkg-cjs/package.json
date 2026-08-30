@@ -1,6 +1,6 @@
 {
-	"name": "good-pkg",
-	"version": "1.0.0",
-	"private": true,
-	"main": "./index.js"
-  }
+  "name": "good-pkg",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./index.js"
+}

@@ -1,7 +1,7 @@
 import { Console } from 'node:console';
 import { Writable } from 'node:stream';
 
-export default function debug(ns: string | undefined) {
+export default function debug(ns: string | undefined): Console {
 	return new Console(
 		new StdioStream({ ns, stream: process.stdout }),
 		new StdioStream({ ns, stream: process.stderr })
@@ -23,7 +23,7 @@ class StdioStream extends Writable {
 		this.#stream = stream;
 	}
 
-	_write(data, enc, cb) {
+	_write(data, _enc, cb) {
 		if (isEnabled(this.#ns)) {
 			const ts = new Date().toISOString();
 			const ns = this.#ns ? ` ${this.#ns}` : '';

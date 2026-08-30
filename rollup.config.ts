@@ -1,8 +1,8 @@
+import commonjs from '@rollup/plugin-commonjs';
+import { nodeResolve } from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
 import { defineConfig } from 'rollup';
 import { minify as esbuildMinifyPlugin } from 'rollup-plugin-esbuild';
-import commonjs from '@rollup/plugin-commonjs';
-import { nodeResolve } from '@rollup/plugin-node-resolve';
 
 function generateConfig(format: 'es' | 'cjs') {
 	return {
@@ -14,23 +14,22 @@ function generateConfig(format: 'es' | 'cjs') {
 			freeze: false,
 			preserveModules: false,
 			sourcemap: true,
-			entryFileNames: format === 'es' ? 'index.js' : 'index.cjs'
+			entryFileNames: format === 'es' ? 'index.js' : 'index.cjs',
 		},
 		plugins: [
-			process.env.SKIP_MINIFY ? null : esbuildMinifyPlugin({
-				minify: true,
-				minifySyntax: true
-			}),
+			process.env.SKIP_MINIFY
+				? null
+				: esbuildMinifyPlugin({
+						minify: true,
+						minifySyntax: true,
+					}),
 			typescript({
-				tsconfig: './tsconfig.build.json'
+				tsconfig: './tsconfig.build.json',
 			}),
 			nodeResolve({ preferBuiltins: true }),
-			commonjs()
-		]
+			commonjs(),
+		],
 	};
 }
 
-export default defineConfig([
-	generateConfig('es'),
-	generateConfig('cjs')
-]);
+export default defineConfig([generateConfig('es'), generateConfig('cjs')]);

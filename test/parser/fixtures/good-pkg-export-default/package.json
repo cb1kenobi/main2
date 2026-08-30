@@ -1,9 +1,9 @@
 {
-	"name": "good-pkg-export-default",
-	"version": "1.0.0",
-	"private": true,
-	"type": "module",
-	"exports": {
-		"default": "./index.js"
-	}
+  "name": "good-pkg-export-default",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "default": "./index.js"
   }
+}

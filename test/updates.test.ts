@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { tmp } from '../src/paths.js';
 import { check } from '../src/updates/index.js';
 import { randomUUID } from 'node:crypto';
-import { tmp } from '../src/paths.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 async function generateTmpDir() {
 	return tmp('test-main2', randomUUID().slice(0, 8));
@@ -10,7 +10,7 @@ async function generateTmpDir() {
 describe('updates', () => {
 	beforeAll(() => {
 		const [major, minor] = process.versions.node.split('.').map(Number);
-		process.env.NODE_OPTIONS = `--loader tsx${major < 22 && (major === 22 && minor < 6) ? '/esm/api' : ''}`;
+		process.env.NODE_OPTIONS = `--loader tsx${major < 22 && major === 22 && minor < 6 ? '/esm/api' : ''}`;
 	});
 
 	afterAll(() => {
@@ -19,8 +19,9 @@ describe('updates', () => {
 
 	describe('Error Handling', () => {
 		it('should error if cache directory is invalid', async () => {
-			await expect(check(undefined as any))
-				.rejects.toThrowError('Update check options must be an object');
+			await expect(check(undefined as any)).rejects.toThrowError(
+				'Update check options must be an object'
+			);
 		});
 	});
 
@@ -30,12 +31,12 @@ describe('updates', () => {
 				cacheDir: await generateTmpDir(),
 				packageName: 'snooplogg',
 				packageVersion: '1.0.0',
-				wait: true
+				wait: true,
 			});
 
 			expect(result).toEqual({
 				current: '1.0.0',
-				latest: '5.1.0'
+				latest: '5.1.0',
 			});
 		});
 	});

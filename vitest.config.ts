@@ -1,14 +1,14 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, type ViteUserConfig } from 'vitest/config';
 
-export default defineConfig({
+const config: ViteUserConfig = defineConfig({
 	test: {
 		allowOnly: true,
 		benchmark: {
-			include: ['benchmark/**/*.bench.ts']
+			include: ['benchmark/**/*.bench.ts'],
 		},
 		coverage: {
 			include: ['src/**/*.ts'],
-			reporter: ['html', 'lcov', 'text']
+			reporter: ['html', 'lcov', 'text'],
 		},
 		environment: 'node',
 		globals: false,
@@ -17,6 +17,8 @@ export default defineConfig({
 		reporters: ['verbose'],
 		silent: false,
 		testTimeout: 10000,
-		watch: false
-	}
+		watch: false,
+	},
 });
+
+export default config;

@@ -1,6 +1,6 @@
 {
-	"name": "bad-pkg-no-main",
-	"version": "1.0.0",
-	"private": true,
-	"type": "module"
-  }
+  "name": "bad-pkg-no-main",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module"
+}

@@ -1,13 +1,13 @@
+import { readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { dirname } from 'node:path';
-import { readFileSync, writeFileSync } from 'node:fs';
 
 try {
 	const {
 		CACHE_FILE: cacheFile,
 		PACKAGE_NAME: packageName,
 		DIST_TAG: distTag = 'latest',
-		REGISTRY_URL: registryURL = 'https://registry.npmjs.org'
+		REGISTRY_URL: registryURL = 'https://registry.npmjs.org',
 	} = process.env;
 
 	if (!packageName) {
@@ -32,12 +32,12 @@ try {
 			url,
 			{
 				headers: {
-					accept: 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*'
-				}
+					accept: 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*',
+				},
 			},
-			res => {
+			(res) => {
 				let buf = '';
-				res.on('data', chunk => {
+				res.on('data', (chunk) => {
 					buf += chunk;
 				});
 				res.on('end', () => {

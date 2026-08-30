@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import {
 	cache,
 	config,
@@ -9,10 +8,11 @@ import {
 	home,
 	runtime,
 	state,
-	tmp
+	tmp,
 } from '../src/paths.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { describe, it, expect } from 'vitest';
 
 describe('paths', () => {
 	describe('cache()', () => {

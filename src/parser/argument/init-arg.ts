@@ -1,10 +1,5 @@
+import { Argument, InternalState, Internal, InternalArgument } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
-import {
-	Argument,
-	InternalState,
-	Internal,
-	InternalArgument
-} from '../../types.js';
 
 // foo      optional
 // <foo>	required
@@ -12,7 +7,7 @@ import {
 // foo...	optional, multiple
 
 const argRequiredRE = /^(?:<([\w-]+)>|\[([\w-]+)\]|([\w-]+?))\s*(\.\.\.)?$/;
-const argTypesRE    = /^auto|bool|date|int|json|number|string|yesno$/;
+const argTypesRE = /^auto|bool|date|int|json|number|string|yesno$/;
 
 export function initArg(it: string | Argument | InternalArgument): InternalArgument {
 	if (it && typeof it === 'object' && Internal in it && it[Internal]?.state === InternalState.OK) {
@@ -21,7 +16,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 
 	if (typeof it === 'string') {
 		it = {
-			name: it
+			name: it,
 		};
 	}
 
@@ -49,7 +44,9 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 		const env = typeof it.env === 'string' ? [it.env] : it.env;
 
 		if (!Array.isArray(env)) {
-			throw new TypeError('Expected argument environment variable to be a string or array of strings');
+			throw new TypeError(
+				'Expected argument environment variable to be a string or array of strings'
+			);
 		}
 
 		for (const e of env) {
@@ -68,21 +65,20 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 	}
 
 	it.multiple ||= !!m[4];
-	it.name       = (m[1] || m[2] || m[3]).trim();
+	it.name = (m[1] || m[2] || m[3]).trim();
 	it.required ||= !!m[1];
-	it.type     ||= 'auto';
+	it.type ||= 'auto';
 
-	return new Proxy(Object.defineProperty(
-		it,
-		Internal,
-		{
+	return new Proxy(
+		Object.defineProperty(it, Internal, {
 			configurable: true,
 			value: {
 				dest: camelCase(it.name),
-				envs
-			}
+				envs,
+			},
+		}),
+		{
+			// TODO: wrap set/delete to detect changes
 		}
-	), {
-		// TODO: wrap set/delete to detect changes
-	}) as InternalArgument;
+	) as InternalArgument;
 }

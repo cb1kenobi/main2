@@ -14,7 +14,7 @@ export class Terminal {
 
 	initStream(stream: NodeJS.WriteStream): NodeJS.WriteStream {
 		stream.on('error', function epipeListener(err) {
-			if (err.code === 'EPIPE') {
+			if ((err as { code?: string }).code === 'EPIPE') {
 				process.exit(1);
 			} else {
 				stream.removeAllListeners();

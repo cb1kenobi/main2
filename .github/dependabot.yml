@@ -5,11 +5,11 @@
 
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     labels:
-      - "automerge"
-      - "dependencies"
+      - 'automerge'
+      - 'dependencies'
     schedule:
-      interval: "daily"
-      time: "02:34"
+      interval: 'daily'
+      time: '02:34'

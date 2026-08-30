@@ -1,35 +1,41 @@
-import { describe, it, expect } from 'vitest';
 import { parse } from '../../src/parser/parse.js';
+import { describe, it, expect } from 'vitest';
 
 describe('hooks', () => {
 	it('should error if hooks are invalid', async () => {
-		await expect(parse({
-			schema: {
-				hooks: 123 as any
-			}
-		})).rejects.toThrow(new TypeError('Expected hooks to be an object of hook names and callbacks'));
+		await expect(
+			parse({
+				schema: {
+					hooks: 123 as any,
+				},
+			})
+		).rejects.toThrow(new TypeError('Expected hooks to be an object of hook names and callbacks'));
 
-		await expect(parse({
-			schema: {
-				hooks: {
-					beforeParse: 123 as any
-				}
-			}
-		})).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
+		await expect(
+			parse({
+				schema: {
+					hooks: {
+						beforeParse: 123 as any,
+					},
+				},
+			})
+		).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
 
-		await expect(parse({
-			schema: {
-				hooks: {
-					beforeParse: [123 as any]
-				}
-			}
-		})).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
+		await expect(
+			parse({
+				schema: {
+					hooks: {
+						beforeParse: [123 as any],
+					},
+				},
+			})
+		).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
 	});
 
 	it('should fire hooks during parsing', async () => {
 		const result = {
 			beforeParseCalled: false,
-			afterParseCalled: false
+			afterParseCalled: false,
 		};
 
 		await parse({
@@ -38,20 +44,20 @@ describe('hooks', () => {
 					beforeParse: [
 						() => {
 							result.beforeParseCalled = true;
-						}
+						},
 					],
 					afterParse: [
 						() => {
 							result.afterParseCalled = true;
-						}
-					]
-				}
-			}
+						},
+					],
+				},
+			},
 		});
 
 		expect(result).toStrictEqual({
 			beforeParseCalled: true,
-			afterParseCalled: true
+			afterParseCalled: true,
 		});
 	});
 

@@ -1,10 +1,5 @@
+import { Internal, InternalOption, InternalState, Option } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
-import {
-	Internal,
-	InternalOption,
-	InternalState,
-	Option
-} from '../../types.js';
 
 /**
  * "all"
@@ -16,15 +11,15 @@ import {
  * "--opt [value]"
  */
 
-const optionAliasSplitRE      = /[ ,|]+/;
-const optionHintRE            = /^(\[(?=.+\]$)|<(?=.+>$))(.+?)[\]>]$/;
-const optionLongLikeRE        = /^--(.*)$/;
-export const optionLongRE     = /^--(\w[\w-]*)$/;
+const optionAliasSplitRE = /[ ,|]+/;
+const optionHintRE = /^(\[(?=.+\]$)|<(?=.+>$))(.+?)[\]>]$/;
+const optionLongLikeRE = /^--(.*)$/;
+export const optionLongRE: RegExp = /^--(\w[\w-]*)$/;
 const optionLongMaybeDashesRE = /^(?:--)?(\w[\w-]*)$/;
-const optionNegateRE          = /^no-(\w[\w-]*)$/;
-const optionShortRE           = /^-\w$/;
-const optionSplitRE           = /[ ,|=]+/;
-const optionTypesRE           = /^auto|bool|count|date|int|json|number|string|yesno$/;
+const optionNegateRE = /^no-(\w[\w-]*)$/;
+const optionShortRE = /^-\w$/;
+const optionSplitRE = /[ ,|=]+/;
+const optionTypesRE = /^auto|bool|count|date|int|json|number|string|yesno$/;
 
 export async function initOption(it: Option | InternalOption): Promise<InternalOption> {
 	if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
@@ -36,7 +31,8 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 	let isFlag = !it.hint && !Array.isArray(it.choices);
 
 	if (it.format !== undefined) {
-		const parts = it.format && typeof it.format === 'string' && new Set(it.format.split(optionSplitRE));
+		const parts =
+			it.format && typeof it.format === 'string' && new Set(it.format.split(optionSplitRE));
 		if (!parts) {
 			throw new TypeError('Expected option format to be a non-empty string');
 		}
@@ -65,7 +61,6 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 					if (m[1] === '<') {
 						it.required ??= true;
 					}
-
 				} else if (!it.name) {
 					it.name = p;
 					long.add(`--${it.negate ? 'no-' : ''}${it.name}`);
@@ -94,12 +89,12 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		long.add(`--${it.name}`); // add non-negated value
 	}
 
-	it.type ||= (isFlag ? 'bool' : 'auto');
+	it.type ||= isFlag ? 'bool' : 'auto';
 	if (isFlag) {
 		if (it.type === 'auto' || it.type === 'yesno') {
 			it.type = 'bool';
 		} else if (it.type !== 'bool' && it.type !== 'count') {
-			throw new Error('Option flags must have type of \'auto\', \'bool\', \'count\', or \'yesno\'');
+			throw new Error("Option flags must have type of 'auto', 'bool', 'count', or 'yesno'");
 		}
 		it.default ??= it.type === 'count' ? 0 : !!it.negate;
 	} else if (it.type === 'count') {
@@ -110,15 +105,15 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		let aliases;
 		if (typeof it.alias === 'string') {
 			aliases = new Set(it.alias.split(optionAliasSplitRE));
-
 		} else if (Array.isArray(it.alias)) {
-			aliases = new Set(it.alias.flatMap(a => {
-				if (typeof a !== 'string') {
-					throw new TypeError('Expected option alias to be a string or list of strings');
-				}
-				return a.split(optionAliasSplitRE);
-			}));
-
+			aliases = new Set(
+				it.alias.flatMap((a) => {
+					if (typeof a !== 'string') {
+						throw new TypeError('Expected option alias to be a string or list of strings');
+					}
+					return a.split(optionAliasSplitRE);
+				})
+			);
 		} else {
 			throw new TypeError('Expected option alias to be a string or list of strings');
 		}
@@ -145,7 +140,9 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		const env = typeof it.env === 'string' ? [it.env] : it.env;
 
 		if (!Array.isArray(env)) {
-			throw new TypeError('Expected option environment variable to be a string or array of strings');
+			throw new TypeError(
+				'Expected option environment variable to be a string or array of strings'
+			);
 		}
 
 		for (const e of env) {
@@ -168,10 +165,8 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
 
-	return new Proxy(Object.defineProperty(
-		it,
-		Internal,
-		{
+	return new Proxy(
+		Object.defineProperty(it, Internal, {
 			configurable: true,
 			value: {
 				dest: camelCase(it.name),
@@ -180,10 +175,11 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 				label,
 				format: label + (isFlag ? '' : it.required ? `=<${it.hint}>` : `=[${it.hint}]`),
 				long,
-				short
-			}
+				short,
+			},
+		}),
+		{
+			// TODO: wrap set/delete to detect changes
 		}
-	), {
-		// TODO: wrap set/delete to detect changes
-	}) as InternalOption;
+	) as InternalOption;
 }
