@@ -935,6 +935,7 @@ describe('options', () => {
 			await expect(
 				parse({
 					argv: ['--foo'],
+					settings: { allowUnknownOptions: false },
 				})
 			).rejects.toThrow('Unknown option "--foo"');
 		});
@@ -994,6 +995,7 @@ describe('options', () => {
 				parse({
 					argv: ['--foo'],
 					schema,
+					settings: { allowUnknownOptions: false },
 				})
 			).rejects.toThrow('Unknown option "--foo"');
 		});

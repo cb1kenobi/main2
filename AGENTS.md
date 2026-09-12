@@ -59,6 +59,19 @@ These look like bugs and are not. Each is intentional and covered by tests.
   same breaks either parent options after a subcommand, or arguments that
   repeat a command name. Both directions are covered in
   `test/parser/regressions.test.ts`.
+- **An option consumes the next token unless that token resolves to a declared
+  option.** `--name --verbose` leaves `--verbose` alone; `--name --undeclared`
+  takes `--undeclared` as the value. Commander errors on any dash-leading
+  value, but values legitimately start with a dash and a schema only knows its
+  own options. See `test/parser/option-values.test.ts` and `docs/parser.md`.
+- **A required option rejects a missing or empty value; an optional one gets
+  an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
+  (or `0`, per the data type) for `[value]`.
+- **Undeclared options produce values rather than erroring.** `--foo` is
+  `foo: true`, `--foo bar` is `foo: 'bar'`. They resolve after every command
+  has been matched, coerce with `auto`, do not read `no-` as negation, and do
+  not reach `state._`. `settings.allowUnknownOptions: false` restores the
+  `Unknown option` error.
 
 ## Known bugs
 
@@ -68,6 +81,9 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - `beforeError` hooks are declared and validated but never fired.
 - `command.default: true` is never dispatched.
 - `parse()` mutates the schema object it is given.
+- A subcommand's option used before its subcommand is not protected from being
+  consumed as an earlier option's value, because it is not declared yet on the
+  pass that reads it. See the warning in `docs/parser.md`.
 
 ## Conventions
 
