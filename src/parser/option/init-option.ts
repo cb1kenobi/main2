@@ -83,6 +83,14 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		throw new TypeError('Expected option name to be a non-empty string');
 	}
 
+	if (it.hint?.endsWith('...')) {
+		// a variadic hint promises `--tag a b c`, which an option never does;
+		// only a positional argument can consume consecutive values
+		throw new TypeError(
+			`Option "${it.name}" hint cannot be variadic; use \`multiple: true\` to collect repeated uses into an array`
+		);
+	}
+
 	if (it.type && !optionTypesRE.test(it.type)) {
 		throw new Error(`Option "${it.name}" has unsupported data type "${it.type}"`);
 	}

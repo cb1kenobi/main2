@@ -76,6 +76,32 @@ describe('options', () => {
 			).rejects.toThrow(new TypeError("Invalid option format: --f'"));
 		});
 
+		it('should error if the hint is variadic', async () => {
+			const err = new TypeError(
+				'Option "files" hint cannot be variadic; use `multiple: true` to collect repeated uses into an array'
+			);
+
+			await expect(
+				parse({
+					schema: {
+						options: {
+							'--files <files...>': null,
+						},
+					},
+				})
+			).rejects.toThrow(err);
+
+			await expect(
+				parse({
+					schema: {
+						options: {
+							'--files': { hint: 'files...' },
+						},
+					},
+				})
+			).rejects.toThrow(err);
+		});
+
 		it('should error if option transform is invalid', async () => {
 			await expect(
 				parse({

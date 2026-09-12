@@ -168,7 +168,9 @@ part is interpreted by shape:
 | `<hint>` | Takes a value, and the **option is required**  |
 | `[hint]` | Takes a value                                  |
 
-An option with no hint and no `choices` is a **flag**.
+An option with no hint and no `choices` is a **flag**. A hint ending in `...`
+is rejected — only a positional argument can be variadic. See
+[Repeatable options](#repeatable-options).
 
 > [!IMPORTANT]
 > `<hint>` marks the _option_ as required, not just its value. This diverges
@@ -229,6 +231,46 @@ reaches step 3, or that is handed an explicitly empty value, throws instead:
 | `--name=`             | throws                  | `''`                    |
 | `--name --declared`   | throws                  | `''`                    |
 | `--name --undeclared` | `'--undeclared'`        | `'--undeclared'`        |
+
+### Repeatable options
+
+An option takes **one** value per use. `multiple` makes it repeatable, and each
+use appends to an array:
+
+```js
+parse({
+	argv: ['--tag', 'a', '--tag', 'b'],
+	schema: { options: { '--tag <t>': { multiple: true } } },
+});
+// { tag: ['a', 'b'] }
+```
+
+An option never consumes consecutive values, so `--tag a b` is `tag: ['a']`
+with `b` left as a positional. Consuming consecutive values is what a variadic
+**argument** is for:
+
+```js
+parse({ argv: ['a', 'b', 'c'], schema: { args: ['<files...>'] } });
+// { files: ['a', 'b', 'c'] }
+```
+
+This divides the job cleanly: repetition is unambiguous, while a greedy option
+competes with the positional arguments for every token after it — which is why
+Commander needs `--` and yargs needs `greedy-arrays=false` to get back out. It
+is also the same rule as [how an option gets its value](#how-an-option-gets-its-value):
+one token, then stop.
+
+Because of that, a `...` hint on an option is a promise the parser will not
+keep, so it is refused at schema-build time rather than accepted as decoration:
+
+```js
+parse({ schema: { options: { '--tag <tags...>': { multiple: true } } } });
+// TypeError: Option "tag" hint cannot be variadic; use `multiple: true` to
+// collect repeated uses into an array
+```
+
+An environment fallback or a scalar `default` on a `multiple` option is wrapped
+in an array, so the value's shape does not depend on where it came from.
 
 ### Undeclared options
 
@@ -391,6 +433,7 @@ Commander, these are the ones that will bite:
 | String `default`                | used as-is                       | coerced to the declared type             |
 | Option format strictness        | one short, one long              | extras become aliases; bare word allowed |
 | Repeatable option               | `<v...>` eats consecutive values | `multiple` collects repeated uses        |
+| `...` in an option hint         | makes the option variadic        | rejected; only arguments are variadic    |
 | `-p=value`                      | value is `=value`                | value is `value`                         |
 | `-0`                            | negative zero                    | undeclared short option `0`              |
 
