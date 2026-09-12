@@ -86,6 +86,7 @@ declaring both throws.
 | `alias`    | `string \| string[]`     | Additional names                                    |
 | `args`     | `(string \| Argument)[]` | Positional arguments                                |
 | `commands` | `object \| string`       | Subcommands, or a path to load them from            |
+| `default`  | `boolean`                | Runs when argv named no command — see below         |
 | `desc`     | `string`                 | Description for help                                |
 | `hidden`   | `boolean`                | Omit from help — **see bug note below**             |
 | `hooks`    | `{ init, parse }`        | Lifecycle callbacks                                 |
@@ -95,6 +96,70 @@ declaring both throws.
 > [!WARNING]
 > An explicit `hidden: true` is currently overwritten by name parsing, so it
 > only takes effect via the `!` name prefix. Known bug.
+
+### The default command
+
+A command marked `default` runs when argv never named one:
+
+```js
+const schema = {
+	commands: {
+		build: { default: true, args: ['<entry>'], run() {} },
+		test: {},
+	},
+};
+```
+
+`mycli` runs `build`, and `mycli out.js` runs `build out.js`. The default
+stands in for the name that was never typed, so it joins the context chain
+exactly as a typed name would: it becomes `state.cmd`, its options resolve, its
+arguments take the positional values, and a token after it resolves against
+_its_ subcommands — `mycli all` reaches `build`'s `all` subcommand. The one
+difference is that `state.$` has no `Command` entry for it, because no token in
+argv named it.
+
+An explicit command name always wins. The default is only consulted once every
+context argv named has been resolved, and only on the innermost one, so
+`mycli test` runs `test` and nothing dispatches a default afterwards.
+
+> [!IMPORTANT]
+> The default runs even when it declares required arguments that were not
+> supplied, so `mycli` with a default `build <entry>` fails with
+> `Missing required arguments: <entry>`. `default` means the name is implied,
+> not that the command steps aside when its arguments are missing — and the
+> alternative, applying it only when there are no positional values at all,
+> would make `mycli out.js` an `Unexpected argument`, which is the case a
+> default command exists for. Give the argument a `default` if an unqualified
+> invocation should work.
+
+Every level gets its own default. A subcommand marked `default` runs when its
+parent was named and nothing after it was, and a default whose own subcommands
+declare one cascades:
+
+| Schema                                 | `mycli`     | `mycli build` |
+| -------------------------------------- | ----------- | ------------- |
+| `build` default                        | `build`     | `build`       |
+| `build > all` default                  | —           | `build all`   |
+| `build` default, `build > all` default | `build all` | `build all`   |
+
+Two sibling commands both marked `default` throw while the schema is built —
+`Only one default command is allowed: "build" and "test" are both default` —
+rather than one of them quietly winning, since which one won would come down to
+registration order, and for a directory of command modules that is whatever the
+file system returned first.
+
+> [!NOTE]
+> Help does not exist yet. When it does, `--help` has to short-circuit before
+> the required-argument check, or `mycli --help` under a default command with
+> required arguments would report the missing argument instead of printing
+> help. Dispatch happens in one place — `dispatchDefaultCommand()` in
+> `src/parser/parse.ts` — so that is the one decision point to teach about
+> help.
+
+`default` has to be visible where the command is registered. A command that is
+only a path is not loaded to find out whether its module claims to be the
+default; declare it on the entry instead, which a lazily loaded command can do
+alongside its `path`.
 
 ### Lazy loading
 
@@ -574,17 +639,17 @@ Command-level hooks live on `command.hooks`:
 
 `parse()` resolves to a `ParseState`:
 
-| Field      | Description                                     |
-| ---------- | ----------------------------------------------- |
-| `argv`     | Resolved values, keyed by camelCase destination |
-| `_`        | Every positional value, in order                |
-| `$`        | The classified token stream — see below         |
-| `$orig`    | The original argv                               |
-| `cmd`      | The innermost matched command, if any           |
-| `contexts` | The context chain, innermost first              |
-| `env`      | The environment used for fallbacks              |
-| `schema`   | The schema, after initialization                |
-| `settings` | The settings in effect                          |
+| Field      | Description                                      |
+| ---------- | ------------------------------------------------ |
+| `argv`     | Resolved values, keyed by camelCase destination  |
+| `_`        | Every positional value, in order                 |
+| `$`        | The classified token stream — see below          |
+| `$orig`    | The original argv                                |
+| `cmd`      | The innermost matched or default command, if any |
+| `contexts` | The context chain, innermost first               |
+| `env`      | The environment used for fallbacks               |
+| `schema`   | The schema, after initialization                 |
+| `settings` | The settings in effect                           |
 
 Each entry in `$` is classified as one of `Command`, `Option`, `UnknownOption`,
 `Extra`, or `Unknown`, the last being a positional value.

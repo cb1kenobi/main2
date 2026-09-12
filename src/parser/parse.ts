@@ -345,8 +345,60 @@ function assertChoices(choices: unknown[] | undefined, value: unknown, label: st
 	}
 }
 
+/**
+ * Takes the place of the command name that was never typed.
+ *
+ * A command marked `default` runs when argv did not name one, so the innermost
+ * context is consulted for a default only once every context discovered so far
+ * has had a pass -- by then argv is not going to name a command it has not
+ * already named. The default joins the chain exactly as a matched command
+ * does, which is the whole point: its options resolve on the pass that
+ * follows, its arguments take the positional values, and `state.cmd` is the
+ * command `main2()` runs. The one difference is that nothing is added to
+ * `state.$`, because no token in argv named it.
+ *
+ * @param state - The parse state.
+ * @param visited - The default commands already adopted, so that a schema that
+ * points a command at itself cannot loop forever.
+ * @returns `true` when a default command joined the chain.
+ */
+async function dispatchDefaultCommand(
+	state: ParseState,
+	visited: Set<InternalCommand>
+): Promise<boolean> {
+	const cmd = state.contexts[0][Internal].commands.default;
+
+	if (!cmd || visited.has(cmd)) {
+		return false;
+	}
+	visited.add(cmd);
+
+	log(`Dispatching default command "${cmd.name}"`);
+
+	// matched before loaded, same as a typed command: a module that will not
+	// load is an error this command's own `beforeError` hooks should still see
+	state.contexts.unshift(cmd);
+	state.cmd = cmd;
+
+	const loaded = await loadCommand(cmd);
+	if (loaded !== cmd) {
+		state.contexts[0] = loaded;
+		state.cmd = loaded;
+		visited.add(loaded);
+	}
+
+	if (loaded.hooks?.parse) {
+		for (const hook of loaded.hooks.parse) {
+			await hook({ cmd: loaded, ...loaded[Internal] });
+		}
+	}
+
+	return true;
+}
+
 async function parseArgv(state: ParseState): Promise<void> {
 	const { $, contexts } = state;
+	const defaults = new Set<InternalCommand>();
 
 	if (state.schema.hooks?.beforeParse) {
 		for (const hook of state.schema.hooks.beforeParse) {
@@ -477,6 +529,15 @@ async function parseArgv(state: ParseState): Promise<void> {
 				type: 'Option',
 				value,
 			};
+		}
+
+		// this pass turned up no new context, so argv has named every command it
+		// is going to: whatever the innermost context calls its default command
+		// now stands in for the name that was never typed. Adopting it grows the
+		// chain, so the loop makes one more pass and resolves the options it
+		// declares -- and then asks it for a default of its own
+		if (pass === contexts.length - 1) {
+			await dispatchDefaultCommand(state, defaults);
 		}
 	}
 
