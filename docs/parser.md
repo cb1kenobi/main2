@@ -308,10 +308,15 @@ negated flag would imply is dropped: the pair above starts out undefined, and
 the valued twin declares none. The same goes for the environment fallback —
 the valued twin's variables are read first.
 
-Because `<type>` makes the option required, either `--cheese <value>` or
-`--no-cheese` satisfies it; neither leaves it missing. Declaring `negate:
-false` on the flag opts out of the pairing entirely: it keeps its own
-`noCheese` destination.
+Because `<type>` makes the option required, anything that fills the shared
+destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`
+or environment variable declared on either twin. `choices` on the valued
+option constrain the values it takes, not the `false` its twin means, so
+`--no-cheese` is always allowed.
+
+Declaring `negate: false` on the flag opts out of all of this: the `no-` is
+then part of the name, so it keeps its own `noCheese` destination and reads as
+present rather than inverted.
 
 ### Short option groups
 

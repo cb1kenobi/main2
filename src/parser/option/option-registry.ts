@@ -45,7 +45,9 @@ export class OptionRegistry extends Map<string, InternalOption> {
 			// `--cheese <type>` is not quietly satisfied by the `true` that
 			// `--no-cheese` implies
 			const negated = negate ? opt : twin;
+			const positive = negate ? twin : opt;
 			negated[Internal].skipDefault = negated[Internal].impliedDefault;
+			positive[Internal].negatedTwin = negated;
 
 			if (!negate) {
 				this.delete(twinKey);

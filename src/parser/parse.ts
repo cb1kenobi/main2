@@ -200,6 +200,28 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
 }
 
 /**
+ * Decides whether a flag token turns its destination off.
+ *
+ * A negated flag turns it off through every name it answers to — `-C` as much
+ * as `--no-color` — except the positive spelling it registers for itself,
+ * which is the one way to turn it on. An explicit `negate: false` opts out of
+ * negation entirely, so a flag literally named `no-color` is just present.
+ *
+ * @param option - The declared option the token resolved to.
+ * @param subject - The token as it was typed.
+ * @returns `true` when the token means off.
+ */
+function isNegated(option: InternalOption, subject?: string): boolean {
+	if (option.negate === false) {
+		return false;
+	}
+	if (option.negate) {
+		return subject !== `--${option.name}`;
+	}
+	return negatedRE.test(`${subject}`);
+}
+
+/**
  * Decides whether the next unresolved token may be taken as the value of a
  * declared option.
  *
@@ -395,15 +417,9 @@ async function parseArgv(state: ParseState): Promise<void> {
 
 			if (isFlag) {
 				// `--foo` is true and `--no-foo` is false, but an explicit
-				// `--foo=false` beats the name it was reached by. A negated flag
-				// turns its destination off through every name it answers to —
-				// `-C` as much as `--no-color` — except the positive spelling it
-				// registers implicitly, which is the one way to turn it on
+				// `--foo=false` beats the name it was reached by
 				const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
-				const negated = option.negate
-					? subject !== `--${option.name}`
-					: negatedRE.test(`${subject}`);
-				value = negated ? !bool : bool;
+				value = isNegated(option, subject) ? !bool : bool;
 			} else {
 				const next = $[j + 1];
 
@@ -633,29 +649,36 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 export async function processOptions(state: ParseState): Promise<void> {
 	const missingOptions: string[] = [];
+	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
 
-	for (const ctx of state.contexts) {
-		const { options } = ctx[Internal];
+	// every fallback is applied before anything is validated: a destination two
+	// options share — a valued option and its negated twin — is not missing
+	// just because the one that fills it comes second
+	for (const opt of all) {
+		const { multiple, type } = opt;
+		const { dest, envs, skipDefault } = opt[Internal];
 
-		for (const opt of options.values()) {
-			const { choices, multiple, required, type } = opt;
-			const { dest, envs, label, skipDefault } = opt[Internal];
+		// the valued twin owns the default of the destination the two share
+		applyFallback(state, dest, skipDefault ? undefined : opt.default, envs, type, multiple);
+	}
 
-			// a negated flag declared alongside its valued twin shares that
-			// twin's destination, and the twin owns its default
-			applyFallback(state, dest, skipDefault ? undefined : opt.default, envs, type, multiple);
+	for (const opt of all) {
+		const { choices, required } = opt;
+		const { dest, label, negatedTwin } = opt[Internal];
+		const value = resolved(state, dest);
 
-			if (required) {
-				const existing = state.$.find(
-					(parsed) => parsed.type === 'Option' && parsed.option === opt
-				);
-				if (!existing && resolved(state, dest) === undefined) {
-					missingOptions.unshift(label);
-				}
+		if (required) {
+			const existing = state.$.find((parsed) => parsed.type === 'Option' && parsed.option === opt);
+			if (!existing && value === undefined) {
+				missingOptions.unshift(label);
 			}
+		}
 
-			// only validate when there is actually a value to validate
-			assertChoices(choices, resolved(state, dest), `option ${label}`);
+		// only validate when there is actually a value to validate, and never
+		// against the `false` a negated twin means: turning the destination off
+		// is not one of the values this option declared
+		if (!negatedTwin || value !== false) {
+			assertChoices(choices, value, `option ${label}`);
 		}
 	}
 

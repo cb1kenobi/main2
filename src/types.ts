@@ -142,6 +142,8 @@ export interface InternalOptionBase extends InternalBase {
 	isFlag: boolean;
 	label: string;
 	long: Set<string>;
+	/** The negated flag declared alongside this option, sharing its destination. */
+	negatedTwin?: InternalOption;
 	short: Set<string>;
 	/** Another option owns the default for the destination they share. */
 	skipDefault: boolean;

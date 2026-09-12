@@ -371,6 +371,16 @@ describe('options', () => {
 			expect(result.argv.colors).to.equal(true);
 		});
 
+		it('should not negate a flag that suppressed negation', async () => {
+			const result = await parse({
+				argv: ['--no-colors'],
+				schema: { options: { '--no-colors': { negate: false } } },
+			});
+			// `negate: false` means the `no-` is part of the name, so the flag is
+			// simply present
+			expect(result.argv.noColors).to.equal(true);
+		});
+
 		it('should let an explicit value beat the name it was reached by', async () => {
 			const result = await parse({
 				argv: ['-C=false'],
@@ -503,6 +513,43 @@ describe('options', () => {
 				schema: { options },
 			});
 			expect(result.argv.cheese).to.equal('brie');
+		});
+
+		it.each([
+			['valued first', { '--cheese <type>': {}, '--no-cheese': { default: false } }],
+			['negated first', { '--no-cheese': { default: false }, '--cheese <type>': {} }],
+		] as Order[])(
+			'should let a default on the flag satisfy the requirement, %s',
+			async (_label, options) => {
+				const result = await parse({ schema: { options } });
+				expect(result.argv.cheese).to.equal(false);
+			}
+		);
+
+		it.each([
+			['valued first', { '--cheese <type>': {}, '--no-cheese': { env: 'NO_CHEESE' } }],
+			['negated first', { '--no-cheese': { env: 'NO_CHEESE' }, '--cheese <type>': {} }],
+		] as Order[])(
+			'should let the environment on the flag satisfy the requirement, %s',
+			async (_label, options) => {
+				const result = await parse({ env: { NO_CHEESE: 'false' }, schema: { options } });
+				expect(result.argv.cheese).to.equal(false);
+			}
+		);
+
+		it.each([
+			['valued first', { '--cheese [type]': { choices: ['brie', 'gouda'] }, '--no-cheese': {} }],
+			['negated first', { '--no-cheese': {}, '--cheese [type]': { choices: ['brie', 'gouda'] } }],
+		] as Order[])('should let the flag out of the choices, %s', async (_label, options) => {
+			expect((await parse({ argv: ['--no-cheese'], schema: { options } })).argv.cheese).to.equal(
+				false
+			);
+			expect(
+				(await parse({ argv: ['--cheese', 'brie'], schema: { options } })).argv.cheese
+			).to.equal('brie');
+			await expect(parse({ argv: ['--cheese', 'blue'], schema: { options } })).rejects.toThrow(
+				'Invalid value "blue" for option --cheese'
+			);
 		});
 
 		it('should let the last of two identical declarations win', async () => {
