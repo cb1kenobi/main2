@@ -147,7 +147,20 @@ Positional arguments are declared as strings or objects:
 | `[foo...]` | no       | yes      |
 | `[foo]...` | no       | yes      |
 
-A variadic argument collects every remaining positional value into an array.
+A variadic argument collects every remaining positional value into an array,
+so only the last argument may be variadic. An argument declared after one
+could never be given a value, and the schema is rejected when it is
+initialized:
+
+```
+Only the last argument can be variadic: "files..." is followed by "extra" in
+the "build" command
+```
+
+That holds however the arguments are declared — inline in the command name
+(`'build <files...> [extra]'`), in an `args` array, or by a lazily loaded
+command module, which is checked when the module loads.
+
 An optional argument that precedes a required one is promoted to required,
 since there is no way to skip it.
 

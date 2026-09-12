@@ -114,10 +114,6 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `'--no-cheese'`) both resolve to the name `cheese`, so the registry keeps
   only whichever was added last and silently discards the other. Covered by a
   skipped test in `test/parser/commander/option-formats.test.ts`.
-- A variadic argument that is not last silently swallows every remaining value,
-  leaving the arguments declared after it unreachable. Commander rejects the
-  schema. Covered by a skipped test in
-  `test/parser/commander/arguments.test.ts`.
 
 ## Conventions
 

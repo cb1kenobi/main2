@@ -90,9 +90,24 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			throw new TypeError('Expected arguments to be an array');
 		}
 
-		for (let i = it.args.length - 1, j = i; i >= 0; i--) {
+		for (let i = 0; i < it.args.length; i++) {
 			args[i] = initArg(it.args[i]);
-			if (i < j && !args[i].required) {
+		}
+
+		// a variadic argument takes every remaining value, so anything declared
+		// after it could never be given a value
+		for (let i = 0; i < args.length - 1; i++) {
+			if (args[i].multiple) {
+				throw new Error(
+					`Only the last argument can be variadic: "${args[i].name}..." is followed by "${args[i + 1].name}" in the "${parsed.name}" command`
+				);
+			}
+		}
+
+		// an optional argument before a required one is promoted to required
+		// since there is no way to skip it
+		for (let i = args.length - 2; i >= 0; i--) {
+			if (!args[i].required) {
 				args[i].required = args[i + 1].required;
 			}
 		}

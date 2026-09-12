@@ -1,5 +1,5 @@
 import { parse } from '../../src/parser/parse.js';
-import { Internal } from '../../src/types.js';
+import { Argument, Internal } from '../../src/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -363,6 +363,91 @@ describe('regressions', () => {
 			await expect(parse({ schema: { args: ['<rest...>'] } })).rejects.toThrow(
 				'Missing required arguments: <rest>'
 			);
+		});
+	});
+
+	describe('a variadic argument that is not last', () => {
+		it('should allow a variadic as the last argument', async () => {
+			const result = await parse({
+				argv: ['a', 'b', 'c'],
+				schema: { args: ['<first>', '[rest...]'] },
+			});
+			expect(result.argv.first).to.equal('a');
+			expect(result.argv.rest).to.deep.equal(['b', 'c']);
+		});
+
+		it('should allow a lone variadic', async () => {
+			const result = await parse({ argv: ['a', 'b'], schema: { args: ['[rest...]'] } });
+			expect(result.argv.rest).to.deep.equal(['a', 'b']);
+		});
+
+		it('should reject a variadic followed by another argument', async () => {
+			await expect(parse({ schema: { args: ['<rest...>', '[extra]'] } })).rejects.toThrow(
+				'Only the last argument can be variadic: "rest..." is followed by "extra" in the "global" command'
+			);
+		});
+
+		it('should reject a variadic in the middle', async () => {
+			await expect(parse({ schema: { args: ['<first>', '[mid...]', '[last]'] } })).rejects.toThrow(
+				'Only the last argument can be variadic: "mid..." is followed by "last" in the "global" command'
+			);
+		});
+
+		it('should reject two variadics and name the first', async () => {
+			await expect(parse({ schema: { args: ['<a...>', '<b...>'] } })).rejects.toThrow(
+				'Only the last argument can be variadic: "a..." is followed by "b" in the "global" command'
+			);
+		});
+
+		it('should reject the "[name]..." spelling too', async () => {
+			await expect(parse({ schema: { args: ['[rest]...', '[extra]'] } })).rejects.toThrow(
+				'Only the last argument can be variadic: "rest..." is followed by "extra" in the "global" command'
+			);
+		});
+
+		it('should reject an explicit multiple that is not last', async () => {
+			await expect(
+				parse({ schema: { args: [{ name: 'rest', multiple: true }, '[extra]'] } })
+			).rejects.toThrow(
+				'Only the last argument can be variadic: "rest..." is followed by "extra" in the "global" command'
+			);
+		});
+
+		it('should reject args declared inline in a command name', async () => {
+			await expect(
+				parse({ argv: ['build'], schema: { commands: { 'build <files...> [extra]': {} } } })
+			).rejects.toThrow(
+				'Only the last argument can be variadic: "files..." is followed by "extra" in the "build" command'
+			);
+		});
+
+		it('should reject args declared on a subcommand', async () => {
+			await expect(
+				parse({ argv: ['build'], schema: { commands: { build: { args: ['a...', 'b'] } } } })
+			).rejects.toThrow(
+				'Only the last argument can be variadic: "a..." is followed by "b" in the "build" command'
+			);
+		});
+
+		it('should reject args declared by a lazy loaded command', async () => {
+			await expect(
+				parse({
+					argv: ['sub'],
+					schema: {
+						commands: { sub: { path: path.join(__dirname, 'fixtures/variadic/bad-args.js') } },
+					},
+				})
+			).rejects.toThrow(
+				'Only the last argument can be variadic: "rest..." is followed by "extra" in the "sub" command'
+			);
+		});
+
+		it('should not promote a later argument before rejecting', async () => {
+			const args: Argument[] = [{ name: '[a...]' }, { name: '[b]' }, { name: '<c>' }];
+			await expect(parse({ schema: { args } })).rejects.toThrow(
+				'Only the last argument can be variadic'
+			);
+			expect(args[1].required).to.equal(false);
 		});
 	});
 
