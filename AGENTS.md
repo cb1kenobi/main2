@@ -122,7 +122,10 @@ false` rethrows instead; a function replaces the handler.
 - `parse()` mutates the schema object it is given.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
-  pass that reads it. See the warning in `docs/parser.md`.
+  pass that reads it. A default command's options are always in that position,
+  since it joins the chain only after argv has been walked. See the warning in
+  `docs/parser.md` and the pinned tests in
+  `test/parser/default-command.test.ts`.
 - An option and its negated twin declared separately (`'--cheese <type>'` plus
   `'--no-cheese'`) both resolve to the name `cheese`, so the registry keeps
   only whichever was added last and silently discards the other. Covered by a

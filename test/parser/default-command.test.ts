@@ -392,6 +392,19 @@ describe('default command', () => {
 			expect(state.cmd).toBeUndefined();
 		});
 
+		it('should honor a default declared by a command package', async () => {
+			// a package is read while the schema is built either way, so its
+			// module-declared default is visible when a plain path's is not
+			const state = await parse({
+				argv: [],
+				schema: {
+					commands: { pkg: path.join(__dirname, 'fixtures/default-pkg') },
+				},
+			});
+
+			expect(state.cmd?.name).toBe('pkg');
+		});
+
 		it('should error if default is not a boolean', async () => {
 			await expect(
 				parse({
@@ -399,6 +412,38 @@ describe('default command', () => {
 					schema: { commands: { build: { default: 'yes' as any } } },
 				})
 			).rejects.toThrow(new TypeError('Expected default in "build" command to be a boolean'));
+		});
+	});
+
+	describe('known bugs', () => {
+		it('should not protect an option the default command declares from an earlier option', async () => {
+			// the same defect as a subcommand's option used before its subcommand:
+			// nothing protects an option that is not declared yet, and the default
+			// joins the chain only after argv has been walked once. Pinned so the
+			// day it is fixed, it is fixed on purpose
+			const state = await parse({
+				argv: ['--name', '--verbose'],
+				schema: {
+					commands: { build: { default: true, options: { '-v, --verbose': null } } },
+					options: { '--name [value]': null },
+				},
+			});
+
+			expect(state.argv.name).toBe('--verbose');
+			expect(state.argv.verbose).toBe(false);
+		});
+
+		it('should resolve the option once the command is named instead', async () => {
+			const state = await parse({
+				argv: ['build', '--name', '--verbose'],
+				schema: {
+					commands: { build: { default: true, options: { '-v, --verbose': null } } },
+					options: { '--name [value]': null },
+				},
+			});
+
+			expect(state.argv.name).toBe('');
+			expect(state.argv.verbose).toBe(true);
 		});
 	});
 

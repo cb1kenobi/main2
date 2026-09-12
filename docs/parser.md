@@ -164,7 +164,19 @@ file system returned first.
 `default` has to be visible where the command is registered. A command that is
 only a path is not loaded to find out whether its module claims to be the
 default; declare it on the entry instead, which a lazily loaded command can do
-alongside its `path`.
+alongside its `path`. A command **package** is the exception: its entry module
+is read while the schema is built either way, so a `default` it exports is
+honored.
+
+> [!WARNING]
+> A default command's options are declared only once it joins the chain, which
+> is after argv has been walked, so nothing protects them from being taken as
+> an earlier option's value: given `--verbose` on the default `build` and
+> `--name [v]` at the root, `mycli --name --verbose` reads as
+> `name: '--verbose'`. This is the same known bug as a subcommand's option used
+> before its subcommand — see the warning under
+> [How an option gets its value](#how-an-option-gets-its-value) — and naming
+> the command works around it here too.
 
 ### Lazy loading
 
