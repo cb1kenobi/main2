@@ -258,10 +258,16 @@ function parseName(unparsedName: string): {
 			continue;
 		}
 
+		if (c === '!') {
+			// "!" hides the command, not just the label it sits on, so a stray
+			// "!" still hides rather than quietly doing nothing
+			hidden = true;
+		}
+
 		if ('!@'.includes(c)) {
 			label = label.slice(1);
 			if (!label) {
-				// a bare "!" or "@"
+				// a stray "!" or "@" declares no name
 				continue;
 			}
 			aliases.push(label);
@@ -275,9 +281,7 @@ function parseName(unparsedName: string): {
 			aliases.push(label);
 		}
 
-		if (c === '!') {
-			hidden = true;
-		} else {
+		if (c !== '!') {
 			labels.push(label);
 		}
 	}

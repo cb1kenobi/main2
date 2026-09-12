@@ -596,6 +596,26 @@ describe('regressions', () => {
 			}
 		});
 
+		it('should hide the command on a stray "!" label', async () => {
+			const { contexts } = await parse({
+				argv: ['build'],
+				schema: { commands: { 'build, !': {} } },
+			});
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].hidden).to.equal(true);
+			expect(contexts[0][Internal].label).to.equal('build');
+		});
+
+		it('should ignore a stray "@" label', async () => {
+			const { contexts } = await parse({
+				argv: ['build'],
+				schema: { commands: { 'build, @': {} } },
+			});
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].hidden).to.equal(false);
+			expect(contexts[0][Internal].label).to.equal('build');
+		});
+
 		it('should throw when a name has no label', async () => {
 			await expect(parse({ argv: [], schema: { commands: { ' , ': {} } } })).rejects.toThrow(
 				'Unable to determine command name from " , "'
