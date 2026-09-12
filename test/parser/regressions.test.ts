@@ -1,3 +1,4 @@
+import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Argument, Internal } from '../../src/types.js';
 import path from 'node:path';
@@ -465,6 +466,24 @@ describe('regressions', () => {
 			// again the next time the command is matched
 			for (let i = 0; i < 2; i++) {
 				await expect(parse({ argv: ['sub'], schema })).rejects.toThrow('init hook blew up');
+			}
+		});
+
+		it('should throw again when the same placeholder is reloaded', async () => {
+			// every parse now builds its own placeholder, so the retry above no
+			// longer pins down the flag itself: load the one placeholder twice
+			const { contexts } = await parse({
+				argv: [],
+				schema: {
+					commands: { sub: { path: path.join(__dirname, 'fixtures/variadic/bad-hook.js') } },
+				},
+			});
+			const cmd = contexts[0][Internal].commands.find('sub');
+			expect(cmd).to.not.equal(undefined);
+
+			for (let i = 0; i < 2; i++) {
+				await expect(loadCommand(cmd!)).rejects.toThrow('init hook blew up');
+				expect(cmd![Internal].loaded).to.not.equal(true);
 			}
 		});
 	});

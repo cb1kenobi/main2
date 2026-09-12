@@ -1,5 +1,5 @@
 import { parse } from '../../src/parser/parse.js';
-import { Internal, Schema } from '../../src/types.js';
+import { Command, Internal, Schema } from '../../src/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -222,6 +222,43 @@ describe('schema', () => {
 			const second = await parse({ argv: [], schema });
 			expect(second.argv.tag).to.deep.equal(['a']);
 			expect(schema.options['--tag [t]'].default).to.deep.equal(['a']);
+		});
+
+		it('should not let a hook append to the declared hook lists', async () => {
+			const init = () => {};
+			const schema = {
+				commands: {
+					build: {
+						alias: ['b'],
+						hooks: {
+							init: [
+								({ cmd }: { cmd: Command }) => {
+									cmd.hooks?.init?.push(init);
+									(cmd.alias as string[]).push('bld');
+								},
+							],
+						},
+					},
+				},
+			};
+
+			const { contexts } = await parse({ argv: ['build'], schema });
+			expect([...contexts[0][Internal].aliases]).to.deep.equal(['b']);
+			expect(schema.commands.build.alias).to.deep.equal(['b']);
+			expect(schema.commands.build.hooks.init).to.have.lengthOf(1);
+
+			// and the second parse still sees one hook and one alias
+			await parse({ argv: ['build'], schema });
+			expect(schema.commands.build.hooks.init).to.have.lengthOf(1);
+			expect(schema.commands.build.alias).to.deep.equal(['b']);
+		});
+
+		it('should fall back to the option key when format is nullish', async () => {
+			// only reachable from JavaScript, where `format` can be left null
+			const schema = { options: { '-v, --verbose': { format: null } } } as unknown as Schema;
+			const { argv } = await parse({ argv: ['-v'], schema });
+			expect(argv.verbose).to.equal(true);
+			expect(schema.options?.['-v, --verbose']).to.deep.equal({ format: null });
 		});
 
 		it('should not let an init hook append to declared choices', async () => {

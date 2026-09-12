@@ -1,5 +1,6 @@
 import { Argument, InternalState, Internal, InternalArgument } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
+import { copyDeclaration } from '../../util/copy-declaration.js';
 
 // foo         optional
 // <foo>       required
@@ -33,7 +34,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 
 	// copy the declaration instead of decorating it so the caller's object is
 	// never written to
-	const arg: Argument = typeof it === 'string' ? { name: it } : { ...it };
+	const arg: Argument = typeof it === 'string' ? { name: it } : copyDeclaration(it);
 
 	let { name } = arg;
 
@@ -73,12 +74,6 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 
 	if (arg.transform && typeof arg.transform !== 'function') {
 		throw new TypeError('Expected argument transform function to be a function');
-	}
-
-	if (Array.isArray(arg.choices)) {
-		// the same reasoning as an option: nothing that reaches this argument
-		// later gets to append to the caller's own array
-		arg.choices = [...arg.choices];
 	}
 
 	arg.multiple ||= !!(m[2] || m[4] || m[6]);

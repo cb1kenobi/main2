@@ -7,6 +7,7 @@ import {
 	InternalState,
 	Schema,
 } from '../../types.js';
+import { copyDeclaration } from '../../util/copy-declaration.js';
 import { initArg } from '../argument/init-arg.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
@@ -183,10 +184,9 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			} else if (typeof params === 'string') {
 				await options.add({ desc: params, format });
 			} else if (typeof params === 'object') {
-				// `initOption()` copies before it normalizes, but the format key
-				// has to be folded in without writing it back onto the caller's
-				// option object
-				await options.add(params.format === undefined ? { ...params, format } : params);
+				// the format key fills in for a missing `format`, but folding it in
+				// must not write to the caller's option object
+				await options.add({ ...params, format: params.format ?? format });
 			} else {
 				throw new TypeError('Expected option to be an object');
 			}
@@ -282,7 +282,7 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
  * @returns A new command object.
  */
 function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['args']): Command {
-	const cmd: Command = { ...decl };
+	const cmd: Command = copyDeclaration(decl);
 
 	cmd.name = parsed.name;
 
@@ -303,6 +303,20 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
 
 	if (decl.options && typeof decl.options === 'object') {
 		cmd.options = { ...decl.options };
+	}
+
+	// the hook lists are copied as well, so a hook that registers another hook
+	// on the command it was handed does not append to the declaration — and
+	// does not extend the list `initCommand()` is in the middle of walking
+	if (decl.hooks && typeof decl.hooks === 'object') {
+		const hooks = { ...decl.hooks };
+		for (const name of ['init', 'parse'] as const) {
+			const list = hooks[name];
+			if (Array.isArray(list)) {
+				hooks[name] = [...list];
+			}
+		}
+		cmd.hooks = hooks;
 	}
 
 	return cmd;

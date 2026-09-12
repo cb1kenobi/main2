@@ -496,9 +496,15 @@ and the `Internal` state all land on objects the parser builds for itself, so:
 initialized form of it is the outermost entry of `state.contexts`, whose
 `Internal` state carries the built registries.
 
-Containers are copied, including a `choices` list and an array `default` on
-its way to `argv`, so nothing the parser hands back can be appended to and
-have that reach the declaration. What is inside them is shared, though: a
-`run` handler, a `transform`, and any object used as a `default` or a choice
-are the very ones that were declared. The parser never writes to those, but a
-consumer who mutates one is mutating their own schema.
+Every array a declaration carries is copied with it — `alias`, `args`,
+`choices`, `default`, `env`, the hook lists, and anything custom — as is an
+array `default` on its way to `argv`. So nothing the parser hands back can be
+appended to and have that reach the declaration, whether it is reached from an
+`init` hook or from the parse state afterwards.
+
+The copy is shallow beyond that. A `run` handler, a `transform`, an object
+used as a `default`, and the argument and option declarations sitting inside
+`cmd.args` and `cmd.options` are the very ones that were declared; cloning a
+function is not something a library can do. The parser never writes to any of
+them, but a consumer who reaches in and mutates one is mutating their own
+schema.

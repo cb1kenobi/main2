@@ -1,5 +1,6 @@
 import { Internal, InternalOption, InternalState, Option } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
+import { copyDeclaration } from '../../util/copy-declaration.js';
 
 /**
  * "all"
@@ -38,7 +39,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	// copy the declaration instead of decorating it so the caller's object is
 	// never written to
-	const opt: Option = { ...it };
+	const opt: Option = copyDeclaration(it);
 
 	const long = new Set<string>();
 	const short = new Set<string>();
@@ -175,9 +176,6 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		if (!Array.isArray(opt.choices)) {
 			throw new TypeError('Expected option choices to be an array');
 		}
-		// an init hook reaching this option through the registry must not be
-		// able to append to the caller's own array
-		opt.choices = [...opt.choices];
 		opt.hint ??= 'value';
 	}
 
