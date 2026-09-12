@@ -561,36 +561,78 @@ describe('schema', () => {
 			);
 		});
 
-		it('should not read an option property back off the declaration', async () => {
-			// `env`, `format`, and the names are read once to build the registry
-			// lookups, so a hook editing one is documented as inert rather than
-			// half working
-			const schema = {
-				commands: {
-					build: {
-						options: { '--target [name]': { env: 'TARGET' } },
-						hooks: {
-							init: [
-								({ options }: CommandHookData) => {
-									const target = options.get('target')!;
-									target.env = 'OTHER';
-									target.name = 'renamed';
-								},
-							],
+		it('should refuse a write to a property an option was built from', async () => {
+			// the spellings the registry indexes, the destination, and the env
+			// fallbacks were all read out of these, so moving one afterwards can
+			// only mislead
+			for (const prop of ['alias', 'env', 'format', 'name', 'negate'] as const) {
+				const schema = {
+					commands: {
+						build: {
+							options: { '--target [name]': { alias: '-t', env: 'TARGET' } },
+							hooks: {
+								init: [
+									({ options }: CommandHookData) => {
+										(options.get('target') as Record<string, unknown>)[prop] = 'nope';
+									},
+								],
+							},
 						},
 					},
+				};
+
+				await expect(parse({ argv: ['build'], schema })).rejects.toThrow(
+					new RegExp(`Cannot set "${prop}" on the initialized "--target" option`)
+				);
+			}
+		});
+
+		it('should refuse a write to a property an argument was built from', async () => {
+			for (const prop of ['env', 'name'] as const) {
+				const schema = {
+					commands: {
+						build: {
+							args: [{ name: '<entry>', env: 'ENTRY' }],
+							hooks: {
+								init: [
+									({ args }: CommandHookData) => {
+										(args[0] as Record<string, unknown>)[prop] = 'nope';
+									},
+								],
+							},
+						},
+					},
+				};
+
+				await expect(parse({ argv: ['build', 'main.js'], schema })).rejects.toThrow(
+					new RegExp(`Cannot set "${prop}" on the initialized "entry" argument`)
+				);
+			}
+		});
+
+		it('should keep an option reading the environment it was built with', async () => {
+			const schema = {
+				commands: {
+					build: { options: { '--target [name]': { env: 'M2_TARGET' } } },
 				},
 			};
 
-			const { argv, contexts } = await parse({
-				argv: ['build'],
-				env: { TARGET: 'esm' },
-				schema,
-			});
-
-			// the destination and the env fallback are both the ones init built
+			const { argv } = await parse({ argv: ['build'], env: { M2_TARGET: 'esm' }, schema });
 			expect(argv.target).to.equal('esm');
-			expect(contexts[0][Internal].options.find('--target')).to.not.equal(undefined);
+		});
+
+		it('should not reload the command a lazy load produced', async () => {
+			const schema = {
+				commands: { build: { path: path.join(__dirname, 'fixtures/frozen/build.js') } },
+			};
+			const { contexts } = await parse({ argv: [], schema });
+			const placeholder = contexts[0][Internal].commands.find('build')!;
+
+			const loaded = await loadCommand(placeholder);
+			expect(loaded[Internal].loaded).to.equal(true);
+
+			// loading it again would re-import the module and rerun its init hooks
+			expect(await loadCommand(loaded)).to.equal(loaded);
 		});
 
 		it('should let an init hook edit an option in place', async () => {

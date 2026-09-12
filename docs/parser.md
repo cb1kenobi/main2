@@ -498,19 +498,24 @@ delete cmd.args; // throws
 
 Everything else about a command is a plain property. An option or an argument
 the registry hands back is a plain object too, so editing one in place is a
-supported way to reconfigure it — but only for the properties a parse reads
-each time it runs:
+supported way to reconfigure it — with one line drawn through its properties:
 
-| Property                                                                                    | Editing it in place |
-| ------------------------------------------------------------------------------------------- | ------------------- |
-| `choices`, `default`, `desc`, `hidden`, `hint`, `multiple`, `required`, `transform`, `type` | Live                |
-| `alias`, `env`, `format`, `name`, `negate`                                                  | Read once, at init  |
+| Property                                                          | After init                                                 |
+| ----------------------------------------------------------------- | ---------------------------------------------------------- |
+| `choices`, `default`, `multiple`, `required`, `transform`, `type` | Read on every parse — editing one takes effect             |
+| `desc`, `hidden`, `hint`                                          | Carried for the help screen; the parser does not read them |
+| `alias`, `env`, `format`, `name`, `negate`                        | Read once, at init — **read-only**, assigning throws       |
 
-The second row is everything the format string and the registry lookups were
-built from: the names an option answers to, its camelCase destination, and the
-environment variables it falls back to all live on `Internal` by the time
-`init*()` returns. Changing one of those changes nothing about the parse, so
-declare another option or argument and `add()` or `push()` it instead.
+The last row is everything the registry was built from: the spellings an option
+answers to, its camelCase destination, and the environment variables it falls
+back to are all resolved by the time `init*()` returns. Moving one afterwards
+could only mislead, so it throws and names the way through — declare another
+option or argument and `add()` or `push()` it.
+
+One thing the first row does not cover: whether `choices` is present at all is
+read once, because an option with choices is not a flag. Editing the values in
+a `choices` array is live; adding a `choices` array to an option that did not
+declare one does not turn it into an option that takes a value.
 
 ## Parse state
 

@@ -87,6 +87,10 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 			// instead of quietly resolving to the placeholder
 			internal.loaded = true;
 
+			// the command this built *is* the module, so loading it again would
+			// re-import the same file and run its init hooks a second time
+			loaded[Internal].loaded = true;
+
 			return loaded;
 		}
 	}

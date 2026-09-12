@@ -8,6 +8,7 @@ import {
 	Schema,
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { lockDerived } from '../../util/lock-derived.js';
 import { initArg } from '../argument/init-arg.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
@@ -222,7 +223,17 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		},
 	}) as InternalCommand;
 
-	lockContainers(cmd, parsed.name);
+	// `cmd.args`, `cmd.commands`, and `cmd.options` echo the declaration; the
+	// parser reads the normalized arguments and the registries on `Internal`,
+	// which are a different shape on purpose — an inline `<arg>` in the name, a
+	// subcommand still waiting on its module, and an option's parsed spellings
+	// only exist on the internal side
+	lockDerived(
+		cmd,
+		['args', 'commands', 'options'],
+		(prop) =>
+			`Cannot set "${prop}" on the initialized "${parsed.name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
+	);
 
 	if (decl.hooks?.init !== undefined) {
 		if (!Array.isArray(decl.hooks.init)) {
@@ -236,52 +247,6 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 	cmd[Internal].state = InternalState.OK;
 
 	return cmd;
-}
-
-/**
- * Seals the three containers a command carries over from its declaration.
- *
- * `cmd.args`, `cmd.commands`, and `cmd.options` are a copy of what was
- * declared. The parser never reads them again: it reads the normalized
- * arguments and the command and option registries hanging off `cmd[Internal]`,
- * which are deliberately a different shape — an inline `<arg>` in the name, a
- * subcommand still waiting on its module, an option's parsed format, aliases,
- * and data type only exist on the internal side.
- *
- * So a write to one of these containers would change what a consumer reads
- * back without changing one thing about the parse. Re-deriving the registry
- * from the write is not an option either: building a command or an option is
- * async, and the only hook a plain property write offers is a Proxy `set`
- * trap, which has to answer synchronously. Rather than drop such a write
- * silently, the containers are read-only — assigning one throws, deleting one
- * throws, and adding to one throws.
- *
- * The live surface is `cmd[Internal]`, which is exactly what an `init` or
- * `parse` hook is handed.
- *
- * @param cmd - The command being initialized.
- * @param name - The command's parsed name, for the error message.
- */
-function lockContainers(cmd: Command, name: string): void {
-	for (const prop of ['args', 'commands', 'options'] as const) {
-		const value = cmd[prop];
-		const enumerable = Object.hasOwn(cmd, prop);
-
-		if (value && typeof value === 'object') {
-			Object.freeze(value);
-		}
-
-		Object.defineProperty(cmd, prop, {
-			configurable: false,
-			enumerable,
-			get: () => value,
-			set() {
-				throw new Error(
-					`Cannot set "${prop}" on the initialized "${name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
-				);
-			},
-		});
-	}
 }
 
 /**

@@ -1,6 +1,7 @@
 import { Internal, InternalOption, InternalState, Option } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { lockDerived } from '../../util/lock-derived.js';
 
 /**
  * "all"
@@ -185,12 +186,10 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
 
-	// the option is a plain object. Everything `Internal` holds is derived from
-	// the format string, which is read once here; a consumer who changes
-	// `choices`, `default`, or `desc` afterwards changes what the parser reads,
-	// and a consumer who wants a different name or format declares another
-	// option and adds it to the registry
-	return Object.defineProperty(opt, Internal, {
+	// the option is a plain object: `choices`, `default`, `multiple`,
+	// `required`, `transform`, and `type` are read on every parse, so changing
+	// one of those changes what the parser reads
+	const internal = Object.defineProperty(opt, Internal, {
 		configurable: true,
 		value: {
 			dest: camelCase(opt.name),
@@ -203,4 +202,16 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 			state: InternalState.OK,
 		},
 	}) as InternalOption;
+
+	// ...but everything above was read out of the format string and the alias
+	// and environment lists to build the spellings the registry indexes and the
+	// destination the value lands on, so none of those can move afterwards
+	lockDerived(
+		internal,
+		['alias', 'env', 'format', 'name', 'negate'],
+		(prop) =>
+			`Cannot set "${prop}" on the initialized "${label}" option: it built the option's spellings, destination, and environment fallbacks, so declare another option and add it to the registry instead`
+	);
+
+	return internal;
 }
