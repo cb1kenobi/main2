@@ -81,17 +81,15 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 	arg.required ||= !!m[1];
 	arg.type ||= 'string';
 
-	return new Proxy(
-		Object.defineProperty(arg, Internal, {
-			configurable: true,
-			value: {
-				dest: camelCase(arg.name),
-				envs,
-				state: InternalState.OK,
-			},
-		}),
-		{
-			// TODO: wrap set/delete to detect changes
-		}
-	) as InternalArgument;
+	// nothing here is derived from another property after the fact, so the
+	// argument is a plain object: a consumer who changes `required` or `type`
+	// on it changes what the parser reads, with nothing to keep in sync
+	return Object.defineProperty(arg, Internal, {
+		configurable: true,
+		value: {
+			dest: camelCase(arg.name),
+			envs,
+			state: InternalState.OK,
+		},
+	}) as InternalArgument;
 }

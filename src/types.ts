@@ -13,8 +13,17 @@ export type Callback = (schema: Schema) => Promise<string>;
 
 export const Internal: unique symbol = Symbol();
 
+/**
+ * How far along an `init*()` call got. Only `OK` is trusted: an object in any
+ * other state is rebuilt from scratch the next time it is initialized.
+ */
 export enum InternalState {
+	/** Fully built, and safe to hand straight back. */
 	OK = 1,
+	/**
+	 * Built, but not finished — a command stays here until its init hooks have
+	 * all resolved, so a hook that throws leaves nothing half built behind.
+	 */
 	Dirty = 2,
 }
 
@@ -89,6 +98,11 @@ export interface InternalCommandBase extends InternalBase {
 	args: InternalArgument[];
 	commands: CommandRegistry;
 	label: string;
+	/**
+	 * Whether `loadCommand()` has pulled in the module behind a lazily loaded
+	 * command. Always set: a command with no module to load, and a placeholder
+	 * whose load has not run or has failed, all read back `false`.
+	 */
 	loaded: boolean;
 	options: OptionRegistry;
 	path?: string;

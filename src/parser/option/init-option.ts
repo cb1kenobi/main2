@@ -185,22 +185,22 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
 
-	return new Proxy(
-		Object.defineProperty(opt, Internal, {
-			configurable: true,
-			value: {
-				dest: camelCase(opt.name),
-				envs,
-				isFlag,
-				label,
-				format: label + (isFlag ? '' : opt.required ? `=<${opt.hint}>` : `=[${opt.hint}]`),
-				long,
-				short,
-				state: InternalState.OK,
-			},
-		}),
-		{
-			// TODO: wrap set/delete to detect changes
-		}
-	) as InternalOption;
+	// the option is a plain object. Everything `Internal` holds is derived from
+	// the format string, which is read once here; a consumer who changes
+	// `choices`, `default`, or `desc` afterwards changes what the parser reads,
+	// and a consumer who wants a different name or format declares another
+	// option and adds it to the registry
+	return Object.defineProperty(opt, Internal, {
+		configurable: true,
+		value: {
+			dest: camelCase(opt.name),
+			envs,
+			isFlag,
+			label,
+			format: label + (isFlag ? '' : opt.required ? `=<${opt.hint}>` : `=[${opt.hint}]`),
+			long,
+			short,
+			state: InternalState.OK,
+		},
+	}) as InternalOption;
 }

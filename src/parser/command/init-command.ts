@@ -202,55 +202,27 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		entryFile = entryFile ? join(dirname(entryFile), commandPath) : commandPath;
 	}
 
-	const cmd = new Proxy(
-		Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
-			configurable: true,
-			value: {
-				aliases,
-				args,
-				commands,
-				label: parsed.label,
-				options,
-				path: entryFile,
-				// the command is not fully initialized until its init hooks have
-				// run, so a hook that throws leaves it dirty and it is rebuilt the
-				// next time it is initialized rather than silently accepted
-				state: InternalState.Dirty,
-			},
-		}),
-		{
-			deleteProperty(target, prop) {
-				if (typeof prop !== 'string') {
-					return false;
-				}
-				if (prop === 'args') {
-					// TODO
-				} else if (prop === 'commands') {
-					// TODO
-				} else if (prop === 'options') {
-					// TODO
-				} else {
-					delete target[prop];
-				}
-				return true;
-			},
-			set(target, prop, value) {
-				if (typeof prop !== 'string') {
-					return false;
-				}
-				if (prop === 'args') {
-					// TODO
-				} else if (prop === 'commands') {
-					// TODO
-				} else if (prop === 'options') {
-					// TODO
-				} else {
-					target[prop] = value;
-				}
-				return true;
-			},
-		}
-	) as InternalCommand;
+	const cmd = Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
+		configurable: true,
+		value: {
+			aliases,
+			args,
+			commands,
+			label: parsed.label,
+			// a placeholder has not pulled its module in yet; `loadCommand()`
+			// flips this only once the import and the module's own init have
+			// both succeeded
+			loaded: false,
+			options,
+			path: entryFile,
+			// the command is not fully initialized until its init hooks have
+			// run, so a hook that throws leaves it dirty and it is rebuilt the
+			// next time it is initialized rather than silently accepted
+			state: InternalState.Dirty,
+		},
+	}) as InternalCommand;
+
+	lockContainers(cmd, parsed.name);
 
 	if (decl.hooks?.init !== undefined) {
 		if (!Array.isArray(decl.hooks.init)) {
@@ -264,6 +236,52 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 	cmd[Internal].state = InternalState.OK;
 
 	return cmd;
+}
+
+/**
+ * Seals the three containers a command carries over from its declaration.
+ *
+ * `cmd.args`, `cmd.commands`, and `cmd.options` are a copy of what was
+ * declared. The parser never reads them again: it reads the normalized
+ * arguments and the command and option registries hanging off `cmd[Internal]`,
+ * which are deliberately a different shape — an inline `<arg>` in the name, a
+ * subcommand still waiting on its module, an option's parsed format, aliases,
+ * and data type only exist on the internal side.
+ *
+ * So a write to one of these containers would change what a consumer reads
+ * back without changing one thing about the parse. Re-deriving the registry
+ * from the write is not an option either: building a command or an option is
+ * async, and the only hook a plain property write offers is a Proxy `set`
+ * trap, which has to answer synchronously. Rather than drop such a write
+ * silently, the containers are read-only — assigning one throws, deleting one
+ * throws, and adding to one throws.
+ *
+ * The live surface is `cmd[Internal]`, which is exactly what an `init` or
+ * `parse` hook is handed.
+ *
+ * @param cmd - The command being initialized.
+ * @param name - The command's parsed name, for the error message.
+ */
+function lockContainers(cmd: Command, name: string): void {
+	for (const prop of ['args', 'commands', 'options'] as const) {
+		const value = cmd[prop];
+		const enumerable = Object.hasOwn(cmd, prop);
+
+		if (value && typeof value === 'object') {
+			Object.freeze(value);
+		}
+
+		Object.defineProperty(cmd, prop, {
+			configurable: false,
+			enumerable,
+			get: () => value,
+			set() {
+				throw new Error(
+					`Cannot set "${prop}" on the initialized "${name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
+				);
+			},
+		});
+	}
 }
 
 /**
