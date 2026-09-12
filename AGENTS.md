@@ -67,8 +67,6 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - An explicit `hidden: true` on a command is overwritten by name parsing.
 - `beforeError` hooks are declared and validated but never fired.
 - `command.default: true` is never dispatched.
-- The `./error-handler`, `./paths`, and `./updates` subpath exports point at
-  files the build does not produce.
 - `parse()` mutates the schema object it is given.
 
 ## Conventions
