@@ -276,6 +276,43 @@ registered, and the one actually typed decides the value:
 | `--color=false`    | `false` |
 | `--no-color=false` | `true`  |
 
+Every other name a negated flag answers to turns the destination off, the same
+as `--no-color` does. Given `-C, --no-color`, `-C` is `color: false`. Only the
+positive spelling the flag registers for itself — `--color` — turns it on.
+
+#### Declaring both a value and its negation
+
+A valued option and a negated flag of the same name may be declared together.
+They are two options sharing one destination: the valued one sets it and the
+flag turns it off. Declaration order does not matter.
+
+```js
+{
+	options: {
+		'--cheese <type>': 'cheese flavour',
+		'--no-cheese': 'hold the cheese'
+	}
+}
+```
+
+| Input            | Result                           |
+| ---------------- | -------------------------------- |
+| `--cheese gouda` | `cheese: 'gouda'`                |
+| `--no-cheese`    | `cheese: false`                  |
+| `--cheese`       | throws, `<type>` demands a value |
+
+The valued option owns the destination's default, so the `true` a lone
+negated flag would imply is dropped: the pair above starts out undefined, and
+`--cheese [type]` with a `default` of `'mozzarella'` starts out
+`'mozzarella'`. A `default` declared on the flag itself is still honored when
+the valued twin declares none. The same goes for the environment fallback —
+the valued twin's variables are read first.
+
+Because `<type>` makes the option required, either `--cheese <value>` or
+`--no-cheese` satisfies it; neither leaves it missing. Declaring `negate:
+false` on the flag opts out of the pairing entirely: it keeps its own
+`noCheese` destination.
+
 ### Short option groups
 
 Groups are expanded against the schema, not by shape, because whether a

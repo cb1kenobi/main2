@@ -96,13 +96,21 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 	}
 
 	it.type ||= isFlag ? 'bool' : 'string';
+
+	// a default the parser supplied is weaker than one the schema declared: it
+	// gives way to the twin that shares its destination, if there is one
+	let impliedDefault = false;
+
 	if (isFlag) {
 		if (it.type === 'auto' || it.type === 'yesno') {
 			it.type = 'bool';
 		} else if (it.type !== 'bool' && it.type !== 'count') {
 			throw new Error("Option flags must have type of 'auto', 'bool', 'count', or 'yesno'");
 		}
-		it.default ??= it.type === 'count' ? 0 : !!it.negate;
+		if (it.default === undefined) {
+			it.default = it.type === 'count' ? 0 : !!it.negate;
+			impliedDefault = true;
+		}
 	} else if (it.type === 'count') {
 		throw new Error('Only flags can be of type "count"');
 	}
@@ -177,11 +185,13 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 			value: {
 				dest: camelCase(it.name),
 				envs,
+				impliedDefault,
 				isFlag,
 				label,
 				format: label + (isFlag ? '' : it.required ? `=<${it.hint}>` : `=[${it.hint}]`),
 				long,
 				short,
+				skipDefault: false,
 			},
 		}),
 		{

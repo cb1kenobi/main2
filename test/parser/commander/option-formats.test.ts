@@ -110,7 +110,12 @@ describe('commander: option formats', () => {
 	});
 
 	describe('an option and its negation declared separately', () => {
-		it('should work when the valued option is declared last', async () => {
+		// Commander supports this pair through its DualOptions helper: the two
+		// declarations share a destination, the valued one sets it and the negated
+		// flag turns it off. Here they are two registry entries keyed apart, so
+		// declaration order does not matter — Commander's does matter for the
+		// default, see the dual options tests in ../options.test.ts.
+		it('should keep both when the valued option is declared last', async () => {
 			const result = await parse({
 				argv: ['--cheese', 'blue'],
 				schema: { options: { '--no-cheese': {}, '--cheese <type>': {} } },
@@ -118,11 +123,7 @@ describe('commander: option formats', () => {
 			expect(result.argv.cheese).to.equal('blue');
 		});
 
-		// KNOWN BUG: both declarations resolve to the name `cheese`, so the
-		// option registry keeps only whichever was added last and the other is
-		// silently discarded. Declaring `--cheese <type>` first loses it
-		// entirely, taking its requiredness with it. Unskip when fixed.
-		it.skip('should keep both when the valued option is declared first', async () => {
+		it('should keep both when the valued option is declared first', async () => {
 			const result = await parse({
 				argv: ['--cheese', 'blue'],
 				schema: { options: { '--cheese <type>': {}, '--no-cheese': {} } },
@@ -130,13 +131,12 @@ describe('commander: option formats', () => {
 			expect(result.argv.cheese).to.equal('blue');
 		});
 
-		it('should currently discard the earlier declaration', async () => {
-			await expect(
-				parse({
-					argv: ['--cheese', 'blue'],
-					schema: { options: { '--cheese <type>': {}, '--no-cheese': {} } },
-				})
-			).rejects.toThrow('Unexpected argument "blue"');
+		it.each([
+			['the valued option first', { '--cheese <type>': {}, '--no-cheese': {} }],
+			['the negated flag first', { '--no-cheese': {}, '--cheese <type>': {} }],
+		])('should turn the destination off with %s', async (_label, options) => {
+			const result = await parse({ argv: ['--no-cheese'], schema: { options } });
+			expect(result.argv.cheese).to.equal(false);
 		});
 	});
 });

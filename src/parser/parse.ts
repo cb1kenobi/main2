@@ -395,9 +395,15 @@ async function parseArgv(state: ParseState): Promise<void> {
 
 			if (isFlag) {
 				// `--foo` is true and `--no-foo` is false, but an explicit
-				// `--foo=false` beats the name it was reached by
+				// `--foo=false` beats the name it was reached by. A negated flag
+				// turns its destination off through every name it answers to —
+				// `-C` as much as `--no-color` — except the positive spelling it
+				// registers implicitly, which is the one way to turn it on
 				const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
-				value = negatedRE.test(`${subject}`) ? !bool : bool;
+				const negated = option.negate
+					? subject !== `--${option.name}`
+					: negatedRE.test(`${subject}`);
+				value = negated ? !bool : bool;
 			} else {
 				const next = $[j + 1];
 
@@ -633,9 +639,11 @@ export async function processOptions(state: ParseState): Promise<void> {
 
 		for (const opt of options.values()) {
 			const { choices, multiple, required, type } = opt;
-			const { dest, envs, label } = opt[Internal];
+			const { dest, envs, label, skipDefault } = opt[Internal];
 
-			applyFallback(state, dest, opt.default, envs, type, multiple);
+			// a negated flag declared alongside its valued twin shares that
+			// twin's destination, and the twin owns its default
+			applyFallback(state, dest, skipDefault ? undefined : opt.default, envs, type, multiple);
 
 			if (required) {
 				const existing = state.$.find(

@@ -82,6 +82,13 @@ These look like bugs and are not. Each is intentional and covered by tests.
   become aliases rather than errors, and a bare word declares `--word`.
   Commander rejects all of those. Genuinely malformed parts — `-ws`,
   `---triple` — still throw.
+- **An option and its negated twin share a destination, and the valued one
+  owns it.** `'--cheese <type>'` plus `'--no-cheese'` is one destination set
+  by two options, as in Commander. Unlike Commander it is order-independent,
+  which costs the negated flag its implied `true`: the valued twin decides the
+  default, so the pair is `undefined` until something sets it rather than
+  silently `true`. A `default` declared on the flag is still honored, and
+  `negate: false` opts out of the pairing. See `test/parser/options.test.ts`.
 - **Undeclared options produce values rather than erroring.** `--foo` is
   `foo: true`, `--foo bar` is `foo: 'bar'`. They resolve after every command
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
@@ -99,10 +106,6 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. See the warning in `docs/parser.md`.
-- An option and its negated twin declared separately (`'--cheese <type>'` plus
-  `'--no-cheese'`) both resolve to the name `cheese`, so the registry keeps
-  only whichever was added last and silently discards the other. Covered by a
-  skipped test in `test/parser/commander/option-formats.test.ts`.
 - A variadic argument that is not last silently swallows every remaining value,
   leaving the arguments declared after it unreachable. Commander rejects the
   schema. Covered by a skipped test in

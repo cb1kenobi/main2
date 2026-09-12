@@ -354,6 +354,182 @@ describe('options', () => {
 		});
 	});
 
+	describe('negated aliases', () => {
+		it('should negate through a short alias', async () => {
+			const result = await parse({
+				argv: ['-C'],
+				schema: { options: { '-C, --no-colors': {} } },
+			});
+			expect(result.argv.colors).to.equal(false);
+		});
+
+		it('should still turn a negated flag on through the positive spelling', async () => {
+			const result = await parse({
+				argv: ['--colors'],
+				schema: { options: { '-C, --no-colors': {} } },
+			});
+			expect(result.argv.colors).to.equal(true);
+		});
+
+		it('should let an explicit value beat the name it was reached by', async () => {
+			const result = await parse({
+				argv: ['-C=false'],
+				schema: { options: { '-C, --no-colors': {} } },
+			});
+			expect(result.argv.colors).to.equal(true);
+		});
+	});
+
+	/**
+	 * A valued option and its negated flag declared separately — Commander's
+	 * "dual options" — resolve to the same name and the same destination. They
+	 * are two options keyed apart in the registry, so both survive in either
+	 * declaration order, and the valued twin owns the destination's default.
+	 */
+	describe('dual options', () => {
+		type Order = [string, Record<string, Option>];
+
+		const orders: Order[] = [
+			['valued first', { '--cheese <type>': {}, '--no-cheese': {} }],
+			['negated first', { '--no-cheese': {}, '--cheese <type>': {} }],
+		];
+
+		const optional: Order[] = [
+			['valued first', { '--cheese [type]': {}, '--no-cheese': {} }],
+			['negated first', { '--no-cheese': {}, '--cheese [type]': {} }],
+		];
+
+		const defaulted: Order[] = [
+			['valued first', { '--cheese [type]': { default: 'mozzarella' }, '--no-cheese': {} }],
+			['negated first', { '--no-cheese': {}, '--cheese [type]': { default: 'mozzarella' } }],
+		];
+
+		const flagDefault: Order[] = [
+			['valued first', { '--cheese [type]': {}, '--no-cheese': { default: true } }],
+			['negated first', { '--no-cheese': { default: true }, '--cheese [type]': {} }],
+		];
+
+		const flags: Order[] = [
+			['positive first', { '--cheese': {}, '--no-cheese': {} }],
+			['negated first', { '--no-cheese': {}, '--cheese': {} }],
+		];
+
+		const shorts: Order[] = [
+			['valued first', { '-c, --cheese <type>': {}, '-C, --no-cheese': {} }],
+			['negated first', { '-C, --no-cheese': {}, '-c, --cheese <type>': {} }],
+		];
+
+		const envs: Order[] = [
+			[
+				'valued first',
+				{ '--cheese [type]': { env: 'CHEESE' }, '--no-cheese': { env: 'NO_CHEESE' } },
+			],
+			[
+				'negated first',
+				{ '--no-cheese': { env: 'NO_CHEESE' }, '--cheese [type]': { env: 'CHEESE' } },
+			],
+		];
+
+		it.each(orders)('should register both options, %s', async (_label, options) => {
+			const result = await parse({ argv: ['--no-cheese'], schema: { options } });
+			const { options: registry } = result.contexts[0][Internal];
+			expect(registry.size).to.equal(2);
+			expect(registry.find('--cheese')?.hint).to.equal('type');
+			expect(registry.find('--no-cheese')?.negate).to.equal(true);
+			expect(registry.find('--cheese')?.[Internal].dest).to.equal(
+				registry.find('--no-cheese')?.[Internal].dest
+			);
+		});
+
+		it.each(orders)('should set the value from the valued twin, %s', async (_label, options) => {
+			const result = await parse({ argv: ['--cheese', 'blue'], schema: { options } });
+			expect(result.argv.cheese).to.equal('blue');
+		});
+
+		it.each(orders)(
+			'should turn the destination off with the flag, %s',
+			async (_label, options) => {
+				// the flag also satisfies the requirement the valued twin declares
+				const result = await parse({ argv: ['--no-cheese'], schema: { options } });
+				expect(result.argv.cheese).to.equal(false);
+			}
+		);
+
+		it.each(orders)('should keep the valued twin required, %s', async (_label, options) => {
+			await expect(parse({ schema: { options } })).rejects.toThrow(
+				'Missing required options: --cheese'
+			);
+		});
+
+		it.each(orders)('should still demand a value for --cheese, %s', async (_label, options) => {
+			await expect(parse({ argv: ['--cheese'], schema: { options } })).rejects.toThrow(
+				'Missing value for required option --cheese'
+			);
+		});
+
+		it.each(defaulted)('should let the valued twin own the default, %s', async (_l, options) => {
+			const result = await parse({ schema: { options } });
+			expect(result.argv.cheese).to.equal('mozzarella');
+		});
+
+		it.each(optional)('should not imply a boolean default, %s', async (_label, options) => {
+			const result = await parse({ schema: { options } });
+			expect(result.argv.cheese).to.equal(undefined);
+		});
+
+		it.each(flagDefault)('should keep a default declared on the flag, %s', async (_l, options) => {
+			const result = await parse({ schema: { options } });
+			expect(result.argv.cheese).to.equal(true);
+		});
+
+		it.each(flags)('should pair two flags, %s', async (_label, options) => {
+			expect((await parse({ schema: { options } })).argv.cheese).to.equal(false);
+			expect((await parse({ argv: ['--cheese'], schema: { options } })).argv.cheese).to.equal(true);
+			expect((await parse({ argv: ['--no-cheese'], schema: { options } })).argv.cheese).to.equal(
+				false
+			);
+		});
+
+		it.each(shorts)('should keep the short name of each twin, %s', async (_label, options) => {
+			expect((await parse({ argv: ['-c', 'blue'], schema: { options } })).argv.cheese).to.equal(
+				'blue'
+			);
+			expect((await parse({ argv: ['-C'], schema: { options } })).argv.cheese).to.equal(false);
+		});
+
+		it.each(envs)('should let the valued twin win the environment, %s', async (_l, options) => {
+			const result = await parse({
+				env: { CHEESE: 'brie', NO_CHEESE: 'true' },
+				schema: { options },
+			});
+			expect(result.argv.cheese).to.equal('brie');
+		});
+
+		it('should let the last of two identical declarations win', async () => {
+			const result = await parse({
+				argv: ['-c', 'blue'],
+				schema: { options: { '--cheese <type>': {}, '-c, --cheese <kind>': {} } },
+			});
+			const { options } = result.contexts[0][Internal];
+			expect(options.size).to.equal(1);
+			expect(options.find('--cheese')?.hint).to.equal('kind');
+			expect(result.argv.cheese).to.equal('blue');
+		});
+
+		it('should not pair a flag whose negation was suppressed', async () => {
+			const result = await parse({
+				argv: ['--cheese', 'blue'],
+				schema: { options: { '--cheese <type>': {}, '--no-cheese': { negate: false } } },
+			});
+			const { options } = result.contexts[0][Internal];
+			expect(options.size).to.equal(2);
+			expect(result.argv.cheese).to.equal('blue');
+			// `negate: false` opts out of the pairing, so it keeps its own
+			// destination rather than sharing `cheese`
+			expect(result.argv.noCheese).to.equal(false);
+		});
+	});
+
 	describe('type', () => {
 		it('should error if option definition type is invalid', async () => {
 			await expect(
