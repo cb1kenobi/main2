@@ -376,14 +376,12 @@ describe('commander: options', () => {
 			expect(result.argv.foo).to.equal('default');
 		});
 
-		it('should prefer a default over an environment variable', async () => {
-			// Commander prefers env; here default wins, which is deliberate and
-			// documented in docs/parser.md
+		it('should prefer an environment variable over a default', async () => {
 			const result = await parse({
 				env: { BAR: 'env' },
 				schema: { options: { '-f, --foo <v>': { env: 'BAR', default: 'default' } } },
 			});
-			expect(result.argv.foo).to.equal('default');
+			expect(result.argv.foo).to.equal('env');
 		});
 
 		it('should use an environment variable when there is no default', async () => {
@@ -403,13 +401,9 @@ describe('commander: options', () => {
 			expect(result.argv.foo).to.equal('cli');
 		});
 
-		// KNOWN BUG: `env` is unreachable on a flag. initOption gives every flag
-		// an implicit default (`false`, or `true` when negated), and a default
-		// always beats the environment, so the variable is never consulted.
-		// Unskip these when that is fixed; the coercion expectations are what
-		// this parser should do, and deliberately differ from Commander, which
-		// treats any string at all — including '' and 'false' — as true.
-		it.skip('should coerce an environment value for a flag', async () => {
+		// These deliberately differ from Commander, which treats any string at
+		// all — including '' and 'false' — as true.
+		it('should coerce an environment value for a flag', async () => {
 			const result = await parse({
 				env: { BAR: 'false' },
 				schema: { options: { '-f, --foo': { env: 'BAR' } } },
@@ -417,20 +411,12 @@ describe('commander: options', () => {
 			expect(result.argv.foo).to.equal(false);
 		});
 
-		it.skip('should treat a non-empty environment value for a flag as true', async () => {
+		it('should treat a non-empty environment value for a flag as true', async () => {
 			const result = await parse({
 				env: { BAR: '0' },
 				schema: { options: { '-f, --foo': { env: 'BAR' } } },
 			});
 			expect(result.argv.foo).to.equal(true);
-		});
-
-		it('should currently ignore env on a flag because of the implicit default', async () => {
-			const result = await parse({
-				env: { BAR: 'yes' },
-				schema: { options: { '-f, --foo': { env: 'BAR' } } },
-			});
-			expect(result.argv.foo).to.equal(false);
 		});
 	});
 

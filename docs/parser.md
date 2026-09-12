@@ -337,13 +337,8 @@ normalized to `bool`. `count` is rejected on non-flags.
 For each option and argument, the first defined source wins:
 
 1. A value parsed from `argv`
-2. `default`
-3. `env`
-
-> [!NOTE]
-> `default` takes precedence over `env`, which is the reverse of what most
-> tools do. Setting a default therefore makes the environment variable
-> unreachable.
+2. `env`
+3. `default`
 
 String values from `argv`, `env`, and string `default`s are all coerced to the
 declared type. Non-string defaults are passed through untouched, so
@@ -389,7 +384,6 @@ Commander, these are the ones that will bite:
 | Value that looks like an option | error                            | taken, unless it is a declared option    |
 | Negative numbers                | number-shaped check              | just a value nobody declared             |
 | Undeclared option               | error                            | collected onto `argv`                    |
-| `default` vs `env`              | `env` wins                       | `default` wins                           |
 | String `default`                | used as-is                       | coerced to the declared type             |
 | Option format strictness        | one short, one long              | extras become aliases; bare word allowed |
 | Repeatable option               | `<v...>` eats consecutive values | `multiple` collects repeated uses        |

@@ -99,10 +99,6 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. See the warning in `docs/parser.md`.
-- `env` is unreachable on a flag: `initOption` gives every flag an implicit
-  default, and a default always beats the environment, so the variable is
-  never read. Covered by skipped tests in
-  `test/parser/commander/options.test.ts`.
 - An option and its negated twin declared separately (`'--cheese <type>'` plus
   `'--no-cheese'`) both resolve to the name `cheese`, so the registry keeps
   only whichever was added last and silently discards the other. Covered by a

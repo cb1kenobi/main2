@@ -248,8 +248,9 @@ function resolved(state: ParseState, dest: string): unknown {
 }
 
 /**
- * Applies a default value or environment variable fallback, coercing strings
+ * Applies an environment variable or default value fallback, coercing strings
  * to the declared data type exactly as a value parsed from argv would be.
+ * Precedence is argv, then environment, then default.
  *
  * @param state - The parse state.
  * @param dest - The destination key in `state.argv`.
@@ -270,16 +271,19 @@ function applyFallback(
 		return;
 	}
 
-	let value = def;
+	let value;
 
-	if (value === undefined) {
-		for (const env of envs) {
-			if (state.env[env] !== undefined) {
-				value = state.env[env];
-				break;
-			}
+	// the environment beats the default, so that a declared default does not
+	// make the variable unreachable — and so that a flag, which always has an
+	// implicit default, can be set from the environment at all
+	for (const env of envs) {
+		if (state.env[env] !== undefined) {
+			value = state.env[env];
+			break;
 		}
 	}
+
+	value ??= def;
 
 	if (value === undefined) {
 		return;
