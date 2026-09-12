@@ -1,7 +1,7 @@
 import debug from './debug/index.js';
 import { errorHandler } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
-import { type AppOptions, type ParseState, type Schema } from './types.js';
+import { type AppOptions, type ParseState, type Schema, type Settings } from './types.js';
 
 export * from './types.js';
 export { errorExitCode, errorHandler, renderError } from './error-handler.js';
@@ -98,7 +98,7 @@ async function handleError(
 	// custom handler, or rethrown -- the same error whichever way it leaves
 	const reported = hooksFired ? err : await fireBeforeError(err, state, appSchema(opts));
 
-	const handler = opts?.settings?.errorHandler;
+	const handler = errorHandlerSetting(opts);
 
 	if (handler === false) {
 		throw reported;
@@ -110,6 +110,22 @@ async function handleError(
 	}
 
 	errorHandler(reported, { state });
+}
+
+/**
+ * Reads the error handler setting without letting a throwing getter escape.
+ * Falling back to the built-in handler reports the original error; letting the
+ * read throw would report neither it nor the bad getter.
+ *
+ * @param opts - The app options.
+ * @returns The configured handler, or `undefined` for the built-in one.
+ */
+function errorHandlerSetting(opts: AppOptions): Settings['errorHandler'] {
+	try {
+		return opts?.settings?.errorHandler;
+	} catch {
+		return undefined;
+	}
 }
 
 /**

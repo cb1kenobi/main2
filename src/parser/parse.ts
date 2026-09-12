@@ -48,10 +48,13 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 			throw new TypeError('Expected parse options to be an object');
 		}
 
-		const { argv, env = {} } = opts;
-
-		// only an absent schema gets the empty default; `null` is an error
+		// the schema comes first because it is where the `beforeError` hooks
+		// live: reading anything else off the options ahead of it would leave a
+		// getter of the caller's own able to throw past its own hooks. Only an
+		// absent schema gets the empty default; `null` is an error
 		schema = opts.schema === undefined ? {} : opts.schema;
+
+		const { argv, env = {} } = opts;
 
 		if (!schema || typeof schema !== 'object') {
 			throw new TypeError('Expected schema to be an object');
@@ -380,14 +383,25 @@ async function parseArgv(state: ParseState): Promise<void> {
 			const cmd = contexts[0][Internal].commands.find(subject);
 			if (cmd) {
 				log(`Found command "${cmd.name}"`);
+
+				// the command has matched, so it joins the chain before the module
+				// behind it is loaded -- a module that will not load is an error
+				// this command's own `beforeError` hooks should still see
+				contexts.unshift(cmd);
+				state.cmd = cmd;
+
 				const loaded = await loadCommand(cmd);
+				if (loaded !== cmd) {
+					// loading merged the module's exports into a new command object
+					contexts[0] = loaded;
+					state.cmd = loaded;
+				}
+
 				$[j] = {
 					cmd: loaded,
 					inputs: arg.inputs,
 					type: 'Command',
 				};
-				contexts.unshift(loaded);
-				state.cmd = loaded;
 
 				if (loaded.hooks?.parse) {
 					for (const hook of loaded.hooks.parse) {

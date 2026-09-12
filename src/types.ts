@@ -251,8 +251,8 @@ export interface Schema {
  * `DEBUG=main2:error` and skipped, leaving the error it was given in flight.
  *
  * Neither argument can be narrower than this: anything at all can be thrown,
- * and an error raised before there was a parse state -- an invalid schema, a
- * command module that would not load -- arrives without one.
+ * and an error raised before there was a parse state -- an invalid schema, an
+ * option format that will not parse -- arrives without one.
  *
  * @param err - The thrown value.
  * @param state - The parse state, when parsing got far enough to produce one.

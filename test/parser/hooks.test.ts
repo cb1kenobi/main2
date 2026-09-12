@@ -272,6 +272,53 @@ describe('hooks', () => {
 			}
 		});
 
+		it('should fire when reading the parse options is what threw', async () => {
+			// the schema is read before anything else the caller can throw from,
+			// so its hooks are reachable even then
+			const calls: unknown[] = [];
+
+			const err = await failing({
+				get argv(): string[] {
+					throw new Error('bad argv getter');
+				},
+				schema: { hooks: { beforeError: [(e) => void calls.push(e)] } },
+			});
+
+			expect((err as Error).message).toBe('bad argv getter');
+			expect(calls).toEqual([err]);
+		});
+
+		it('should fire a command hook when its own module will not load', async () => {
+			// the command matched, so it is in the context chain by the time the
+			// module behind it fails to load
+			const calls: string[] = [];
+			let state: ParseState | undefined;
+
+			const err = await failing({
+				argv: ['foo'],
+				schema: {
+					commands: {
+						foo: {
+							hooks: {
+								beforeError: [
+									(_e, s) => {
+										calls.push('foo');
+										state = s;
+									},
+								],
+							},
+							path: path.join(__dirname, 'fixtures/does-not-exist.js'),
+						},
+					},
+					hooks: { beforeError: [() => void calls.push('schema')] },
+				},
+			});
+
+			expect((err as Error).message).toContain('Command module not found');
+			expect(calls).toEqual(['foo', 'schema']);
+			expect(state?.cmd?.name).toBe('foo');
+		});
+
 		it('should replace the error when a hook returns one', async () => {
 			const replacement = new Error('nicer message');
 

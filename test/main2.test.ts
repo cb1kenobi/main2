@@ -479,6 +479,26 @@ describe('main2', () => {
 			expect(stderr.text).toBe('Error: bad argv getter\n');
 		});
 
+		it('should still render when reading the settings is what threw', async () => {
+			// the handler lookup is on the error path too, so a getter of the
+			// caller's own must not cost them the error being reported
+			const calls: unknown[] = [];
+
+			const stderr = captureStderr();
+			await main2({
+				argv: [],
+				schema: { hooks: { beforeError: [(err) => void calls.push(err)] } },
+				get settings(): undefined {
+					throw new Error('bad settings getter');
+				},
+			});
+			stderr.restore();
+
+			expect(calls).toHaveLength(1);
+			expect(stderr.text).toBe('Error: bad settings getter\n');
+			expect(process.exitCode).toBe(1);
+		});
+
 		it('should lose the state when the replacement cannot carry it', async () => {
 			// a string cannot hold a property, so the usage line goes with it --
 			// which is the argument for replacing an error with an error
