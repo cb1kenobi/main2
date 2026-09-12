@@ -102,12 +102,17 @@ These look like bugs and are not. Each is intentional and covered by tests.
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
   not reach `state._`. `settings.allowUnknownOptions: false` restores the
   `Unknown option` error.
+- **A `!` name prefix and an explicit `hidden` are additive.** Either one
+  hides a command; an explicit `hidden: false` does not un-hide a `!` prefixed
+  name — drop the `!` instead. That holds for a lazily loaded command too: the
+  placeholder carries the `!`, the module never sees it. A command that
+  declares neither always reads back `hidden: false`, never `undefined`, and a
+  non-boolean `hidden` throws. Covered by `test/parser/regressions.test.ts`.
 
 ## Known bugs
 
 - `'build, b'` as a command name silently renames the command to `b` instead
   of aliasing it. Only `@`-prefixed labels become aliases.
-- An explicit `hidden: true` on a command is overwritten by name parsing.
 - `beforeError` hooks are declared and validated but never fired.
 - `command.default: true` is never dispatched.
 - `parse()` mutates the schema object it is given.

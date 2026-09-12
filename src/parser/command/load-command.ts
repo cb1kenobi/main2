@@ -45,6 +45,12 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 				}
 			}
 
+			// `hidden` is additive, but only the placeholder saw the `!` name
+			// prefix, so a module that declares itself visible must not un-hide it
+			if (cmd.hidden === true) {
+				def.hidden = true;
+			}
+
 			return initCommand(def, file);
 		}
 	}
