@@ -151,10 +151,17 @@ export interface ParseOptions {
 	settings?: Settings;
 }
 
-export type ParsedType = 'Command' | 'Extra' | 'Option' | 'Unknown';
+export type ParsedType = 'Command' | 'Extra' | 'Option' | 'Unknown' | 'UnknownOption';
 
 export interface ParsedBase {
 	inputs: (string | undefined)[];
+	/**
+	 * The token exactly as it appeared in argv, before `--opt=value` was split
+	 * into separate inputs. An option that consumes this token as its value
+	 * needs the original spelling back, otherwise the part after the `=` is
+	 * silently lost.
+	 */
+	orig?: string;
 	type: ParsedType;
 }
 
@@ -177,7 +184,22 @@ export interface ParsedUnknown extends ParsedBase {
 	type: 'Unknown';
 }
 
-export type ParsedValue = ParsedCommand | ParsedExtra | ParsedOption | ParsedUnknown;
+/**
+ * An option-like token that no context declared. It still produces a value on
+ * `argv` unless `settings.allowUnknownOptions` is `false`.
+ */
+export interface ParsedUnknownOption extends ParsedBase {
+	dest: string;
+	type: 'UnknownOption';
+	value: unknown;
+}
+
+export type ParsedValue =
+	| ParsedCommand
+	| ParsedExtra
+	| ParsedOption
+	| ParsedUnknown
+	| ParsedUnknownOption;
 
 export interface ParseState {
 	$orig: string[];
@@ -213,6 +235,7 @@ export type SchemaHook =
 export interface Settings {
 	allowExtraArguments?: boolean;
 	allowUnexpectedArguments?: boolean;
+	allowUnknownOptions?: boolean;
 	assertCwd?: boolean;
 	helpExitCode?: number;
 }

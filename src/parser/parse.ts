@@ -6,14 +6,15 @@ import {
 	InternalOption,
 	ParsedBase,
 	ParsedOption,
+	ParsedUnknownOption,
 	ParsedValue,
 	ParseOptions,
 	ParseState,
 } from '../types.js';
+import { camelCase } from '../util/camel-case.js';
 import { transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
-import { optionLongRE } from './option/init-option.js';
 
 const { log } = debug('main2:parser');
 
@@ -21,6 +22,7 @@ const optionGroupRE = /^-(\w{2,})$/;
 const optionLikeRE = /^--?\w/;
 const optionNoSpaceRE = /^([^'"]*)(['"])(.*)\2$/;
 const negatedRE = /^--no-/;
+const unknownOptionRE = /^(?:--(\w[\w-]*)|-(\w))$/;
 
 export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 	if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
@@ -111,6 +113,7 @@ async function initArgv(state: ParseState): Promise<void> {
 
 		state.$.push({
 			inputs,
+			orig: arg,
 			type: 'Unknown',
 		});
 	}
@@ -194,6 +197,40 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
 	}
 
 	return expanded;
+}
+
+/**
+ * Decides whether the next unresolved token may be taken as the value of a
+ * declared option.
+ *
+ * A token that resolves to a known option is left alone, so `--name --verbose`
+ * does not silently swallow `--verbose`. Anything else is fair game, including
+ * an option-like token that nothing declared, because values legitimately
+ * start with a dash and `--name=--verbose` is the way to force the issue.
+ *
+ * @param contexts - The context chain, innermost first.
+ * @param entry - The next entry in the token stream, if there is one.
+ * @returns `true` when the entry can be consumed as a value.
+ */
+function canBeValue(contexts: InternalCommand[], entry?: ParsedValue): boolean {
+	if (entry?.type !== 'Unknown') {
+		return false;
+	}
+
+	const subject = entry.inputs[0];
+
+	// the terminator belongs to the argv stream, never to an option
+	if (subject === '--') {
+		return false;
+	}
+
+	// a plain value is always fair game; only an option-like token has to prove
+	// it is not a declared option first
+	if (!subject || !optionLikeRE.test(subject)) {
+		return true;
+	}
+
+	return !findOption(contexts, subject) && !expandGroup(contexts, entry);
 }
 
 /**
@@ -317,8 +354,10 @@ async function parseArgv(state: ParseState): Promise<void> {
 			}
 
 			// options resolve against the whole chain so that a subcommand can
-			// use its parents' options
-			const option = findOption(contexts, subject);
+			// use its parents' options, but only option-like tokens get to look:
+			// the registry also indexes bare names, so an unguarded lookup would
+			// resolve the positional value `foo` as the option `--foo`
+			const option = optionLikeRE.test(`${subject}`) ? findOption(contexts, subject) : undefined;
 
 			if (!option) {
 				const expanded = expandGroup(contexts, arg);
@@ -341,14 +380,24 @@ async function parseArgv(state: ParseState): Promise<void> {
 				// `--foo=false` beats the name it was reached by
 				const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
 				value = negatedRE.test(`${subject}`) ? !bool : bool;
-			} else if (inputs.length > 1) {
-				value = inputs[1];
 			} else {
-				const next = j + 1 < $.length ? $[j + 1] : undefined;
-				if (next?.type === 'Unknown') {
-					value = next.inputs[0];
+				const next = $[j + 1];
+
+				if (inputs.length > 1) {
+					value = inputs[1];
+				} else if (next && canBeValue(contexts, next)) {
+					value = next.orig ?? next.inputs[0];
 					inputs.push(value as string);
 					$.splice(j + 1, 1);
+				} else {
+					// the option was typed but nothing followed it that could be
+					// its value, so the declared data type decides what nothing
+					// means: '' for a string, 0 for a number, and so on
+					value = '';
+				}
+
+				if (option.required && !value) {
+					throw new Error(`Missing value for required option ${label}`);
 				}
 			}
 
@@ -372,10 +421,77 @@ async function parseArgv(state: ParseState): Promise<void> {
 		}
 	}
 
+	parseUnknownOptions(state);
+
 	if (state.schema.hooks?.afterParse) {
 		for (const hook of state.schema.hooks.afterParse) {
 			await hook(state);
 		}
+	}
+}
+
+/**
+ * Resolves every option-like token that no context declared. This runs after
+ * the context passes so that a token is only called unknown once every command
+ * — and with it every option those commands declare — has been discovered.
+ *
+ * An undeclared option is not known to take a value, so it only takes one when
+ * the next token could not be an option itself. That is the mirror image of a
+ * declared option, which is known to want a value and so takes whatever
+ * follows.
+ *
+ * @param state - The parse state.
+ */
+function parseUnknownOptions(state: ParseState): void {
+	const { $ } = state;
+	const allowed = state.settings?.allowUnknownOptions !== false;
+
+	for (let j = 0; j < $.length; j++) {
+		const arg = $[j];
+
+		if (arg.type !== 'Unknown') {
+			continue;
+		}
+
+		const subject = arg.inputs[0];
+		const m = subject?.match(unknownOptionRE);
+		if (!m) {
+			continue;
+		}
+
+		if (!allowed) {
+			throw new Error(`Unknown option "${subject}"`);
+		}
+
+		log(`Found unknown option "${subject}"`);
+
+		const { inputs } = arg;
+		let value: unknown = true;
+
+		if (inputs.length > 1) {
+			value = inputs[1];
+		} else {
+			const next = j + 1 < $.length ? $[j + 1] : undefined;
+			const following = next?.inputs[0];
+			if (next?.type === 'Unknown' && following !== '--' && !optionLikeRE.test(`${following}`)) {
+				value = next.orig ?? following;
+				inputs.push(value as string);
+				$.splice(j + 1, 1);
+			}
+		}
+
+		if (typeof value === 'string') {
+			// nothing declared a data type for this, so guess at one
+			value = transformValue(value, 'auto');
+		}
+
+		$[j] = {
+			dest: camelCase(m[1] ?? m[2]),
+			inputs,
+			orig: arg.orig,
+			type: 'UnknownOption',
+			value,
+		};
 	}
 }
 
@@ -402,11 +518,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 			const arg = internal.args[argIdx++];
 
 			if (!state.settings?.allowUnexpectedArguments && !arg) {
-				throw new Error(
-					optionLongRE.test(`${inputs[0]}`)
-						? `Unknown option "${inputs[0]}"`
-						: `Unexpected argument "${inputs[0]}"`
-				);
+				throw new Error(`Unexpected argument "${inputs[0]}"`);
 			}
 
 			if (arg) {
@@ -461,6 +573,9 @@ export async function processArgs(state: ParseState): Promise<void> {
 			} else {
 				state.argv[dest] = value;
 			}
+		} else if (parsedType === 'UnknownOption') {
+			const { dest, value } = parsed as ParsedUnknownOption;
+			state.argv[dest] = value;
 		}
 	}
 

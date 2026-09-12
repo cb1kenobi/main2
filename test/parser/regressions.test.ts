@@ -69,10 +69,12 @@ describe('regressions', () => {
 	});
 
 	describe('empty values', () => {
+		// `[n]` rather than `<n>` because angle brackets make the option itself
+		// required, and a required option rejects an empty value outright
 		it('should not coerce an empty value to zero', async () => {
 			const result = await parse({
 				argv: ['--name='],
-				schema: { options: { '--name <n>': { type: 'auto' } } },
+				schema: { options: { '--name [n]': { type: 'auto' } } },
 			});
 			expect(result.argv.name).to.equal('');
 		});
@@ -80,9 +82,19 @@ describe('regressions', () => {
 		it('should not coerce a blank value to zero', async () => {
 			const result = await parse({
 				argv: ['--name', ''],
-				schema: { options: { '--name <n>': { type: 'auto' } } },
+				schema: { options: { '--name [n]': { type: 'auto' } } },
 			});
 			expect(result.argv.name).to.equal('');
+		});
+	});
+
+	describe('option lookup', () => {
+		it('should not resolve a positional value as an option of the same name', async () => {
+			const result = await parse({
+				argv: ['foo'],
+				schema: { args: ['[x]'], options: { '--foo [bar]': null } },
+			});
+			expect(result.argv.x).to.equal('foo');
 		});
 	});
 

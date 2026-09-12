@@ -180,6 +180,89 @@ An option with no hint and no `choices` is a **flag**.
 The destination key on `state.argv` is the base name in camelCase, so
 `--dry-run` becomes `argv.dryRun`.
 
+### How an option gets its value
+
+An option that takes a value looks in three places, in order:
+
+1. An attached value — `--name=chris` or `--name"chris"`.
+2. The next token, if it is allowed to be a value.
+3. Nothing at all.
+
+Step 2 is the interesting one:
+
+> [!IMPORTANT]
+> An option consumes the next token **unless that token resolves to an option
+> that something in the context chain declared.** So `--name --verbose` leaves
+> `--verbose` alone, while `--name --undeclared` takes `--undeclared` as the
+> value.
+
+This diverges from Commander, which reports `option argument missing` for any
+value starting with a dash. Values legitimately start with a dash — `--num -15`,
+`--filter -test` — and refusing all of them makes those spellings unreachable.
+What a schema does know for certain is its own options, so those, and only
+those, are protected. `--name=--verbose` forces the issue either way.
+
+Protected tokens are declared long and short options anywhere in the context
+chain, a short group that resolves against it (`-ab` where both are declared),
+and the `--` terminator. A **command** name is not protected: when `--name
+build` is read, `build` has not been matched yet, so `--name` takes it. Use an
+attached value if that matters.
+
+> [!WARNING]
+> Protection only covers options that are already known when the token is read.
+> A subcommand's option used _before_ its subcommand is not yet declared, so an
+> earlier option takes it: given `--target` on `build`, `--name --target x
+build` reads as `name: '--target'` and leaves `x` stranded. Putting the
+> subcommand first works. This falls out of the multi-pass design — options are
+> bound as they are read, which is also what lets `--name build` treat a
+> command name as a plain value.
+
+An option that reaches step 3 gets an empty string, which its data type then
+coerces — `''` for `string`, `0` for `number`. A **required** option that
+reaches step 3, or that is handed an explicitly empty value, throws instead:
+
+| Input                 | `--name <v>` (required) | `--name [v]` (optional) |
+| --------------------- | ----------------------- | ----------------------- |
+| `--name chris`        | `'chris'`               | `'chris'`               |
+| `--name=chris`        | `'chris'`               | `'chris'`               |
+| `--name`              | throws                  | `''`                    |
+| `--name=`             | throws                  | `''`                    |
+| `--name --declared`   | throws                  | `''`                    |
+| `--name --undeclared` | `'--undeclared'`        | `'--undeclared'`        |
+
+### Undeclared options
+
+An option-like token that nothing declared still produces a value, so a CLI can
+pass options through without declaring them. Set
+`settings.allowUnknownOptions` to `false` to throw `Unknown option "--foo"`
+instead.
+
+| Input         | Result                   |
+| ------------- | ------------------------ |
+| `--foo`       | `foo: true`              |
+| `--foo=bar`   | `foo: 'bar'`             |
+| `--foo bar`   | `foo: 'bar'`             |
+| `--foo --bar` | `foo: true`, `bar: true` |
+| `-x 1`        | `x: 1`                   |
+
+They are resolved only after every command has been matched, so nothing is
+called undeclared until every context that could have declared it is known.
+They then differ from declared options in three ways, all of them because
+nothing said what they are:
+
+- They take the next token only when it is **not** option-like, since nothing
+  declared that they take a value at all. A declared option is the mirror
+  image: it is known to want a value, so it takes whatever follows.
+- Values are coerced with `auto`, since there is no declared type to coerce to.
+  `--age 20` is the number `20`, not `'20'`.
+- `no-` is not read as negation. `--no-color` is `noColor: true`, not
+  `color: false`.
+
+Only the `--long-name` and `-x` forms are recognized. An unresolved short group
+such as `-abc` stays a positional value. Repeating an undeclared option
+overwrites the previous value; it does not collect into an array. Undeclared
+options are not pushed onto `state._`.
+
 ### Negation
 
 A name beginning with `no-` becomes a negated flag. Both spellings are
@@ -277,7 +360,8 @@ arguments and requires `settings.allowExtraArguments`, or parsing throws.
 
 Positional values with no matching argument definition throw unless
 `settings.allowUnexpectedArguments` is set. All positional values, matched or
-not, are also pushed onto `state._`.
+not, are also pushed onto `state._`. Option-like tokens are never positional
+values — see [Undeclared options](#undeclared-options).
 
 ## Settings
 
@@ -285,6 +369,7 @@ not, are also pushed onto `state._`.
 | -------------------------- | ------- | ------------------------------------------------------------- |
 | `allowExtraArguments`      | `false` | Permit arguments after `--`                                   |
 | `allowUnexpectedArguments` | `false` | Permit undeclared positional arguments                        |
+| `allowUnknownOptions`      | `true`  | Collect undeclared options instead of throwing                |
 | `assertCwd`                | `true`  | Fail early if the working directory is gone                   |
 | `helpExitCode`             | —       | Exit code after printing help _(help is not implemented yet)_ |
 
@@ -309,17 +394,20 @@ Command-level hooks live on `command.hooks`:
 
 `parse()` resolves to a `ParseState`:
 
-| Field      | Description                                                           |
-| ---------- | --------------------------------------------------------------------- |
-| `argv`     | Resolved values, keyed by camelCase destination                       |
-| `_`        | Every positional value, in order                                      |
-| `$`        | The classified token stream (`Command`, `Option`, `Extra`, `Unknown`) |
-| `$orig`    | The original argv                                                     |
-| `cmd`      | The innermost matched command, if any                                 |
-| `contexts` | The context chain, innermost first                                    |
-| `env`      | The environment used for fallbacks                                    |
-| `schema`   | The schema, after initialization                                      |
-| `settings` | The settings in effect                                                |
+| Field      | Description                                     |
+| ---------- | ----------------------------------------------- |
+| `argv`     | Resolved values, keyed by camelCase destination |
+| `_`        | Every positional value, in order                |
+| `$`        | The classified token stream — see below         |
+| `$orig`    | The original argv                               |
+| `cmd`      | The innermost matched command, if any           |
+| `contexts` | The context chain, innermost first              |
+| `env`      | The environment used for fallbacks              |
+| `schema`   | The schema, after initialization                |
+| `settings` | The settings in effect                          |
+
+Each entry in `$` is classified as one of `Command`, `Option`, `UnknownOption`,
+`Extra`, or `Unknown`, the last being a positional value.
 
 > [!WARNING]
 > `parse()` currently mutates the schema object it is given — it writes
