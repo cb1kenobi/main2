@@ -1,12 +1,15 @@
 import { Argument, InternalState, Internal, InternalArgument } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
 
-// foo      optional
-// <foo>	required
-// [foo]	optional
-// foo...	optional, multiple
+// foo         optional
+// <foo>       required
+// [foo]       optional
+// foo...      optional, multiple
+// <foo...>    required, multiple
+// [foo...]    optional, multiple
+// [foo]...    optional, multiple
 
-const argRequiredRE = /^(?:<([\w-]+)>|\[([\w-]+)\]|([\w-]+?))\s*(\.\.\.)?$/;
+const argRequiredRE = /^(?:<([\w-]+)(\.\.\.)?>|\[([\w-]+)(\.\.\.)?\]|([\w-]+?))\s*(\.\.\.)?$/;
 const argTypesRE = /^auto|bool|date|int|json|number|string|yesno$/;
 
 export function initArg(it: string | Argument | InternalArgument): InternalArgument {
@@ -64,10 +67,10 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 		throw new TypeError('Expected argument transform function to be a function');
 	}
 
-	it.multiple ||= !!m[4];
-	it.name = (m[1] || m[2] || m[3]).trim();
+	it.multiple ||= !!(m[2] || m[4] || m[6]);
+	it.name = (m[1] || m[3] || m[5]).trim();
 	it.required ||= !!m[1];
-	it.type ||= 'auto';
+	it.type ||= 'string';
 
 	return new Proxy(
 		Object.defineProperty(it, Internal, {

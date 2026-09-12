@@ -30,6 +30,7 @@ export type Transformer = <T>(value: T, state: ParseState) => Promise<T | unknow
 
 export interface Argument {
 	[key: string]: unknown; // custom data
+	choices?: unknown[];
 	default?: unknown;
 	env?: string | string[];
 	multiple?: boolean;
