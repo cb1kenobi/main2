@@ -616,6 +616,37 @@ describe('regressions', () => {
 			expect(contexts[0][Internal].label).to.equal('build');
 		});
 
+		it('should carry inline aliases onto a lazy loaded command', async () => {
+			const { contexts } = await parse({
+				argv: ['b'],
+				schema: {
+					commands: {
+						'build, b': { path: path.join(__dirname, 'fixtures/aliases/build.js') },
+					},
+				},
+			});
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].desc).to.equal('build it');
+			expect([...contexts[0][Internal].aliases]).to.deep.equal(['b']);
+			expect(contexts[0][Internal].label).to.equal('build, b');
+		});
+
+		it("should merge inline aliases with a lazy loaded command's own alias", async () => {
+			const schema = {
+				commands: {
+					'build, b': { path: path.join(__dirname, 'fixtures/aliases/compile.js') },
+				},
+			};
+
+			// `compile` comes from the module, so it cannot resolve a command the
+			// parser has not loaded yet, but it must survive the merge
+			for (const name of ['build', 'b']) {
+				const { contexts } = await parse({ argv: [name], schema: structuredClone(schema) });
+				expect(contexts[0].name).to.equal('build');
+				expect([...contexts[0][Internal].aliases].sort()).to.deep.equal(['b', 'compile']);
+			}
+		});
+
 		it('should throw when a name has no label', async () => {
 			await expect(parse({ argv: [], schema: { commands: { ' , ': {} } } })).rejects.toThrow(
 				'Unable to determine command name from " , "'

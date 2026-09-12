@@ -126,6 +126,13 @@ the label.
 The module must default-export a command object. Loading is deferred until the
 command is actually matched, so a large CLI only pays for the branch it takes.
 
+Only the placeholder sees the name string, so the aliases and help label parsed
+from it are carried onto the loaded command; a module that declares its own
+`name` string brings its own label instead. An `alias` the module declares is
+merged in, but it cannot resolve the command — the parser has to match the
+command before it can load the module that declares the alias, so a name a user
+is expected to type belongs on the placeholder.
+
 ## Arguments
 
 Positional arguments are declared as strings or objects:

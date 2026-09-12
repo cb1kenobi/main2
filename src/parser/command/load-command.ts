@@ -37,6 +37,10 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		}
 
 		if (def) {
+			// the module's own name string, if it has one, wins over the
+			// placeholder's
+			const renamed = def.name !== undefined;
+
 			// let the setter update the internals
 
 			for (const [key, value] of Object.entries(cmd)) {
@@ -51,7 +55,31 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 				def.hidden = true;
 			}
 
-			return initCommand(def, file);
+			// the module never saw the placeholder's name string either, so the
+			// aliases parsed from it have to come across as an explicit list
+			if (
+				internal.aliases.size &&
+				(def.alias === undefined || typeof def.alias === 'string' || Array.isArray(def.alias))
+			) {
+				def.alias = [
+					...internal.aliases,
+					...(def.alias === undefined
+						? []
+						: typeof def.alias === 'string'
+							? [def.alias]
+							: def.alias),
+				];
+			}
+
+			const loaded = await initCommand(def, file);
+
+			// ...and the same goes for the help label, unless the module renamed
+			// the command and brought its own labels
+			if (!renamed) {
+				loaded[Internal].label = internal.label;
+			}
+
+			return loaded;
 		}
 	}
 
