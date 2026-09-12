@@ -66,6 +66,12 @@ These look like bugs and are not. Each is intentional and covered by tests.
   takes `--undeclared` as the value. Commander errors on any dash-leading
   value, but values legitimately start with a dash and a schema only knows its
   own options. See `test/parser/option-values.test.ts` and `docs/parser.md`.
+- **An option takes one value per use; only arguments are variadic.**
+  `multiple` collects repeated uses (`--tag a --tag b`) into an array. An
+  option never eats consecutive values, so `--tag a b` leaves `b` positional;
+  `<files...>` on an _argument_ is how a list of loose values is collected. A
+  `...` hint on an option is therefore rejected by `initOption` rather than
+  accepted as decoration. Both Commander and yargs diverge here.
 - **A required option rejects a missing or empty value; an optional one gets
   an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
   (or `0`, per the data type) for `[value]`.
