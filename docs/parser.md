@@ -313,7 +313,7 @@ retried once more contexts are known.
 | Type     | Accepts                                      | Produces  |
 | -------- | -------------------------------------------- | --------- |
 | `string` | anything                                     | `string`  |
-| `bool`   | anything; `'false'` and `''` are false       | `boolean` |
+| `bool`   | `true`/`t`/`yes`/`y`/`on`/`1` and negations  | `boolean` |
 | `yesno`  | `y`, `yes`, `n`, `no` (case-insensitive)     | `boolean` |
 | `int`    | `-?\d+` or `0x…`                             | `number`  |
 | `number` | anything `Number()` accepts                  | `number`  |
@@ -326,11 +326,15 @@ retried once more contexts are known.
 it turns `007` into `7` — and because it makes static types unusable.
 
 Flags accept only `bool`, `count`, `yesno`, and `auto`; the last two are
-normalized to `bool`. `count` is rejected on non-flags.
+normalized to `bool`. `count` is rejected on non-flags. Normalizing `yesno`
+to `bool` loses nothing, since `bool` accepts `yes` and `no` too.
 
-> [!NOTE]
-> `bool` treats any non-empty string other than `'false'` as true, so
-> `--flag=0` is `true`.
+`bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
+`f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.
+Anything else throws `Invalid boolean: "…"` rather than guessing — `0` and
+`no` are far more likely to mean false than to be a value someone wants
+coerced to true, and a typo such as `--flag=ture` should not silently read
+as true.
 
 ## Value precedence
 

@@ -469,11 +469,11 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: ['--foo', 'baz'],
+				argv: ['--foo', 'no'],
 				schema,
 			});
 			expect(result.argv).to.deep.equal({
-				foo: true,
+				foo: false,
 			});
 
 			result = await parse({
@@ -483,6 +483,13 @@ describe('options', () => {
 			expect(result.argv).to.deep.equal({
 				foo: false,
 			});
+
+			await expect(
+				parse({
+					argv: ['--foo', 'baz'],
+					schema,
+				})
+			).rejects.toThrow('Invalid boolean: "baz"');
 		});
 
 		it('should parse short option as boolean', async () => {
@@ -503,11 +510,11 @@ describe('options', () => {
 			});
 
 			result = await parse({
-				argv: ['-f', 'baz'],
+				argv: ['-f', 'no'],
 				schema,
 			});
 			expect(result.argv).to.deep.equal({
-				f: true,
+				f: false,
 			});
 
 			result = await parse({
@@ -517,6 +524,27 @@ describe('options', () => {
 			expect(result.argv).to.deep.equal({
 				f: false,
 			});
+
+			await expect(
+				parse({
+					argv: ['-f', 'baz'],
+					schema,
+				})
+			).rejects.toThrow('Invalid boolean: "baz"');
+		});
+
+		it('should accept every boolean value on a valued option', async () => {
+			const schema = { options: { '--foo <bar>': { type: 'bool' } } };
+
+			for (const input of ['true', 't', 'yes', 'y', 'on', '1', 'ON', 'Y']) {
+				const result = await parse({ argv: ['--foo', input], schema });
+				expect(result.argv.foo, input).to.equal(true);
+			}
+
+			for (const input of ['false', 'f', 'no', 'n', 'off', '0', 'OFF', 'N']) {
+				const result = await parse({ argv: ['--foo', input], schema });
+				expect(result.argv.foo, input).to.equal(false);
+			}
 		});
 
 		it('should parse option as date', async () => {
@@ -764,6 +792,67 @@ describe('options', () => {
 			expect(result.argv).to.deep.equal({
 				foo: true,
 			});
+		});
+
+		it('should accept every truthy value for a flag', async () => {
+			for (const input of ['true', 'True', 'TRUE', 't', 'yes', 'YES', 'y', 'on', '1']) {
+				const result = await parse({
+					argv: [`--foo=${input}`],
+					schema: { options: { '--foo': { type: 'bool' } } },
+				});
+				expect(result.argv.foo, input).to.equal(true);
+			}
+		});
+
+		it('should accept every falsey value for a flag', async () => {
+			for (const input of ['false', 'False', 'FALSE', 'f', 'no', 'NO', 'n', 'off', '0', '']) {
+				const result = await parse({
+					argv: [`--foo=${input}`],
+					schema: { options: { '--foo': { type: 'bool' } } },
+				});
+				expect(result.argv.foo, input).to.equal(false);
+			}
+		});
+
+		it('should reject a flag value that is not a boolean', async () => {
+			for (const input of ['baz', 'ture', '2', 'null']) {
+				await expect(
+					parse({
+						argv: [`--foo=${input}`],
+						schema: { options: { '--foo': { type: 'bool' } } },
+					})
+				).rejects.toThrow(`Invalid boolean: "${input}"`);
+			}
+		});
+
+		it('should let a negated flag invert an explicit boolean value', async () => {
+			const schema = { options: { '--no-cheese': {} } };
+
+			for (const input of ['no', 'false', '0', 'off', '']) {
+				const result = await parse({ argv: [`--no-cheese=${input}`], schema });
+				expect(result.argv.cheese, input).to.equal(true);
+			}
+
+			for (const input of ['yes', 'true', '1', 'on']) {
+				const result = await parse({ argv: [`--no-cheese=${input}`], schema });
+				expect(result.argv.cheese, input).to.equal(false);
+			}
+		});
+
+		it('should reject a negated flag value that is not a boolean', async () => {
+			await expect(
+				parse({ argv: ['--no-cheese=maybe'], schema: { options: { '--no-cheese': {} } } })
+			).rejects.toThrow('Invalid boolean: "maybe"');
+		});
+
+		it('should not lose no/yes when a yesno flag is normalized to bool', async () => {
+			const schema = { options: { '--foo': { type: 'yesno' } } };
+
+			let result = await parse({ argv: ['--foo=no'], schema });
+			expect(result.argv.foo).to.equal(false);
+
+			result = await parse({ argv: ['--foo=yes'], schema });
+			expect(result.argv.foo).to.equal(true);
 		});
 
 		it("should error if option is not a flag and has type 'count'", async () => {
