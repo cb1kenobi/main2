@@ -13,8 +13,6 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		return cmd;
 	}
 
-	cmd[Internal].loaded = true;
-
 	if (internal.path) {
 		const file = pathToFileURL(internal.path).toString();
 		log(`Loading command: ${file}`);
@@ -79,9 +77,16 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 				loaded[Internal].label = internal.label;
 			}
 
+			// only mark the load done once it actually succeeded: a module that
+			// throws must throw again the next time the command is matched
+			// instead of quietly resolving to the placeholder
+			internal.loaded = true;
+
 			return loaded;
 		}
 	}
+
+	internal.loaded = true;
 
 	return cmd;
 }

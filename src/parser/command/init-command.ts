@@ -95,11 +95,12 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 
 		// a variadic argument takes every remaining value, so anything declared
-		// after it could never be given a value
+		// after it could never be given a value. this runs before the promotion
+		// below so a rejected schema is not left half promoted.
 		for (let i = 0; i < args.length - 1; i++) {
 			if (args[i].multiple) {
 				throw new Error(
-					`Only the last argument can be variadic: "${args[i].name}..." is followed by "${args[i + 1].name}" in the "${parsed.name}" command`
+					`Only the last argument can be variadic: ${argLabel(args[i])} is followed by ${argLabel(args[i + 1])} in the "${parsed.name}" command`
 				);
 			}
 		}
@@ -245,6 +246,14 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 	}
 
 	return cmd;
+}
+
+/**
+ * Renders an argument the way it would be declared so an error can point at it.
+ */
+function argLabel(arg: InternalArgument): string {
+	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
+	return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 function parseName(unparsedName: string): {

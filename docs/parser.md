@@ -153,7 +153,7 @@ could never be given a value, and the schema is rejected when it is
 initialized:
 
 ```
-Only the last argument can be variadic: "files..." is followed by "extra" in
+Only the last argument can be variadic: <files...> is followed by [extra] in
 the "build" command
 ```
 
