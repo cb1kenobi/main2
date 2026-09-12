@@ -436,9 +436,14 @@ errorHandler(err, {
 });
 ```
 
-The renderer is handed the `ParseState` on `ctx` whenever parsing got far
-enough to produce one, which is where the matched command — and therefore the
-usage line — comes from. A renderer that throws falls back to the default one,
+The renderer is handed the `ParseState` on `ctx` whenever there is one, which
+is where the matched command — and therefore the usage line — comes from. That
+includes a parse error: the errors that most want a usage line are exactly the
+ones that stop `parse()` from returning, so `parse()` stashes its in-flight
+state on the error it throws, under the exported `ErrorState` symbol and
+non-enumerably, and `main2()` reads it back. Only an error thrown before there
+is a state at all — invalid parse options, an invalid schema — arrives without
+one. A renderer that throws falls back to the default one,
 so a broken renderer cannot swallow the error it was given. `opts.stderr`
 redirects the output, which is mostly there for tests. A `write` that throws
 is swallowed — rendering an error must not raise a second, worse one — but an

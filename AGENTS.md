@@ -118,7 +118,9 @@ false` rethrows instead; a function replaces the handler.
 
 - ESM only. Imports use `.js` extensions even for `.ts` sources.
 - Internal state hangs off the exported `Internal` symbol, not enumerable
-  properties, so schema objects stay clean for consumers.
+  properties, so schema objects stay clean for consumers. `parse()` stashes the
+  state it died with on the error it throws the same way, under `ErrorState`,
+  so the error path can still reach the matched command.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.

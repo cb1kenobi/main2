@@ -11,6 +11,57 @@ const { log } = debug('main2:error');
 const defaultExitCode = 1;
 
 /**
+ * What is rendered when the thrown value has nothing to say for itself.
+ */
+const fallbackMessage = 'Unknown error';
+
+/**
+ * `log()` runs its argument through `util.inspect` whether or not `DEBUG` is
+ * enabled, so a throwing getter or a hostile `inspect.custom` hook could throw
+ * from inside the error path. Nothing here is worth failing over.
+ *
+ * @param value - The value to log.
+ */
+function safeLog(value: unknown): void {
+	try {
+		log(value);
+	} catch {
+		// a value that cannot even be inspected has nothing to tell us
+	}
+}
+
+/**
+ * Reads a string property without letting a throwing getter escape.
+ *
+ * @param obj - The object to read from.
+ * @param key - The property to read.
+ * @returns The value, when it is a non-empty string.
+ */
+function readString(obj: object, key: 'message' | 'name'): string | undefined {
+	try {
+		const value = (obj as Record<string, unknown>)[key];
+		return typeof value === 'string' && value ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Coerces anything to a string without throwing. A null-prototype object has
+ * no `toString`, and a `toString` of someone else's making can throw.
+ *
+ * @param value - The value to coerce.
+ * @returns The coerced string, or the fallback message.
+ */
+function stringify(value: unknown): string {
+	try {
+		return String(value) || fallbackMessage;
+	} catch {
+		return fallbackMessage;
+	}
+}
+
+/**
  * Extracts a user-facing message from anything that can be thrown.
  *
  * Parser errors are plain `Error`s whose messages are written for the person
@@ -22,31 +73,21 @@ const defaultExitCode = 1;
  * @returns A single-line-ish message, never empty.
  */
 function errorMessage(err: unknown): string {
-	if (err instanceof Error) {
-		return err.message || err.name || 'Unknown error';
-	}
-
 	if (typeof err === 'string') {
-		return err || 'Unknown error';
-	}
-
-	if (err !== null && typeof err === 'object') {
-		const { message } = err as { message?: unknown };
-		if (typeof message === 'string' && message) {
-			return message;
-		}
+		return err || fallbackMessage;
 	}
 
 	if (err === null || err === undefined) {
-		return 'Unknown error';
+		return fallbackMessage;
 	}
 
-	try {
-		// a null-prototype object has no `toString`, so this can throw
-		return String(err) || 'Unknown error';
-	} catch {
-		return 'Unknown error';
+	if (typeof err === 'object') {
+		// `message` first, then `name` for an error thrown with neither a
+		// message nor a subclass of its own
+		return readString(err, 'message') ?? readString(err, 'name') ?? stringify(err);
 	}
+
+	return stringify(err);
 }
 
 /**
@@ -112,14 +153,15 @@ export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void
 	const ctx: ErrorContext = { state: opts.state };
 
 	// the full error, stack and all, is one `DEBUG=main2:error` away
-	log(err);
+	safeLog(err);
 
 	let text: string;
 	try {
 		text = String(render(err, ctx));
 	} catch (renderErr) {
-		// a renderer that throws must not replace the error it was given
-		log(renderErr);
+		// a renderer that throws must not replace the error it was given.
+		// `renderError` cannot throw, so this fallback always produces text.
+		safeLog(renderErr);
 		text = renderError(err);
 	}
 
@@ -131,7 +173,7 @@ export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void
 	try {
 		stderr.write(`${text.replace(/[\r\n]+$/, '')}\n`);
 	} catch (writeErr) {
-		log(writeErr);
+		safeLog(writeErr);
 	}
 
 	process.exitCode = errorExitCode(err);

@@ -74,6 +74,56 @@ describe('errorHandler', () => {
 		expect(renderError(Object.create(null))).toBe('Error: Unknown error');
 	});
 
+	it('should survive a message getter that throws', () => {
+		const err = new Error('never read');
+		Object.defineProperty(err, 'message', {
+			get() {
+				throw new Error('getter exploded');
+			},
+		});
+
+		// `name` is the next best thing it has to say for itself
+		expect(renderError(err)).toBe('Error: Error');
+	});
+
+	it('should survive message and name getters that both throw', () => {
+		const err = new Error('never read');
+		for (const key of ['message', 'name']) {
+			Object.defineProperty(err, key, {
+				get() {
+					throw new Error('getter exploded');
+				},
+			});
+		}
+
+		expect(renderError(err)).toBe('Error: Unknown error');
+	});
+
+	it('should survive a toString that throws', () => {
+		expect(
+			renderError({
+				toString() {
+					throw new Error('toString exploded');
+				},
+			})
+		).toBe('Error: Unknown error');
+	});
+
+	it('should not be stopped by a value that cannot be inspected', () => {
+		const out = sink();
+		const err = {
+			message: 'the real error',
+			exitCode: 6,
+			[Symbol.for('nodejs.util.inspect.custom')]() {
+				throw new Error('inspect exploded');
+			},
+		};
+
+		expect(() => errorHandler(err, { stderr: out.stream })).not.toThrow();
+		expect(out.text).toBe('Error: the real error\n');
+		expect(process.exitCode).toBe(6);
+	});
+
 	it('should write exactly one trailing newline', () => {
 		const out = sink();
 		errorHandler(new Error('trailing'), {

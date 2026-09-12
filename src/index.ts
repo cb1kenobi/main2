@@ -1,6 +1,6 @@
 import debug from './debug/index.js';
 import { errorHandler } from './error-handler.js';
-import type { AppOptions, ParseState } from './types.js';
+import { ErrorState, type AppOptions, type ParseState } from './types.js';
 
 export * from './types.js';
 export { errorExitCode, errorHandler, renderError } from './error-handler.js';
@@ -56,7 +56,23 @@ export async function main2(opts: AppOptions = {}): Promise<ParseState | unknown
 
 		return state;
 	} catch (err) {
-		return await handleError(err, state, opts);
+		// a parse error never got to return a state, but it carries the one it
+		// died with, which is where the matched command comes from
+		return await handleError(err, state ?? stateFromError(err), opts);
+	}
+}
+
+/**
+ * Recovers the parse state `parse()` stashed on an error it threw.
+ *
+ * @param err - The thrown value.
+ * @returns The state that was in flight, if there was one.
+ */
+function stateFromError(err: unknown): ParseState | undefined {
+	try {
+		return (err as { [ErrorState]?: ParseState } | null | undefined)?.[ErrorState];
+	} catch {
+		return undefined;
 	}
 }
 

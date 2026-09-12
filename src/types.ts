@@ -11,6 +11,17 @@ export type Callback = (schema: Schema) => Promise<string>;
 
 export const Internal: unique symbol = Symbol();
 
+/**
+ * The key `parse()` stashes its in-flight `ParseState` under on any error it
+ * throws once that state exists.
+ *
+ * The errors that most need a usage line -- a missing required option, an
+ * unexpected argument -- are the ones that stop `parse()` from ever returning,
+ * so the error is the only way the matched command gets back out. A symbol,
+ * and non-enumerable, so nothing inspecting the error ever sees it.
+ */
+export const ErrorState: unique symbol = Symbol('main2.errorState');
+
 export enum InternalState {
 	OK = 1,
 	Dirty = 2,

@@ -1,6 +1,7 @@
 import debug from '../debug/index.js';
 import {
 	DataType,
+	ErrorState,
 	Internal,
 	InternalCommand,
 	InternalOption,
@@ -76,12 +77,42 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		settings: opts.settings || {},
 	};
 
-	await initArgv(state);
-	await parseArgv(state);
-	await processArgs(state);
-	await processOptions(state);
+	try {
+		await initArgv(state);
+		await parseArgv(state);
+		await processArgs(state);
+		await processOptions(state);
+	} catch (err) {
+		attachState(err, state);
+		throw err;
+	}
 
 	return state;
+}
+
+/**
+ * Stashes the in-flight parse state on an error on its way out, so the error
+ * path can still reach the matched command -- and with it the usage line worth
+ * printing. Invisible to anything inspecting the error; see `ErrorState`.
+ *
+ * @param err - The thrown value.
+ * @param state - The state that was in flight.
+ */
+function attachState(err: unknown, state: ParseState): void {
+	if (err === null || (typeof err !== 'object' && typeof err !== 'function')) {
+		return;
+	}
+
+	try {
+		Object.defineProperty(err, ErrorState, {
+			configurable: true,
+			enumerable: false,
+			value: state,
+			writable: true,
+		});
+	} catch {
+		// a frozen error keeps its own counsel
+	}
 }
 
 export default parse;

@@ -233,6 +233,30 @@ describe('main2', () => {
 			).rejects.toThrow('handler exploded');
 		});
 
+		it('should hand the handler the state a parse error died with', async () => {
+			let ctx: ErrorContext | undefined;
+
+			await main2({
+				argv: ['build'],
+				schema: {
+					commands: {
+						build: {
+							options: { '--target <name>': 'Where to build to' },
+						},
+					},
+				},
+				settings: {
+					errorHandler: (_err, c) => {
+						ctx = c;
+					},
+				},
+			});
+
+			// the usage line Phase 3 wants to print comes from here
+			expect(ctx?.state?.cmd?.name).toBe('build');
+			expect(ctx?.state?.contexts[0].name).toBe('build');
+		});
+
 		it('should hand the handler no state when parsing never produced one', async () => {
 			let ctx: ErrorContext | undefined;
 
