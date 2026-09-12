@@ -270,44 +270,43 @@ function resolved(state: ParseState, dest: string): unknown {
 }
 
 /**
- * Applies an environment variable or default value fallback, coercing strings
- * to the declared data type exactly as a value parsed from argv would be.
- * Precedence is argv, then environment, then default.
+ * Reads the first environment variable of a list that is set.
+ *
+ * @param state - The parse state.
+ * @param envs - Environment variable names to look for.
+ * @returns The value of the first one that is defined, if any.
+ */
+function envValue(state: ParseState, envs: Set<string>): string | undefined {
+	for (const env of envs) {
+		if (state.env[env] !== undefined) {
+			return state.env[env];
+		}
+	}
+}
+
+/**
+ * Applies a fallback to a destination argv did not fill, coercing strings to
+ * the declared data type exactly as a value parsed from argv would be.
+ *
+ * Precedence is argv, then environment, then default: callers apply every
+ * environment fallback before any default, so that a declared default does not
+ * make the variable unreachable — and so that a flag, which always has an
+ * implicit default, can be set from the environment at all.
  *
  * @param state - The parse state.
  * @param dest - The destination key in `state.argv`.
- * @param def - The declared default value, if any.
- * @param envs - Environment variable names to fall back to.
+ * @param value - The fallback value, if there is one.
  * @param type - The declared data type.
  * @param multiple - When set, scalar fallbacks are wrapped in an array.
  */
 function applyFallback(
 	state: ParseState,
 	dest: string,
-	def: unknown,
-	envs: Set<string>,
+	value: unknown,
 	type: DataType | string,
 	multiple?: boolean
 ): void {
-	if (resolved(state, dest) !== undefined) {
-		return;
-	}
-
-	let value;
-
-	// the environment beats the default, so that a declared default does not
-	// make the variable unreachable — and so that a flag, which always has an
-	// implicit default, can be set from the environment at all
-	for (const env of envs) {
-		if (state.env[env] !== undefined) {
-			value = state.env[env];
-			break;
-		}
-	}
-
-	value ??= def;
-
-	if (value === undefined) {
+	if (value === undefined || resolved(state, dest) !== undefined) {
 		return;
 	}
 
@@ -631,7 +630,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 		const { dest, envs } = arg[Internal];
 
-		applyFallback(state, dest, arg.default, envs, arg.type, arg.multiple);
+		applyFallback(state, dest, envValue(state, envs) ?? arg.default, arg.type, arg.multiple);
 
 		if (missingArguments.length || (required && resolved(state, dest) === undefined)) {
 			missingArguments.unshift(`<${name}>`);
@@ -651,33 +650,39 @@ export async function processOptions(state: ParseState): Promise<void> {
 	const missingOptions: string[] = [];
 	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
 
-	// every fallback is applied before anything is validated: a destination two
-	// options share — a valued option and its negated twin — is not missing
-	// just because the one that fills it comes second
+	// every environment fallback is applied before any default, and both before
+	// anything is validated, so that a destination two options share — a valued
+	// option and its negated twin — keeps the same argv, then environment, then
+	// default precedence a lone option has, and is not reported missing just
+	// because the option that fills it comes second
 	for (const opt of all) {
-		const { multiple, type } = opt;
-		const { dest, envs, skipDefault } = opt[Internal];
+		const { dest, envs } = opt[Internal];
+		applyFallback(state, dest, envValue(state, envs), opt.type, opt.multiple);
+	}
+
+	for (const opt of all) {
+		const { dest, skipDefault } = opt[Internal];
 
 		// the valued twin owns the default of the destination the two share
-		applyFallback(state, dest, skipDefault ? undefined : opt.default, envs, type, multiple);
+		if (!skipDefault) {
+			applyFallback(state, dest, opt.default, opt.type, opt.multiple);
+		}
 	}
 
 	for (const opt of all) {
 		const { choices, required } = opt;
 		const { dest, label, negatedTwin } = opt[Internal];
 		const value = resolved(state, dest);
+		const typed = state.$.some((parsed) => parsed.type === 'Option' && parsed.option === opt);
 
-		if (required) {
-			const existing = state.$.find((parsed) => parsed.type === 'Option' && parsed.option === opt);
-			if (!existing && value === undefined) {
-				missingOptions.unshift(label);
-			}
+		if (required && !typed && value === undefined) {
+			missingOptions.unshift(label);
 		}
 
 		// only validate when there is actually a value to validate, and never
-		// against the `false` a negated twin means: turning the destination off
-		// is not one of the values this option declared
-		if (!negatedTwin || value !== false) {
+		// against a `false` this option did not produce: turning the destination
+		// off is what the negated twin means, not one of the values declared here
+		if (!negatedTwin || typed || value !== false) {
 			assertChoices(choices, value, `option ${label}`);
 		}
 	}

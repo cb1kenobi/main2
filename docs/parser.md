@@ -305,8 +305,9 @@ The valued option owns the destination's default, so the `true` a lone
 negated flag would imply is dropped: the pair above starts out undefined, and
 `--cheese [type]` with a `default` of `'mozzarella'` starts out
 `'mozzarella'`. A `default` declared on the flag itself is still honored when
-the valued twin declares none. The same goes for the environment fallback —
-the valued twin's variables are read first.
+the valued twin declares none. Precedence over the shared destination is the
+usual one: argv, then an environment variable declared on either twin — the
+valued twin's are read first — then a default.
 
 Because `<type>` makes the option required, anything that fills the shared
 destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`

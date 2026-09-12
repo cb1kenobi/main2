@@ -552,6 +552,46 @@ describe('options', () => {
 			);
 		});
 
+		it.each([
+			[
+				'valued first',
+				{ '--cheese [type]': { default: 'mozzarella' }, '--no-cheese': { env: 'NO_CHEESE' } },
+			],
+			[
+				'negated first',
+				{ '--no-cheese': { env: 'NO_CHEESE' }, '--cheese [type]': { default: 'mozzarella' } },
+			],
+		] as Order[])(
+			'should let the environment on either twin beat a default on the other, %s',
+			async (_label, options) => {
+				const result = await parse({ env: { NO_CHEESE: 'false' }, schema: { options } });
+				expect(result.argv.cheese).to.equal(false);
+			}
+		);
+
+		it.each([
+			[
+				'valued first',
+				{ '--cheese [type]': { choices: ['brie', 'gouda'], type: 'auto' }, '--no-cheese': {} },
+			],
+			[
+				'negated first',
+				{ '--no-cheese': {}, '--cheese [type]': { choices: ['brie', 'gouda'], type: 'auto' } },
+			],
+		] as Order[])(
+			'should still check a value of its own against choices, %s',
+			async (_label, options) => {
+				// the twin exemption is for the `false` the flag produces, not for
+				// every false the valued option could parse for itself
+				expect((await parse({ argv: ['--no-cheese'], schema: { options } })).argv.cheese).to.equal(
+					false
+				);
+				await expect(parse({ argv: ['--cheese', 'false'], schema: { options } })).rejects.toThrow(
+					'Invalid value "false" for option --cheese'
+				);
+			}
+		);
+
 		it('should let the last of two identical declarations win', async () => {
 			const result = await parse({
 				argv: ['-c', 'blue'],
