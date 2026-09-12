@@ -18,7 +18,7 @@ necessary, raise it rather than adding it.
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
 | `src/paths.ts`           | XDG base directories                                 |
 | `src/updates/`           | npm update check, run in a spawned worker            |
-| `src/terminal.ts`        | Terminal wrapper — currently EPIPE handling only     |
+| `src/error-handler.ts`   | Renders an error and sets the exit code              |
 | `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
 | `test/parser/commander/` | Ported Commander test cases                          |
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
@@ -82,6 +82,12 @@ These look like bugs and are not. Each is intentional and covered by tests.
   become aliases rather than errors, and a bare word declares `--word`.
   Commander rejects all of those. Genuinely malformed parts — `-ws`,
   `---triple` — still throw.
+- **`main2()` handles errors instead of rejecting.** A thrown value from
+  `parse()` or from the command's `run()` is rendered by `errorHandler()` —
+  the message, never a stack — `process.exitCode` is set, and `main2()`
+  resolves with `undefined`. Its caller is a bin script, so an unhandled
+  rejection dumping a stack is the wrong default. `settings.errorHandler:
+false` rethrows instead; a function replaces the handler.
 - **Undeclared options produce values rather than erroring.** `--foo` is
   `foo: true`, `--foo bar` is `foo: 'bar'`. They resolve after every command
   has been matched, coerce with `auto`, do not read `no-` as negation, and do

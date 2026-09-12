@@ -1,8 +1,129 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import debug from './debug/index.js';
+import type { ErrorContext, ErrorHandlerOptions } from './types.js';
 
-export function errorHandler(err: unknown): void {
-	// TODO: improve error rendering
-	console.error(err);
+export type { ErrorContext, ErrorHandler, ErrorHandlerOptions, ErrorRenderer } from './types.js';
 
-	process.exitCode = (err as { exitCode?: number }).exitCode ?? 1;
+const { log } = debug('main2:error');
+
+/**
+ * The exit code used when the error does not name one of its own.
+ */
+const defaultExitCode = 1;
+
+/**
+ * Extracts a user-facing message from anything that can be thrown.
+ *
+ * Parser errors are plain `Error`s whose messages are written for the person
+ * running the CLI, so the message is all that is wanted. Everything else --
+ * a thrown string, a plain object, `null` -- still has to render as something
+ * rather than crash the error path.
+ *
+ * @param err - The thrown value.
+ * @returns A single-line-ish message, never empty.
+ */
+function errorMessage(err: unknown): string {
+	if (err instanceof Error) {
+		return err.message || err.name || 'Unknown error';
+	}
+
+	if (typeof err === 'string') {
+		return err || 'Unknown error';
+	}
+
+	if (err !== null && typeof err === 'object') {
+		const { message } = err as { message?: unknown };
+		if (typeof message === 'string' && message) {
+			return message;
+		}
+	}
+
+	if (err === null || err === undefined) {
+		return 'Unknown error';
+	}
+
+	try {
+		// a null-prototype object has no `toString`, so this can throw
+		return String(err) || 'Unknown error';
+	} catch {
+		return 'Unknown error';
+	}
+}
+
+/**
+ * The default error renderer: the message, and nothing else.
+ *
+ * No stack trace -- the messages the parser throws are the user-facing text.
+ * The whole error, stack and all, is logged through the debug logger, so
+ * `DEBUG=main2:error` brings it back when a stack is actually wanted.
+ *
+ * This is the extension point for the Phase 3 help and ANSI work: pass a
+ * replacement as `ErrorHandlerOptions.render` (or wrap this one) to add the
+ * relevant usage line and color. The renderer is handed the `ParseState` on
+ * `ctx`, when parsing got far enough to produce one, which is where the
+ * matched command -- and therefore the usage line to print -- comes from.
+ *
+ * @param err - The thrown value.
+ * @returns The text to write to stderr.
+ */
+export function renderError(err: unknown): string {
+	return `Error: ${errorMessage(err)}`;
+}
+
+/**
+ * Resolves the process exit code an error asks for.
+ *
+ * An `exitCode` property is honored when it is an integer in the range a
+ * process exit code can actually carry. An explicit `0` is honored too: that
+ * is how a future `--help` short-circuit exits cleanly. Anything else -- a
+ * string, a float, out of range, a getter that throws -- falls back.
+ *
+ * @param err - The thrown value.
+ * @param fallback - The code to use when the error does not name a valid one.
+ * @returns The exit code to set.
+ */
+export function errorExitCode(err: unknown, fallback: number = defaultExitCode): number {
+	let code: unknown;
+
+	try {
+		code = (err as { exitCode?: unknown } | null | undefined)?.exitCode;
+	} catch {
+		return fallback;
+	}
+
+	return typeof code === 'number' && Number.isInteger(code) && code >= 0 && code <= 255
+		? code
+		: fallback;
+}
+
+/**
+ * Renders an error for the person running the CLI and sets the process exit
+ * code. This is the single place `main2()` turns a thrown value into output.
+ *
+ * It never calls `process.exit()` -- it sets `process.exitCode` so buffered
+ * stdout still flushes.
+ *
+ * @param err - The thrown value.
+ * @param opts - Rendering options: the `render` extension point, the
+ * `ParseState` to hand it, and the stream to write to.
+ */
+export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void {
+	const render = opts.render ?? renderError;
+	const stderr = opts.stderr ?? process.stderr;
+	const ctx: ErrorContext = { state: opts.state };
+
+	// the full error, stack and all, is one `DEBUG=main2:error` away
+	log(err);
+
+	let text: string;
+	try {
+		text = String(render(err, ctx));
+	} catch (renderErr) {
+		// a renderer that throws must not replace the error it was given
+		log(renderErr);
+		text = renderError(err);
+	}
+
+	stderr.write(`${text.replace(/[\r\n]+$/, '')}\n`);
+
+	process.exitCode = errorExitCode(err);
 }

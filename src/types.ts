@@ -1,12 +1,10 @@
 import { CommandRegistry } from './parser/command/command-registry.js';
 import { OptionRegistry } from './parser/option/option-registry.js';
-import { Terminal } from './terminal.js';
 
 export type AppOptions = {
 	argv?: string[];
 	schema?: Schema;
 	settings?: Settings;
-	terminal?: Terminal;
 };
 
 export type Callback = (schema: Schema) => Promise<string>;
@@ -237,5 +235,43 @@ export interface Settings {
 	allowUnexpectedArguments?: boolean;
 	allowUnknownOptions?: boolean;
 	assertCwd?: boolean;
+	/**
+	 * How `main2()` deals with an error thrown by `parse()` or by the matched
+	 * command's `run()`.
+	 *
+	 * Unset, the built-in `errorHandler()` renders the message to stderr, sets
+	 * `process.exitCode`, and `main2()` resolves with `undefined`. Set it to
+	 * `false` to have `main2()` rethrow instead and handle the error yourself,
+	 * or to a function to replace the built-in handler entirely.
+	 */
+	errorHandler?: ErrorHandler | false;
 	helpExitCode?: number;
+}
+
+/**
+ * What the error path knows beyond the error itself. Phase 3's help rendering
+ * reads the matched command off `state` to print the relevant usage line.
+ */
+export interface ErrorContext {
+	/** The parse state, when parsing got far enough to produce one. */
+	state?: ParseState;
+}
+
+/**
+ * Turns a thrown value into the text written to stderr. Replacing this is how
+ * richer rendering -- usage lines, ANSI color -- plugs in.
+ */
+export type ErrorRenderer = (err: unknown, ctx: ErrorContext) => string;
+
+/**
+ * A complete replacement for the built-in error handler, set via
+ * `Settings.errorHandler`. It owns the output and the exit code.
+ */
+export type ErrorHandler = (err: unknown, ctx: ErrorContext) => Promise<void> | void;
+
+export interface ErrorHandlerOptions extends ErrorContext {
+	/** Replaces the default renderer. */
+	render?: ErrorRenderer;
+	/** Where the rendered error is written. Defaults to `process.stderr`. */
+	stderr?: NodeJS.WritableStream;
 }

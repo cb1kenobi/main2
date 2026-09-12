@@ -366,7 +366,83 @@ values — see [Undeclared options](#undeclared-options).
 | `allowUnexpectedArguments` | `false` | Permit undeclared positional arguments                        |
 | `allowUnknownOptions`      | `true`  | Collect undeclared options instead of throwing                |
 | `assertCwd`                | `true`  | Fail early if the working directory is gone                   |
+| `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself   |
 | `helpExitCode`             | —       | Exit code after printing help _(help is not implemented yet)_ |
+
+## Errors
+
+`parse()` throws. `main2()` catches — from the working directory check, from
+`parse()`, and from the matched command's `run()`, synchronously or as a
+rejected promise — and hands the thrown value to `errorHandler()`, the single
+place an error becomes output:
+
+```
+$ mycli build
+Error: Missing required options: --target
+$ echo $?
+1
+```
+
+The message and nothing else. Parser errors are plain `Error`s whose messages
+are written for the person running the CLI, so a stack trace would only bury
+them. The whole error is logged through the debug logger, so
+`DEBUG=main2:error` brings the stack back when you want it.
+
+`errorHandler()` sets `process.exitCode` rather than calling `process.exit()`,
+so buffered stdout still flushes. The code is `1`, unless the thrown value
+carries an `exitCode` that is an integer from 0 to 255 — an explicit `0`
+included, which is how a future `--help` short-circuit will exit cleanly.
+Anything that is not an `Error` renders too: a thrown string, an object with a
+`message`, even `null`.
+
+After an error is handled, `main2()` resolves with `undefined`. It does not
+reject: its caller is a bin script, and an unhandled rejection printing a
+stack is exactly what the handler exists to avoid.
+
+### Handling errors yourself
+
+| `settings.errorHandler` | Effect                                                 |
+| ----------------------- | ------------------------------------------------------ |
+| unset                   | Built-in handler renders and sets `process.exitCode`   |
+| `false`                 | `main2()` rethrows; nothing is written, no code is set |
+| a function              | Replaces the handler; it owns output and the exit code |
+
+```js
+await main2({
+	schema,
+	settings: {
+		errorHandler(err, { state }) {
+			console.error(`${state?.cmd?.name ?? 'cli'}: ${err.message}`);
+			process.exitCode = 2;
+		},
+	},
+});
+```
+
+### Rendering more than the message
+
+`errorHandler(err, opts)` takes a `render` function — this is the seam the
+Phase 3 help and ANSI work plugs into, once there is a usage line to print and
+color to print it in:
+
+```js
+import { errorHandler, renderError } from 'main2/error-handler';
+
+errorHandler(err, {
+	render: (err, { state }) => `${renderError(err)}\n\n${usageFor(state?.cmd)}`,
+});
+```
+
+The renderer is handed the `ParseState` on `ctx` whenever parsing got far
+enough to produce one, which is where the matched command — and therefore the
+usage line — comes from. A renderer that throws falls back to the default one,
+so a broken renderer cannot swallow the error it was given. `opts.stderr`
+redirects the output, which is mostly there for tests.
+
+> [!NOTE]
+> The `beforeError` hook is not wired up yet. When it is, it fires inside
+> `main2()`'s catch, before the handler and before the `false` opt-out, so a
+> hook can annotate or replace the error on its way out.
 
 ## Differences from Commander and yargs
 
@@ -409,11 +485,11 @@ The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
 
 Schema-level hooks are arrays of functions on `schema.hooks`:
 
-| Hook          | When                                           |
-| ------------- | ---------------------------------------------- |
-| `beforeParse` | Before argv is walked                          |
-| `afterParse`  | After argv is walked                           |
-| `beforeError` | **Declared but never fired — not implemented** |
+| Hook          | When                                                 |
+| ------------- | ---------------------------------------------------- |
+| `beforeParse` | Before argv is walked                                |
+| `afterParse`  | After argv is walked                                 |
+| `beforeError` | **Declared but never fired — see [Errors](#errors)** |
 
 Command-level hooks live on `command.hooks`:
 
