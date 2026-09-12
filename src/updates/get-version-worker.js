@@ -1,6 +1,7 @@
+// This script is piped to `node --input-type=module` via stdin, so it cannot
+// resolve relative imports. Keep it dependency-free: only `node:` builtins.
 import { readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
-import { dirname } from 'node:path';
 
 try {
 	const {
@@ -63,8 +64,7 @@ try {
 	}
 
 	if (cacheFile) {
-		const { mkdirOwnerSync } = await import('../util/mkdir-owner-sync.js');
-		mkdirOwnerSync(dirname(cacheFile));
+		// the parent process created the cache directory before spawning us
 		let cache = {};
 		try {
 			const obj = JSON.parse(readFileSync(cacheFile, 'utf-8'));

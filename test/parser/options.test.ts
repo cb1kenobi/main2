@@ -213,7 +213,7 @@ describe('options', () => {
 				hint: 'path',
 				name: 'directory',
 				required: true,
-				type: 'auto',
+				type: 'string',
 			});
 			expect(dir?.[Internal].short.has('-d')).to.equal(true);
 			expect(dir?.[Internal].long.has('--directory')).to.equal(true);
@@ -233,7 +233,7 @@ describe('options', () => {
 				format: '-d, --directory [path]',
 				hint: 'path',
 				name: 'directory',
-				type: 'auto',
+				type: 'string',
 			});
 			expect(dir?.[Internal].short.has('-d')).to.equal(true);
 			expect(dir?.[Internal].long.has('--directory')).to.equal(true);
@@ -280,7 +280,7 @@ describe('options', () => {
 				multiple: true,
 				name: 'include',
 				required: true,
-				type: 'auto',
+				type: 'string',
 			});
 			expect(inc?.[Internal].long.has('--include')).to.equal(true);
 		});
@@ -372,7 +372,9 @@ describe('options', () => {
 		it('should parse option with auto type', async () => {
 			const schema = {
 				options: {
-					'--foo <bar>': {},
+					'--foo <bar>': {
+						type: 'auto',
+					},
 				},
 			};
 

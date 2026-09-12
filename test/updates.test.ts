@@ -1,22 +1,13 @@
 import { tmp } from '../src/paths.js';
 import { check } from '../src/updates/index.js';
 import { randomUUID } from 'node:crypto';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 async function generateTmpDir() {
 	return tmp('test-main2', randomUUID().slice(0, 8));
 }
 
 describe('updates', () => {
-	beforeAll(() => {
-		const [major, minor] = process.versions.node.split('.').map(Number);
-		process.env.NODE_OPTIONS = `--loader tsx${major < 22 && major === 22 && minor < 6 ? '/esm/api' : ''}`;
-	});
-
-	afterAll(() => {
-		delete process.env.NODE_OPTIONS;
-	});
-
 	describe('Error Handling', () => {
 		it('should error if cache directory is invalid', async () => {
 			await expect(check(undefined as any)).rejects.toThrowError(
@@ -34,10 +25,10 @@ describe('updates', () => {
 				wait: true,
 			});
 
-			expect(result).toEqual({
-				current: '1.0.0',
-				latest: '5.1.0',
-			});
+			// assert the shape, not a specific version: `latest` is whatever
+			// the registry currently serves and will change without notice
+			expect(result.current).to.equal('1.0.0');
+			expect(result.latest).to.match(/^\d+\.\d+\.\d+/);
 		});
 	});
 });

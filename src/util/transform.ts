@@ -75,6 +75,11 @@ export function transformValue(
 	}
 
 	if (type === 'auto' && typeof value === 'string') {
+		// an empty or blank value is a string, not zero
+		if (!value.trim()) {
+			return value;
+		}
+
 		const lvalue = value.toLowerCase();
 
 		// try as a boolean

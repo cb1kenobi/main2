@@ -89,7 +89,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		long.add(`--${it.name}`); // add non-negated value
 	}
 
-	it.type ||= isFlag ? 'bool' : 'auto';
+	it.type ||= isFlag ? 'bool' : 'string';
 	if (isFlag) {
 		if (it.type === 'auto' || it.type === 'yesno') {
 			it.type = 'bool';
