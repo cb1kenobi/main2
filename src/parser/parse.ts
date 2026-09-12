@@ -291,6 +291,11 @@ function applyFallback(
 
 	if (typeof value === 'string') {
 		value = transformValue(value, type);
+	} else if (Array.isArray(value)) {
+		// an array `default` belongs to the caller; handing it straight to
+		// `argv` would let a consumer's `push` reach back into the schema and
+		// change what the next parse defaults to
+		value = [...value];
 	}
 
 	state.argv[dest] = multiple && !Array.isArray(value) ? [value] : value;

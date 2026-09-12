@@ -496,7 +496,9 @@ and the `Internal` state all land on objects the parser builds for itself, so:
 initialized form of it is the outermost entry of `state.contexts`, whose
 `Internal` state carries the built registries.
 
-Containers are copied, but what is inside them is shared: the `run` handler,
-`transform`, `choices`, and `default` on the parser's copy of a command are
-the very ones that were declared. The parser does not write to those either,
-but a consumer who mutates one is mutating their own schema.
+Containers are copied, including a `choices` list and an array `default` on
+its way to `argv`, so nothing the parser hands back can be appended to and
+have that reach the declaration. What is inside them is shared, though: a
+`run` handler, a `transform`, and any object used as a `default` or a choice
+are the very ones that were declared. The parser never writes to those, but a
+consumer who mutates one is mutating their own schema.

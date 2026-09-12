@@ -209,6 +209,50 @@ describe('schema', () => {
 		});
 	});
 
+	describe('values the parser hands back', () => {
+		it('should not let a consumer push into a declared default', async () => {
+			const schema = {
+				options: { '--tag [t]': { default: ['a'], multiple: true } },
+			};
+
+			const first = await parse({ argv: [], schema });
+			expect(first.argv.tag).to.deep.equal(['a']);
+			(first.argv.tag as string[]).push('b');
+
+			const second = await parse({ argv: [], schema });
+			expect(second.argv.tag).to.deep.equal(['a']);
+			expect(schema.options['--tag [t]'].default).to.deep.equal(['a']);
+		});
+
+		it('should not let an init hook append to declared choices', async () => {
+			const schema = {
+				commands: {
+					build: {
+						options: { '--target [name]': { choices: ['esm'] } },
+						hooks: {
+							init: [
+								({ options }) => {
+									options.get('target')?.choices?.push('cjs');
+								},
+							],
+						},
+					},
+				},
+			};
+
+			// the hook edits the parser's copy of `choices`, so `cjs` is accepted
+			// — but the declaration keeps the one value it declared, and the
+			// second parse starts from that same one value again
+			const first = await parse({ argv: ['build', '--target', 'cjs'], schema });
+			expect(first.argv.target).to.equal('cjs');
+			expect(schema.commands.build.options['--target [name]'].choices).to.deep.equal(['esm']);
+
+			const second = await parse({ argv: ['build', '--target', 'cjs'], schema });
+			expect(second.argv.target).to.equal('cjs');
+			expect(schema.commands.build.options['--target [name]'].choices).to.deep.equal(['esm']);
+		});
+	});
+
 	describe('a lazily loaded command', () => {
 		it('should not write to the module object', async () => {
 			// the module default exports a deeply frozen object, so merging the

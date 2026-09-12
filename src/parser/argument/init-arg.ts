@@ -75,6 +75,12 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 		throw new TypeError('Expected argument transform function to be a function');
 	}
 
+	if (Array.isArray(arg.choices)) {
+		// the same reasoning as an option: nothing that reaches this argument
+		// later gets to append to the caller's own array
+		arg.choices = [...arg.choices];
+	}
+
 	arg.multiple ||= !!(m[2] || m[4] || m[6]);
 	arg.name = (m[1] || m[3] || m[5]).trim();
 	arg.required ||= !!m[1];
