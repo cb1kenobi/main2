@@ -10,7 +10,7 @@ import {
 	state,
 	tmp,
 } from '../src/paths.js';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 
@@ -106,18 +106,53 @@ describe('paths', () => {
 	});
 
 	describe('runtime()', () => {
+		// XDG_RUNTIME_DIR is the one base directory the spec gives no fallback
+		// for, so it is genuinely undefined unless the environment sets it.
 		it('should get the runtime directory', () => {
-			expect(runtime()).toBeTruthy();
+			const orig = process.env.XDG_RUNTIME_DIR;
+			try {
+				process.env.XDG_RUNTIME_DIR = tmpdir();
+				expect(runtime()).to.equal(tmpdir());
+			} finally {
+				if (orig === undefined) {
+					delete process.env.XDG_RUNTIME_DIR;
+				} else {
+					process.env.XDG_RUNTIME_DIR = orig;
+				}
+			}
 		});
 
 		it('should get the runtime directory plus additional paths', () => {
-			let dir = runtime('foo', 'bar');
-			expect(dir).toBeTruthy();
-			expect(dir).toContain(join('foo', 'bar'));
+			const orig = process.env.XDG_RUNTIME_DIR;
+			try {
+				process.env.XDG_RUNTIME_DIR = tmpdir();
 
-			dir = runtime('foo/', '/bar');
-			expect(dir).toBeTruthy();
-			expect(dir).toContain(join('foo', 'bar'));
+				let dir = runtime('foo', 'bar');
+				expect(dir).toBeTruthy();
+				expect(dir).toContain(join('foo', 'bar'));
+
+				dir = runtime('foo/', '/bar');
+				expect(dir).toBeTruthy();
+				expect(dir).toContain(join('foo', 'bar'));
+			} finally {
+				if (orig === undefined) {
+					delete process.env.XDG_RUNTIME_DIR;
+				} else {
+					process.env.XDG_RUNTIME_DIR = orig;
+				}
+			}
+		});
+
+		it('should be undefined when XDG_RUNTIME_DIR is not set', () => {
+			const orig = process.env.XDG_RUNTIME_DIR;
+			try {
+				delete process.env.XDG_RUNTIME_DIR;
+				expect(runtime()).to.equal(undefined);
+			} finally {
+				if (orig !== undefined) {
+					process.env.XDG_RUNTIME_DIR = orig;
+				}
+			}
 		});
 	});
 

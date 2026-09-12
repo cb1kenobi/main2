@@ -1,4 +1,5 @@
 import debug from '../debug/index.js';
+import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -65,13 +66,23 @@ export async function check(
 		const cwd = dirname(fileURLToPath(import.meta.url));
 		const workerFile = join(cwd, 'get-version-worker.js');
 		const workerScript = readFileSync(workerFile, 'utf-8');
+		// The worker is a self-contained ESM script, so drop NODE_OPTIONS rather
+		// than inheriting loader flags (`--import tsx`, coverage hooks, and so
+		// on) that are not installed for the spawned process.
+		const { NODE_OPTIONS: _ignored, ...parentEnv } = process.env;
 		const env = {
-			...process.env,
+			...parentEnv,
 			CACHE_FILE: cacheFile,
 			DIST_TAG: distTag,
 			PACKAGE_NAME: packageName,
 			REGISTRY_URL: registryURL,
 		};
+
+		// the worker cannot resolve relative imports, so create the cache
+		// directory here rather than there
+		if (cacheFile) {
+			mkdirOwnerSync(dirname(cacheFile));
+		}
 
 		log('Spawning update worker...');
 		const worker = spawn(process.execPath, ['--input-type', 'module'], {
