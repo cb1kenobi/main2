@@ -1,6 +1,7 @@
 import debug from './debug/index.js';
 import { errorHandler } from './error-handler.js';
-import { ErrorState, type AppOptions, type ParseState } from './types.js';
+import { fireBeforeError, stateFromError } from './error-hooks.js';
+import { type AppOptions, type ParseState } from './types.js';
 
 export * from './types.js';
 export { errorExitCode, errorHandler, renderError } from './error-handler.js';
@@ -34,6 +35,7 @@ get cwd(): string {
  */
 export async function main2(opts: AppOptions = {}): Promise<ParseState | unknown> {
 	let state: ParseState | undefined;
+	let hooksFired = false;
 
 	try {
 		if (opts?.settings?.assertCwd !== false) {
@@ -41,12 +43,20 @@ export async function main2(opts: AppOptions = {}): Promise<ParseState | unknown
 		}
 
 		const { parse } = await import('./parser/parse.js');
-		state = await parse({
-			argv: opts.argv || process.argv.slice(2),
-			env: process.env,
-			schema: opts.schema,
-			settings: opts.settings,
-		});
+
+		try {
+			state = await parse({
+				argv: opts.argv || process.argv.slice(2),
+				env: process.env,
+				schema: opts.schema,
+				settings: opts.settings,
+			});
+		} catch (err) {
+			// `parse()` owns its own error path and has already fired the hooks
+			// on whatever it throws -- firing them again here would double up
+			hooksFired = true;
+			throw err;
+		}
 
 		const { cmd } = state;
 		if (cmd?.run) {
@@ -58,21 +68,7 @@ export async function main2(opts: AppOptions = {}): Promise<ParseState | unknown
 	} catch (err) {
 		// a parse error never got to return a state, but it carries the one it
 		// died with, which is where the matched command comes from
-		return await handleError(err, state ?? stateFromError(err), opts);
-	}
-}
-
-/**
- * Recovers the parse state `parse()` stashed on an error it threw.
- *
- * @param err - The thrown value.
- * @returns The state that was in flight, if there was one.
- */
-function stateFromError(err: unknown): ParseState | undefined {
-	try {
-		return (err as { [ErrorState]?: ParseState } | null | undefined)?.[ErrorState];
-	} catch {
-		return undefined;
+		return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
 	}
 }
 
@@ -83,28 +79,32 @@ function stateFromError(err: unknown): ParseState | undefined {
  * @param err - The thrown value.
  * @param state - The parse state, if parsing got far enough to produce one.
  * @param opts - The app options.
+ * @param hooksFired - Set when the `beforeError` hooks have already run, which
+ * is every error `parse()` threw.
  */
 async function handleError(
 	err: unknown,
 	state: ParseState | undefined,
-	opts: AppOptions
+	opts: AppOptions,
+	hooksFired = false
 ): Promise<undefined> {
-	// M2-15: the schema's `beforeError` hooks fire here, before anything is
-	// rendered and before the opt-out below, so a hook can still annotate or
-	// replace the error on its way out.
+	// the hooks fire before anything is rendered and before the opt-out below,
+	// so the error a hook replaced is the one that gets rendered, handed to a
+	// custom handler, or rethrown -- the same error whichever way it leaves
+	const reported = hooksFired ? err : await fireBeforeError(err, state, opts?.schema);
 
 	const handler = opts?.settings?.errorHandler;
 
 	if (handler === false) {
-		throw err;
+		throw reported;
 	}
 
 	if (typeof handler === 'function') {
-		await handler(err, { state });
+		await handler(reported, { state });
 		return;
 	}
 
-	errorHandler(err, { state });
+	errorHandler(reported, { state });
 }
 
 function assertCwd() {

@@ -19,6 +19,7 @@ necessary, raise it rather than adding it.
 | `src/paths.ts`           | XDG base directories                                 |
 | `src/updates/`           | npm update check, run in a spawned worker            |
 | `src/error-handler.ts`   | Renders an error and sets the exit code              |
+| `src/error-hooks.ts`     | Fires `beforeError` hooks; carries state on an error |
 | `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
 | `test/parser/commander/` | Ported Commander test cases                          |
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
@@ -88,6 +89,15 @@ These look like bugs and are not. Each is intentional and covered by tests.
   resolves with `undefined`. Its caller is a bin script, so an unhandled
   rejection dumping a stack is the wrong default. `settings.errorHandler:
 false` rethrows instead; a function replaces the handler.
+- **A `beforeError` hook may replace the error but never suppress it.**
+  Returning nothing leaves the error alone, returning a value makes that value
+  the error, and a hook that throws is logged and skipped. Suppression would
+  have to mean something different at every throw site — what `parse()`
+  returns, whether the command still runs — and a rule that cannot hold
+  everywhere is worse than no rule. Hooks fire for every throw site, inside
+  `parse()` for what `parse()` throws and inside `main2()` for everything
+  else, innermost command first and the schema last, before rendering and
+  before the `errorHandler: false` opt-out. See `test/parser/hooks.test.ts`.
 - **Undeclared options produce values rather than erroring.** `--foo` is
   `foo: true`, `--foo bar` is `foo: 'bar'`. They resolve after every command
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
@@ -99,7 +109,6 @@ false` rethrows instead; a function replaces the handler.
 - `'build, b'` as a command name silently renames the command to `b` instead
   of aliasing it. Only `@`-prefixed labels become aliases.
 - An explicit `hidden: true` on a command is overwritten by name parsing.
-- `beforeError` hooks are declared and validated but never fired.
 - `command.default: true` is never dispatched.
 - `parse()` mutates the schema object it is given.
 - A subcommand's option used before its subcommand is not protected from being

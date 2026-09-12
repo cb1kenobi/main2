@@ -399,6 +399,69 @@ After an error is handled, `main2()` resolves with `undefined`. It does not
 reject: its caller is a bin script, and an unhandled rejection printing a
 stack is exactly what the handler exists to avoid.
 
+### The `beforeError` hook
+
+Every error passes through the `beforeError` hooks on its way out, whatever
+threw it: a missing required option, an invalid choice, a value that will not
+coerce, an unknown option, a command module that will not load, a `transform`
+or a `beforeParse` hook of your own that threw, an invalid schema, and an error
+from the command's `run()`. They fire inside `parse()` for everything `parse()`
+throws — so calling `parse()` without `main2()` gets the same error path — and
+inside `main2()`'s catch for everything else. Either way they fire once.
+
+They run before the error is rendered, before a custom `errorHandler`, and
+before the `errorHandler: false` opt-out, so the error that leaves is the error
+the hooks made of it, whichever way it goes out.
+
+**A hook may observe the error, mutate it, or replace it. It may never suppress
+it.**
+
+| The hook        | Effect                                                                                |
+| --------------- | ------------------------------------------------------------------------------------- |
+| returns nothing | The error is unchanged — this is the observing case                                   |
+| returns a value | That value is the error from there on, for the hooks after it too                     |
+| mutates `err`   | The change sticks; it is the same object                                              |
+| throws          | Logged under `DEBUG=main2:error` and skipped; the error it was handed stays in flight |
+
+Suppression is deliberately not on that list. It would have to mean something
+different at every throw site — what does `parse()` return when the argv it was
+given is unusable, does the command still run, what is the exit code — and a
+rule that cannot hold everywhere is worse than no rule. An error that has been
+raised gets reported. What a hook gets to change is _which_ error that is:
+
+```js
+await main2({
+	schema: {
+		hooks: {
+			beforeError: [
+				(err, state) => {
+					if (err?.code === 'ENOENT') {
+						return new Error(`${state?.cmd?.name ?? 'cli'}: no such file or directory`);
+					}
+				},
+			],
+		},
+	},
+});
+```
+
+A replacement carries the parse state along with it, under the same
+`ErrorState` symbol, so swapping the error out does not cost the renderer its
+usage line.
+
+Commands declare `beforeError` hooks too. They fire innermost command first,
+then outward along the context chain, and the schema's own hooks last — the
+direction the error itself travels — and each hook is handed whatever the hook
+before it made of the error. A hook listed twice, which is what the schema's
+hooks would be if the context chain were walked naively, still fires once.
+
+Both arguments are as wide as the truth: anything at all can be thrown, and an
+error raised before parsing produced a state arrives without one.
+
+```ts
+type BeforeErrorHook = (err: unknown, state: ParseState | undefined) => unknown;
+```
+
 ### Handling errors yourself
 
 | `settings.errorHandler` | Effect                                                 |
@@ -450,11 +513,6 @@ is swallowed — rendering an error must not raise a second, worse one — but a
 asynchronous `EPIPE` still arrives as an `error` event on the stream, and
 handling that belongs to the terminal wrapper that Phase 3 brings back.
 
-> [!NOTE]
-> The `beforeError` hook is not wired up yet. When it is, it fires inside
-> `main2()`'s catch, before the handler and before the `false` opt-out, so a
-> hook can annotate or replace the error on its way out.
-
 ## Differences from Commander and yargs
 
 Much of this parser's test suite is a port of Commander's and yargs-parser's,
@@ -496,18 +554,19 @@ The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
 
 Schema-level hooks are arrays of functions on `schema.hooks`:
 
-| Hook          | When                                                 |
-| ------------- | ---------------------------------------------------- |
-| `beforeParse` | Before argv is walked                                |
-| `afterParse`  | After argv is walked                                 |
-| `beforeError` | **Declared but never fired — see [Errors](#errors)** |
+| Hook          | When                                                |
+| ------------- | --------------------------------------------------- |
+| `beforeParse` | Before argv is walked                               |
+| `afterParse`  | After argv is walked                                |
+| `beforeError` | On the way out of any error — see [Errors](#errors) |
 
 Command-level hooks live on `command.hooks`:
 
-| Hook    | When                                       |
-| ------- | ------------------------------------------ |
-| `init`  | When the command is initialized            |
-| `parse` | When the command is matched during parsing |
+| Hook          | When                                                       |
+| ------------- | ---------------------------------------------------------- |
+| `init`        | When the command is initialized                            |
+| `parse`       | When the command is matched during parsing                 |
+| `beforeError` | On the way out of any error, before the schema's own hooks |
 
 ## Parse state
 

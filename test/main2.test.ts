@@ -282,4 +282,204 @@ describe('main2', () => {
 			expect(process.exitCode).toBe(1);
 		});
 	});
+
+	describe('beforeError hooks', () => {
+		it('should fire for an error thrown by the command handler', async () => {
+			let seen: unknown;
+			let state: ParseState | undefined;
+
+			const stderr = captureStderr();
+			await main2({
+				argv: ['build'],
+				schema: {
+					commands: {
+						build: {
+							run() {
+								throw new Error('build failed');
+							},
+						},
+					},
+					hooks: {
+						beforeError: [
+							(err, s) => {
+								seen = err;
+								state = s;
+							},
+						],
+					},
+				},
+			});
+			stderr.restore();
+
+			expect((seen as Error).message).toBe('build failed');
+			expect(state?.cmd?.name).toBe('build');
+			// observing never suppresses: the error is still reported
+			expect(stderr.text).toBe('Error: build failed\n');
+			expect(process.exitCode).toBe(1);
+		});
+
+		it('should fire for an async rejection from the command handler', async () => {
+			const calls: unknown[] = [];
+
+			const stderr = captureStderr();
+			await main2({
+				argv: ['build'],
+				schema: {
+					commands: {
+						build: {
+							run: async () => {
+								await Promise.resolve();
+								throw new Error('deploy failed');
+							},
+						},
+					},
+					hooks: { beforeError: [(err) => void calls.push(err)] },
+				},
+			});
+			stderr.restore();
+
+			expect(calls).toHaveLength(1);
+			expect((calls[0] as Error).message).toBe('deploy failed');
+		});
+
+		it('should fire a command hook for an error its own run() threw', async () => {
+			const calls: string[] = [];
+
+			const stderr = captureStderr();
+			await main2({
+				argv: ['build'],
+				schema: {
+					commands: {
+						build: {
+							hooks: { beforeError: [() => void calls.push('build')] },
+							run() {
+								throw new Error('build failed');
+							},
+						},
+					},
+					hooks: { beforeError: [() => void calls.push('schema')] },
+				},
+			});
+			stderr.restore();
+
+			expect(calls).toEqual(['build', 'schema']);
+		});
+
+		it('should render the error a hook replaced', async () => {
+			const stderr = captureStderr();
+			await main2({
+				argv: ['build'],
+				schema: {
+					commands: {
+						build: {
+							run() {
+								throw new Error("ENOENT: no such file or directory, open 'x'");
+							},
+						},
+					},
+					hooks: {
+						beforeError: [
+							() => Object.assign(new Error('Could not read the project file'), { exitCode: 3 }),
+						],
+					},
+				},
+			});
+			stderr.restore();
+
+			expect(stderr.text).toBe('Error: Could not read the project file\n');
+			// the replacement owns the exit code too
+			expect(process.exitCode).toBe(3);
+		});
+
+		it('should hand a custom handler the error a hook replaced', async () => {
+			let seen: unknown;
+
+			await main2({
+				argv: [],
+				schema: {
+					hooks: { beforeError: [() => new Error('nicer message')] },
+					options: { '--name <value>': 'Your name' },
+				},
+				settings: {
+					errorHandler: (err) => {
+						seen = err;
+					},
+				},
+			});
+
+			expect((seen as Error).message).toBe('nicer message');
+		});
+
+		it('should rethrow the error a hook replaced when the handler is off', async () => {
+			// the hooks run before the opt-out, so the same error leaves whichever
+			// way it goes out
+			await expect(
+				main2({
+					argv: [],
+					schema: {
+						hooks: { beforeError: [() => new Error('nicer message')] },
+						options: { '--name <value>': 'Your name' },
+					},
+					settings: { errorHandler: false },
+				})
+			).rejects.toThrow('nicer message');
+		});
+
+		it('should fire once for a parse error', async () => {
+			// `parse()` fires them itself, so main2() must not fire them again
+			const calls: unknown[] = [];
+
+			const stderr = captureStderr();
+			await main2({
+				argv: [],
+				schema: {
+					hooks: { beforeError: [(err) => void calls.push(err)] },
+					options: { '--name <value>': 'Your name' },
+				},
+			});
+			stderr.restore();
+
+			expect(calls).toHaveLength(1);
+		});
+
+		it('should keep the state a parse error died with after a replacement', async () => {
+			let ctx: ErrorContext | undefined;
+
+			await main2({
+				argv: ['build'],
+				schema: {
+					commands: { build: { options: { '--target <name>': 'Where to build to' } } },
+					hooks: { beforeError: [() => new Error('nicer message')] },
+				},
+				settings: {
+					errorHandler: (_err, c) => {
+						ctx = c;
+					},
+				},
+			});
+
+			expect(ctx?.state?.cmd?.name).toBe('build');
+		});
+
+		it('should report the original error when a hook throws', async () => {
+			const stderr = captureStderr();
+			await main2({
+				argv: [],
+				schema: {
+					hooks: {
+						beforeError: [
+							() => {
+								throw new Error('hook exploded');
+							},
+						],
+					},
+					options: { '--name <value>': 'Your name' },
+				},
+			});
+			stderr.restore();
+
+			expect(stderr.text).toBe('Error: Missing required options: --name\n');
+			expect(process.exitCode).toBe(1);
+		});
+	});
 });
