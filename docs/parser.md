@@ -447,7 +447,9 @@ await main2({
 
 A replacement carries the parse state along with it, under the same
 `ErrorState` symbol, so swapping the error out does not cost the renderer its
-usage line.
+usage line. That is a reason to replace an error with an `Error`: a string, or
+anything else that cannot carry a property, arrives at the handler with no
+state and so with no usage line.
 
 Commands declare `beforeError` hooks too. They fire innermost command first,
 then outward along the context chain, and the schema's own hooks last — the

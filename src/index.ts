@@ -1,7 +1,7 @@
 import debug from './debug/index.js';
 import { errorHandler } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
-import { type AppOptions, type ParseState } from './types.js';
+import { type AppOptions, type ParseState, type Schema } from './types.js';
 
 export * from './types.js';
 export { errorExitCode, errorHandler, renderError } from './error-handler.js';
@@ -44,13 +44,18 @@ export async function main2(opts: AppOptions = {}): Promise<ParseState | unknown
 
 		const { parse } = await import('./parser/parse.js');
 
+		// read the app options before the catch below, which speaks only for
+		// `parse()`: a property of the caller's own that throws on the way in
+		// has not been through the hooks yet
+		const parseOpts = {
+			argv: opts.argv || process.argv.slice(2),
+			env: process.env,
+			schema: opts.schema,
+			settings: opts.settings,
+		};
+
 		try {
-			state = await parse({
-				argv: opts.argv || process.argv.slice(2),
-				env: process.env,
-				schema: opts.schema,
-				settings: opts.settings,
-			});
+			state = await parse(parseOpts);
 		} catch (err) {
 			// `parse()` owns its own error path and has already fired the hooks
 			// on whatever it throws -- firing them again here would double up
@@ -91,7 +96,7 @@ async function handleError(
 	// the hooks fire before anything is rendered and before the opt-out below,
 	// so the error a hook replaced is the one that gets rendered, handed to a
 	// custom handler, or rethrown -- the same error whichever way it leaves
-	const reported = hooksFired ? err : await fireBeforeError(err, state, opts?.schema);
+	const reported = hooksFired ? err : await fireBeforeError(err, state, appSchema(opts));
 
 	const handler = opts?.settings?.errorHandler;
 
@@ -105,6 +110,22 @@ async function handleError(
 	}
 
 	errorHandler(reported, { state });
+}
+
+/**
+ * Reads the schema off the app options without letting a throwing getter
+ * escape. This runs on the error path, where the only thing worse than a bad
+ * schema is a second error hiding the first.
+ *
+ * @param opts - The app options.
+ * @returns The schema, if the options carry a readable one.
+ */
+function appSchema(opts: AppOptions): Schema | undefined {
+	try {
+		return opts?.schema;
+	} catch {
+		return undefined;
+	}
 }
 
 function assertCwd() {

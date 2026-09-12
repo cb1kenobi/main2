@@ -461,6 +461,48 @@ describe('main2', () => {
 			expect(ctx?.state?.cmd?.name).toBe('build');
 		});
 
+		it('should fire when reading the app options is what threw', async () => {
+			// this error never reached parse(), so nothing has fired the hooks yet
+			const calls: unknown[] = [];
+
+			const stderr = captureStderr();
+			await main2({
+				get argv(): string[] {
+					throw new Error('bad argv getter');
+				},
+				schema: { hooks: { beforeError: [(err) => void calls.push(err)] } },
+			});
+			stderr.restore();
+
+			expect(calls).toHaveLength(1);
+			expect((calls[0] as Error).message).toBe('bad argv getter');
+			expect(stderr.text).toBe('Error: bad argv getter\n');
+		});
+
+		it('should lose the state when the replacement cannot carry it', async () => {
+			// a string cannot hold a property, so the usage line goes with it --
+			// which is the argument for replacing an error with an error
+			let ctx: ErrorContext | undefined;
+			let seen: unknown;
+
+			await main2({
+				argv: ['build'],
+				schema: {
+					commands: { build: { options: { '--target <name>': 'Where to build to' } } },
+					hooks: { beforeError: [() => 'just a string'] },
+				},
+				settings: {
+					errorHandler: (err, c) => {
+						seen = err;
+						ctx = c;
+					},
+				},
+			});
+
+			expect(seen).toBe('just a string');
+			expect(ctx?.state).toBeUndefined();
+		});
+
 		it('should report the original error when a hook throws', async () => {
 			const stderr = captureStderr();
 			await main2({
