@@ -479,12 +479,12 @@ describe('arguments', () => {
 			});
 
 			result = await parse({
-				argv: ['baz'],
+				argv: ['no'],
 				schema,
 			});
-			expect(result._).to.deep.equal([true]);
+			expect(result._).to.deep.equal([false]);
 			expect(result.argv).to.deep.equal({
-				foo: true,
+				foo: false,
 			});
 
 			result = await parse({
@@ -495,6 +495,13 @@ describe('arguments', () => {
 			expect(result.argv).to.deep.equal({
 				foo: false,
 			});
+
+			await expect(
+				parse({
+					argv: ['baz'],
+					schema,
+				})
+			).rejects.toThrow('Invalid boolean: "baz"');
 		});
 
 		it('should parse argument as date', async () => {

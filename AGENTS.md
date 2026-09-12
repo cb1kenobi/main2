@@ -69,6 +69,13 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - **A required option rejects a missing or empty value; an optional one gets
   an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
   (or `0`, per the data type) for `[value]`.
+- **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
+  true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
+  and anything else throws. It does not follow minimist's
+  "anything but `'false'`" rule, which made `--flag=0` true, nor
+  yargs-parser's "only `'true'`", which makes `--flag=1` false. Every other
+  data type already rejects input it cannot parse, and `0`/`1` is the usual
+  convention for boolean environment variables.
 - **Flags default to `false`, or `true` when negated — never `undefined`.**
   Commander leaves an unspecified flag undefined. A declared flag here always
   has a value, so `argv.verbose` is safe to read without a guard.
@@ -76,8 +83,10 @@ These look like bugs and are not. Each is intentional and covered by tests.
   treats a bare name as required. Brackets are the only thing that decides it
   here, which keeps `args` readable at a glance.
 - **String `default`s and environment values are coerced to the declared
-  type.** So `default: 'black'` on a flag is `true`, not `'black'`. Non-string
-  defaults pass through untouched.
+  type.** So `default: 'yes'` on a flag is `true`, not `'yes'`, and a value
+  the type rejects throws — `default: 'black'` on a flag is an error, the
+  same way a default of `'nope'` on an `int` is. Non-string defaults pass
+  through untouched.
 - **The option format string is loose on purpose.** Extra short or long names
   become aliases rather than errors, and a bare word declares `--word`.
   Commander rejects all of those. Genuinely malformed parts — `-ws`,
