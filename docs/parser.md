@@ -54,7 +54,7 @@ The name string carries more than a name:
 | ----------- | --------------------------------------------- |
 | `build`     | Command named `build`                         |
 | `@b`        | Alias — resolves to the command, not its name |
-| `!internal` | Hidden alias, omitted from help               |
+| `!internal` | Hides the command; label omitted from help    |
 | `<arg>`     | Inline required argument                      |
 | `[arg]`     | Inline optional argument                      |
 
@@ -87,14 +87,17 @@ declaring both throws.
 | `args`     | `(string \| Argument)[]` | Positional arguments                                |
 | `commands` | `object \| string`       | Subcommands, or a path to load them from            |
 | `desc`     | `string`                 | Description for help                                |
-| `hidden`   | `boolean`                | Omit from help — **see bug note below**             |
+| `hidden`   | `boolean`                | Omit from help; a `!` name prefix sets it too       |
 | `hooks`    | `{ init, parse }`        | Lifecycle callbacks                                 |
 | `options`  | `object`                 | Options scoped to this command and its children     |
 | `run`      | `(state) => unknown`     | Handler invoked by `main2()` when this command wins |
 
-> [!WARNING]
-> An explicit `hidden: true` is currently overwritten by name parsing, so it
-> only takes effect via the `!` name prefix. Known bug.
+A command is hidden if its name carries a `!` prefix **or** it declares
+`hidden: true`. The two are additive: either one alone is enough, and an
+explicit `hidden: false` does **not** un-hide a `!` prefixed name — marking a
+name internal is the more deliberate act, and staying hidden is the safer
+outcome. Drop the `!` to make the command visible. A command that declares
+neither always reads back `hidden: false`, never `undefined`.
 
 ### Lazy loading
 

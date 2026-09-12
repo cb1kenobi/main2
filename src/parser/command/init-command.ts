@@ -94,7 +94,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	}
 
-	(it as Command).hidden = parsed.hidden;
+	// A `!` prefixed name and an explicit `hidden` are additive: either one
+	// hides the command. An explicit `hidden: false` does not un-hide a `!`
+	// prefixed name; drop the `!` to make the command visible.
+	command.hidden = parsed.hidden || !!command.hidden;
 
 	if (parsed.name !== it.name) {
 		log(`Command name changed "${it.name}" -> "${parsed.name}"`);
