@@ -89,9 +89,10 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `Unknown option` error.
 - **A `!` name prefix and an explicit `hidden` are additive.** Either one
   hides a command; an explicit `hidden: false` does not un-hide a `!` prefixed
-  name — drop the `!` instead. A command that declares neither always reads
-  back `hidden: false`, never `undefined`. Covered by
-  `test/parser/regressions.test.ts`.
+  name — drop the `!` instead. That holds for a lazily loaded command too: the
+  placeholder carries the `!`, the module never sees it. A command that
+  declares neither always reads back `hidden: false`, never `undefined`, and a
+  non-boolean `hidden` throws. Covered by `test/parser/regressions.test.ts`.
 
 ## Known bugs
 

@@ -54,7 +54,7 @@ The name string carries more than a name:
 | ----------- | --------------------------------------------- |
 | `build`     | Command named `build`                         |
 | `@b`        | Alias — resolves to the command, not its name |
-| `!internal` | Hides the command; label omitted from help    |
+| `!internal` | Hidden alias; also hides the command itself   |
 | `<arg>`     | Inline required argument                      |
 | `[arg]`     | Inline optional argument                      |
 
@@ -96,8 +96,14 @@ A command is hidden if its name carries a `!` prefix **or** it declares
 `hidden: true`. The two are additive: either one alone is enough, and an
 explicit `hidden: false` does **not** un-hide a `!` prefixed name — marking a
 name internal is the more deliberate act, and staying hidden is the safer
-outcome. Drop the `!` to make the command visible. A command that declares
-neither always reads back `hidden: false`, never `undefined`.
+outcome. The same holds for a lazily loaded command: a `!` on the placeholder
+wins over a `hidden: false` in the module, which never saw the prefix. Drop the
+`!` to make the command visible. A command that declares neither always reads
+back `hidden: false`, never `undefined`. A non-boolean `hidden` throws.
+
+Note that a `!` prefixed label is still registered as an alias — it is only
+left out of the help label — and it hides the whole command, not just that one
+alias, so `'build, !internal'` hides `build` too.
 
 ### Lazy loading
 

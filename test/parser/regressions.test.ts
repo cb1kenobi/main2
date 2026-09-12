@@ -432,6 +432,32 @@ describe('regressions', () => {
 			expect(contexts[0].hidden).to.equal(true);
 		});
 
+		it('should keep an explicit hidden on the placeholder of a lazy loaded command', async () => {
+			const { contexts } = await parse({
+				argv: ['plain'],
+				schema: {
+					commands: {
+						plain: { hidden: true, path: path.join(__dirname, 'fixtures/hidden/plain.js') },
+					},
+				},
+			});
+			expect(contexts[0].name).to.equal('plain');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should not let a lazy loaded command un-hide a "!" prefixed name', async () => {
+			const { contexts } = await parse({
+				argv: ['visible'],
+				schema: {
+					commands: {
+						'!visible': { path: path.join(__dirname, 'fixtures/hidden/visible.js') },
+					},
+				},
+			});
+			expect(contexts[0].name).to.equal('visible');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
 		it('should still hide a command with a "!" prefixed name', async () => {
 			const { contexts } = await parse({
 				argv: ['foo'],
