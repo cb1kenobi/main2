@@ -87,17 +87,23 @@ These look like bugs and are not. Each is intentional and covered by tests.
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
   not reach `state._`. `settings.allowUnknownOptions: false` restores the
   `Unknown option` error.
+- **The first bare label in a command name is the name; the rest are
+  aliases.** `'build, b'` and `'build b'` declare `build` aliased `b`. A `@` or
+  `!` prefixed label is always an alias and names the command only when there
+  is no bare label, so `'@ls, list'` is named `list` while `'@b'` alone is
+  named `b`. Covered by `test/parser/regressions.test.ts`.
 - **A `!` name prefix and an explicit `hidden` are additive.** Either one
   hides a command; an explicit `hidden: false` does not un-hide a `!` prefixed
   name — drop the `!` instead. That holds for a lazily loaded command too: the
   placeholder carries the `!`, the module never sees it. A command that
   declares neither always reads back `hidden: false`, never `undefined`, and a
-  non-boolean `hidden` throws. Covered by `test/parser/regressions.test.ts`.
+  non-boolean `hidden` throws. `!` on any label hides the whole command, not
+  just that one alias; an alias that should stay out of help without hiding
+  the command belongs in the `alias` property, which never reaches the help
+  label. Covered by `test/parser/regressions.test.ts`.
 
 ## Known bugs
 
-- `'build, b'` as a command name silently renames the command to `b` instead
-  of aliasing it. Only `@`-prefixed labels become aliases.
 - `beforeError` hooks are declared and validated but never fired.
 - `command.default: true` is never dispatched.
 - `parse()` mutates the schema object it is given.
