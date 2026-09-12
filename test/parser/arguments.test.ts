@@ -504,6 +504,27 @@ describe('arguments', () => {
 			).rejects.toThrow('Invalid boolean: "baz"');
 		});
 
+		it('should accept every boolean value on an argument', async () => {
+			const schema = {
+				args: [
+					{
+						name: 'foo',
+						type: 'bool',
+					},
+				],
+			};
+
+			for (const input of ['true', 't', 'yes', 'y', 'on', '1']) {
+				const result = await parse({ argv: [input], schema });
+				expect(result.argv.foo, input).to.equal(true);
+			}
+
+			for (const input of ['false', 'f', 'no', 'n', 'off', '0']) {
+				const result = await parse({ argv: [input], schema });
+				expect(result.argv.foo, input).to.equal(false);
+			}
+		});
+
 		it('should parse argument as date', async () => {
 			const schema = {
 				args: [

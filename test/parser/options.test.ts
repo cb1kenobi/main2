@@ -533,6 +533,20 @@ describe('options', () => {
 			).rejects.toThrow('Invalid boolean: "baz"');
 		});
 
+		it('should accept every boolean value on a valued option', async () => {
+			const schema = { options: { '--foo <bar>': { type: 'bool' } } };
+
+			for (const input of ['true', 't', 'yes', 'y', 'on', '1', 'ON', 'Y']) {
+				const result = await parse({ argv: ['--foo', input], schema });
+				expect(result.argv.foo, input).to.equal(true);
+			}
+
+			for (const input of ['false', 'f', 'no', 'n', 'off', '0', 'OFF', 'N']) {
+				const result = await parse({ argv: ['--foo', input], schema });
+				expect(result.argv.foo, input).to.equal(false);
+			}
+		});
+
 		it('should parse option as date', async () => {
 			const schema = {
 				options: {
@@ -814,11 +828,21 @@ describe('options', () => {
 		it('should let a negated flag invert an explicit boolean value', async () => {
 			const schema = { options: { '--no-cheese': {} } };
 
-			let result = await parse({ argv: ['--no-cheese=no'], schema });
-			expect(result.argv.cheese).to.equal(true);
+			for (const input of ['no', 'false', '0', 'off', '']) {
+				const result = await parse({ argv: [`--no-cheese=${input}`], schema });
+				expect(result.argv.cheese, input).to.equal(true);
+			}
 
-			result = await parse({ argv: ['--no-cheese=yes'], schema });
-			expect(result.argv.cheese).to.equal(false);
+			for (const input of ['yes', 'true', '1', 'on']) {
+				const result = await parse({ argv: [`--no-cheese=${input}`], schema });
+				expect(result.argv.cheese, input).to.equal(false);
+			}
+		});
+
+		it('should reject a negated flag value that is not a boolean', async () => {
+			await expect(
+				parse({ argv: ['--no-cheese=maybe'], schema: { options: { '--no-cheese': {} } } })
+			).rejects.toThrow('Invalid boolean: "maybe"');
 		});
 
 		it('should not lose no/yes when a yesno flag is normalized to bool', async () => {
