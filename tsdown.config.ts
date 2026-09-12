@@ -1,9 +1,6 @@
 import { defineConfig, type UserConfig } from 'tsdown';
 
 const config: UserConfig = defineConfig({
-	deps: {
-		onlyBundle: ['ansi-styles'],
-	},
 	entry: './src/index.ts',
 	format: ['es'],
 	minify: true,
