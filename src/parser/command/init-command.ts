@@ -53,6 +53,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		throw new TypeError(`Invalid run function in "${it.name}" command`);
 	}
 
+	if (command.hidden !== undefined && typeof command.hidden !== 'boolean') {
+		throw new TypeError(`Expected hidden to be a boolean in "${it.name}" command`);
+	}
+
 	const parsed = parseName(it.name);
 
 	for (const alias of parsed.aliases) {
@@ -97,7 +101,7 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 	// A `!` prefixed name and an explicit `hidden` are additive: either one
 	// hides the command. An explicit `hidden: false` does not un-hide a `!`
 	// prefixed name; drop the `!` to make the command visible.
-	command.hidden = parsed.hidden || !!command.hidden;
+	command.hidden = parsed.hidden || command.hidden === true;
 
 	if (parsed.name !== it.name) {
 		log(`Command name changed "${it.name}" -> "${parsed.name}"`);
