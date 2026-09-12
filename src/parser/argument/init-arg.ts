@@ -12,22 +12,30 @@ import { camelCase } from '../../util/camel-case.js';
 const argRequiredRE = /^(?:<([\w-]+)(\.\.\.)?>|\[([\w-]+)(\.\.\.)?\]|([\w-]+?))\s*(\.\.\.)?$/;
 const argTypesRE = /^auto|bool|date|int|json|number|string|yesno$/;
 
+/**
+ * Builds an internal argument from a declaration. The declaration is only ever
+ * read: the normalized name, the `multiple` and `required` flags, the data
+ * type, and the `Internal` state all land on a new object this library owns, so
+ * the same declaration can be initialized again and see exactly what it saw the
+ * first time.
+ *
+ * @param it - The argument declaration, or an already initialized argument.
+ * @returns A new internal argument.
+ */
 export function initArg(it: string | Argument | InternalArgument): InternalArgument {
 	if (it && typeof it === 'object' && Internal in it && it[Internal]?.state === InternalState.OK) {
 		return it;
 	}
 
-	if (typeof it === 'string') {
-		it = {
-			name: it,
-		};
-	}
-
-	if (!it || typeof it !== 'object') {
+	if (typeof it !== 'string' && (!it || typeof it !== 'object')) {
 		throw new TypeError(`Invalid argument definition: ${it}`);
 	}
 
-	let { name } = it;
+	// copy the declaration instead of decorating it so the caller's object is
+	// never written to
+	const arg: Argument = typeof it === 'string' ? { name: it } : { ...it };
+
+	let { name } = arg;
 
 	if (!name || typeof name !== 'string') {
 		if (typeof name === 'number') {
@@ -39,12 +47,12 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 
 	const m = name.match(argRequiredRE);
 	if (!m) {
-		throw new Error(`Invalid argument name: ${JSON.stringify(it.name)}`);
+		throw new Error(`Invalid argument name: ${JSON.stringify(arg.name)}`);
 	}
 
-	const envs = new Set();
-	if (it.env !== undefined) {
-		const env = typeof it.env === 'string' ? [it.env] : it.env;
+	const envs = new Set<string>();
+	if (arg.env !== undefined) {
+		const env = typeof arg.env === 'string' ? [arg.env] : arg.env;
 
 		if (!Array.isArray(env)) {
 			throw new TypeError(
@@ -59,25 +67,26 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 		}
 	}
 
-	if (it.type !== undefined && !argTypesRE.test(it.type)) {
-		throw new Error(`Argument "${it.name}" has unsupported data type "${it.type}"`);
+	if (arg.type !== undefined && !argTypesRE.test(arg.type)) {
+		throw new Error(`Argument "${arg.name}" has unsupported data type "${arg.type}"`);
 	}
 
-	if (it.transform && typeof it.transform !== 'function') {
+	if (arg.transform && typeof arg.transform !== 'function') {
 		throw new TypeError('Expected argument transform function to be a function');
 	}
 
-	it.multiple ||= !!(m[2] || m[4] || m[6]);
-	it.name = (m[1] || m[3] || m[5]).trim();
-	it.required ||= !!m[1];
-	it.type ||= 'string';
+	arg.multiple ||= !!(m[2] || m[4] || m[6]);
+	arg.name = (m[1] || m[3] || m[5]).trim();
+	arg.required ||= !!m[1];
+	arg.type ||= 'string';
 
 	return new Proxy(
-		Object.defineProperty(it, Internal, {
+		Object.defineProperty(arg, Internal, {
 			configurable: true,
 			value: {
-				dest: camelCase(it.name),
+				dest: camelCase(arg.name),
 				envs,
+				state: InternalState.OK,
 			},
 		}),
 		{

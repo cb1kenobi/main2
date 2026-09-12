@@ -448,7 +448,9 @@ describe('regressions', () => {
 			await expect(parse({ schema: { args } })).rejects.toThrow(
 				'Only the last argument can be variadic'
 			);
-			expect(args[1].required).to.equal(false);
+			// promotion runs after the check, and in any case only ever touches
+			// the copies the parser owns
+			expect(args).to.deep.equal([{ name: '[a...]' }, { name: '[b]' }, { name: '<c>' }]);
 		});
 	});
 
@@ -740,9 +742,10 @@ describe('regressions', () => {
 			};
 
 			// `compile` comes from the module, so it cannot resolve a command the
-			// parser has not loaded yet, but it must survive the merge
+			// parser has not loaded yet, but it must survive the merge — and the
+			// second pass reuses the very same schema object
 			for (const name of ['build', 'b']) {
-				const { contexts } = await parse({ argv: [name], schema: structuredClone(schema) });
+				const { contexts } = await parse({ argv: [name], schema });
 				expect(contexts[0].name).to.equal('build');
 				expect([...contexts[0][Internal].aliases].sort()).to.deep.equal(['b', 'compile']);
 			}

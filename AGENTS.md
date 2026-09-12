@@ -106,7 +106,6 @@ These look like bugs and are not. Each is intentional and covered by tests.
 
 - `beforeError` hooks are declared and validated but never fired.
 - `command.default: true` is never dispatched.
-- `parse()` mutates the schema object it is given.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. See the warning in `docs/parser.md`.
@@ -120,6 +119,13 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - ESM only. Imports use `.js` extensions even for `.ts` sources.
 - Internal state hangs off the exported `Internal` symbol, not enumerable
   properties, so schema objects stay clean for consumers.
+- **`init*()` copies, never decorates.** The caller's schema, commands, args,
+  and options are read-only inputs: every normalized value and the `Internal`
+  symbol land on a new object the library owns. So the same schema object
+  parses identically any number of times, a frozen schema parses, and a lazily
+  loaded command module — which the ESM loader shares with every other
+  importer — is merged into a copy rather than written to. Asserted in
+  `test/parser/schema.test.ts`.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.

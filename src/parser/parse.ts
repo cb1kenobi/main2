@@ -35,9 +35,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		throw new TypeError('Expected schema to be an object');
 	}
 
-	if (schema.name === undefined) {
-		schema.name = 'global';
-	} else if (!schema.name || typeof schema.name !== 'string') {
+	if (schema.name !== undefined && (!schema.name || typeof schema.name !== 'string')) {
 		throw new TypeError('Expected schema name to be a non-empty string');
 	}
 
@@ -70,7 +68,9 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		_: [],
 		argv: {},
 		cmd: undefined,
-		contexts: [await initCommand(schema)],
+		// the root context is built from a copy of the schema, never by writing
+		// a default name onto the caller's object
+		contexts: [await initCommand({ ...schema, name: schema.name ?? 'global' })],
 		env,
 		schema,
 		settings: opts.settings || {},
