@@ -265,7 +265,9 @@ export type ErrorRenderer = (err: unknown, ctx: ErrorContext) => string;
 
 /**
  * A complete replacement for the built-in error handler, set via
- * `Settings.errorHandler`. It owns the output and the exit code.
+ * `Settings.errorHandler`. It owns the output and the exit code. A handler
+ * that throws rejects `main2()` -- that is a bug in the handler, and hiding
+ * it would leave nothing at all reporting the original error.
  */
 export type ErrorHandler = (err: unknown, ctx: ErrorContext) => Promise<void> | void;
 

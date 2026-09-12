@@ -407,6 +407,9 @@ stack is exactly what the handler exists to avoid.
 | `false`                 | `main2()` rethrows; nothing is written, no code is set |
 | a function              | Replaces the handler; it owns output and the exit code |
 
+A custom handler that throws rejects `main2()`. That is a bug in the handler,
+and swallowing it would leave nothing at all reporting the original error.
+
 ```js
 await main2({
 	schema,
@@ -437,7 +440,10 @@ The renderer is handed the `ParseState` on `ctx` whenever parsing got far
 enough to produce one, which is where the matched command — and therefore the
 usage line — comes from. A renderer that throws falls back to the default one,
 so a broken renderer cannot swallow the error it was given. `opts.stderr`
-redirects the output, which is mostly there for tests.
+redirects the output, which is mostly there for tests. A `write` that throws
+is swallowed — rendering an error must not raise a second, worse one — but an
+asynchronous `EPIPE` still arrives as an `error` event on the stream, and
+handling that belongs to the terminal wrapper that Phase 3 brings back.
 
 > [!NOTE]
 > The `beforeError` hook is not wired up yet. When it is, it fires inside

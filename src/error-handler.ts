@@ -123,7 +123,16 @@ export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void
 		text = renderError(err);
 	}
 
-	stderr.write(`${text.replace(/[\r\n]+$/, '')}\n`);
+	// a stream that is already gone -- a destroyed socket, a closed pipe --
+	// must not turn rendering an error into a second, worse error. This only
+	// covers a throwing `write`; an asynchronous EPIPE arrives as an `error`
+	// event on the stream, which is the terminal wrapper's job once there is
+	// one again.
+	try {
+		stderr.write(`${text.replace(/[\r\n]+$/, '')}\n`);
+	} catch (writeErr) {
+		log(writeErr);
+	}
 
 	process.exitCode = errorExitCode(err);
 }

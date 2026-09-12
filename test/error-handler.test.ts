@@ -160,6 +160,21 @@ describe('errorHandler', () => {
 		expect(process.exitCode).toBe(1);
 	});
 
+	it('should still set the exit code when the stream cannot be written to', () => {
+		// a closed pipe, a destroyed socket: rendering an error must not raise
+		// a second, worse one
+		const stream = {
+			write() {
+				throw Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+			},
+		} as unknown as NodeJS.WritableStream;
+
+		expect(() =>
+			errorHandler(Object.assign(new Error('the real error'), { exitCode: 5 }), { stderr: stream })
+		).not.toThrow();
+		expect(process.exitCode).toBe(5);
+	});
+
 	it('should coerce a renderer that does not return a string', () => {
 		const out = sink();
 		errorHandler(new Error('nope'), {

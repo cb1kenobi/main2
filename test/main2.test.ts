@@ -218,6 +218,21 @@ describe('main2', () => {
 			expect(calls).toEqual(['handled']);
 		});
 
+		it('should reject when a custom error handler throws', async () => {
+			// swallowing this would leave nothing at all reporting either error
+			await expect(
+				main2({
+					argv: [],
+					schema: { options: { '--name <value>': 'Your name' } },
+					settings: {
+						errorHandler: () => {
+							throw new Error('handler exploded');
+						},
+					},
+				})
+			).rejects.toThrow('handler exploded');
+		});
+
 		it('should hand the handler no state when parsing never produced one', async () => {
 			let ctx: ErrorContext | undefined;
 
