@@ -373,6 +373,44 @@ values — see [Undeclared options](#undeclared-options).
 | `assertCwd`                | `true`  | Fail early if the working directory is gone                   |
 | `helpExitCode`             | —       | Exit code after printing help _(help is not implemented yet)_ |
 
+## Differences from Commander and yargs
+
+Much of this parser's test suite is a port of Commander's and yargs-parser's,
+so the places they disagree are known and deliberate. If you are coming from
+Commander, these are the ones that will bite:
+
+| Behavior                        | Commander                        | Here                                     |
+| ------------------------------- | -------------------------------- | ---------------------------------------- |
+| `<value>` in an option format   | value required when option used  | **option itself** is required            |
+| Unspecified flag                | `undefined`                      | `false` (`true` when negated)            |
+| `--opt` with no value           | `true`                           | `''`, coerced by the data type           |
+| `--opt` when option required    | error                            | error                                    |
+| Bare positional name `foo`      | required                         | optional                                 |
+| Value that looks like an option | error                            | taken, unless it is a declared option    |
+| Negative numbers                | number-shaped check              | just a value nobody declared             |
+| Undeclared option               | error                            | collected onto `argv`                    |
+| `default` vs `env`              | `env` wins                       | `default` wins                           |
+| String `default`                | used as-is                       | coerced to the declared type             |
+| Option format strictness        | one short, one long              | extras become aliases; bare word allowed |
+| Repeatable option               | `<v...>` eats consecutive values | `multiple` collects repeated uses        |
+| `-p=value`                      | value is `=value`                | value is `value`                         |
+| `-0`                            | negative zero                    | undeclared short option `0`              |
+
+Coming from yargs-parser, the difference that matters most is that this parser
+is schema-driven and yargs-parser is not — it infers everything from argv:
+
+| Behavior               | yargs-parser              | Here                              |
+| ---------------------- | ------------------------- | --------------------------------- |
+| Short group `-cats`    | always expanded           | expanded only against a schema    |
+| `--no-moo`             | `moo: false`              | `noMoo: true` unless declared     |
+| `--n1 -33`             | `n1: -33`                 | `n1: true`, `-33` left positional |
+| Destinations           | every spelling and alias  | one camelCase destination         |
+| `state._`              | values are type-guessed   | raw strings                       |
+| `--foo` with a default | falls back to the default | `''`, coerced by the data type    |
+| Repeated `--multi`     | collects into an array    | last wins, unless `multiple`      |
+
+The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
+
 ## Hooks
 
 Schema-level hooks are arrays of functions on `schema.hooks`:

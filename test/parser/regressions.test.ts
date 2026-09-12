@@ -88,6 +88,26 @@ describe('regressions', () => {
 		});
 	});
 
+	describe('variadic arguments and later options', () => {
+		it('should not drop an option that follows a variadic argument value', async () => {
+			const result = await parse({
+				argv: ['one', '--foo', 'two'],
+				schema: { args: ['[rest...]'], options: { '--foo': null } },
+			});
+			expect(result.argv.rest).to.deep.equal(['one', 'two']);
+			expect(result.argv.foo).to.equal(true);
+		});
+
+		it('should not drop an unknown option that follows a variadic argument value', async () => {
+			const result = await parse({
+				argv: ['one', '--bar'],
+				schema: { args: ['[rest...]'] },
+			});
+			expect(result.argv.rest).to.deep.equal(['one']);
+			expect(result.argv.bar).to.equal(true);
+		});
+	});
+
 	describe('option lookup', () => {
 		it('should not resolve a positional value as an option of the same name', async () => {
 			const result = await parse({
