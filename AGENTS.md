@@ -11,15 +11,17 @@ necessary, raise it rather than adding it.
 
 ## Layout
 
-| Path              | Contents                                             |
-| ----------------- | ---------------------------------------------------- |
-| `src/parser/`     | The parser: commands, options, arguments, registries |
-| `src/util/`       | Shared helpers (type coercion, camelCase, mkdir)     |
-| `src/debug/`      | `DEBUG`-driven logger; replaces snooplogg            |
-| `src/paths.ts`    | XDG base directories                                 |
-| `src/updates/`    | npm update check, run in a spawned worker            |
-| `src/terminal.ts` | Terminal wrapper — currently EPIPE handling only     |
-| `docs/parser.md`  | Parser reference: syntax, semantics, precedence      |
+| Path                     | Contents                                             |
+| ------------------------ | ---------------------------------------------------- |
+| `src/parser/`            | The parser: commands, options, arguments, registries |
+| `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
+| `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
+| `src/paths.ts`           | XDG base directories                                 |
+| `src/updates/`           | npm update check, run in a spawned worker            |
+| `src/terminal.ts`        | Terminal wrapper — currently EPIPE handling only     |
+| `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
+| `test/parser/commander/` | Ported Commander test cases                          |
+| `test/parser/yargs/`     | Ported yargs-parser test cases                       |
 
 `src/ansi/`, `src/canvas/`, `src/components/`, and `src/i18n/` are empty
 placeholders. Canvas and components are post-1.0.
@@ -67,6 +69,19 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - **A required option rejects a missing or empty value; an optional one gets
   an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
   (or `0`, per the data type) for `[value]`.
+- **Flags default to `false`, or `true` when negated — never `undefined`.**
+  Commander leaves an unspecified flag undefined. A declared flag here always
+  has a value, so `argv.verbose` is safe to read without a guard.
+- **A bare positional name is optional; `<name>` is required.** Commander
+  treats a bare name as required. Brackets are the only thing that decides it
+  here, which keeps `args` readable at a glance.
+- **String `default`s and environment values are coerced to the declared
+  type.** So `default: 'black'` on a flag is `true`, not `'black'`. Non-string
+  defaults pass through untouched.
+- **The option format string is loose on purpose.** Extra short or long names
+  become aliases rather than errors, and a bare word declares `--word`.
+  Commander rejects all of those. Genuinely malformed parts — `-ws`,
+  `---triple` — still throw.
 - **Undeclared options produce values rather than erroring.** `--foo` is
   `foo: true`, `--foo bar` is `foo: 'bar'`. They resolve after every command
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
@@ -84,6 +99,14 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. See the warning in `docs/parser.md`.
+- An option and its negated twin declared separately (`'--cheese <type>'` plus
+  `'--no-cheese'`) both resolve to the name `cheese`, so the registry keeps
+  only whichever was added last and silently discards the other. Covered by a
+  skipped test in `test/parser/commander/option-formats.test.ts`.
+- A variadic argument that is not last silently swallows every remaining value,
+  leaving the arguments declared after it unreachable. Commander rejects the
+  schema. Covered by a skipped test in
+  `test/parser/commander/arguments.test.ts`.
 
 ## Conventions
 

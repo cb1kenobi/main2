@@ -16,6 +16,7 @@ const optionHintRE = /^(\[(?=.+\]$)|<(?=.+>$))(.+?)[\]>]$/;
 const optionLongLikeRE = /^--(.*)$/;
 export const optionLongRE: RegExp = /^--(\w[\w-]*)$/;
 const optionLongMaybeDashesRE = /^(?:--)?(\w[\w-]*)$/;
+const optionNameRE = /^\w[\w-]*$/;
 const optionNegateRE = /^no-(\w[\w-]*)$/;
 const optionShortRE = /^-\w$/;
 const optionSplitRE = /[ ,|=]+/;
@@ -61,6 +62,11 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 					if (m[1] === '<') {
 						it.required ??= true;
 					}
+				} else if (!optionNameRE.test(p)) {
+					// not a long name, a short name, or a hint, so the only thing
+					// left it can be is a bare name; anything else is malformed
+					// and would otherwise become an untypable option
+					throw new TypeError(`Invalid option format: ${p}`);
 				} else if (!it.name) {
 					it.name = p;
 					long.add(`--${it.negate ? 'no-' : ''}${it.name}`);

@@ -234,8 +234,23 @@ function canBeValue(contexts: InternalCommand[], entry?: ParsedValue): boolean {
 }
 
 /**
- * Applies a default value or environment variable fallback, coercing strings
+ * Reads a resolved value without letting `Object.prototype` answer for it.
+ * A destination such as `toString` — from `--to-string` — would otherwise
+ * always look defined, silently suppressing its default, its environment
+ * fallback, and its required check.
+ *
+ * @param state - The parse state.
+ * @param dest - The destination key in `state.argv`.
+ * @returns The value actually parsed, or `undefined`.
+ */
+function resolved(state: ParseState, dest: string): unknown {
+	return Object.hasOwn(state.argv, dest) ? state.argv[dest] : undefined;
+}
+
+/**
+ * Applies an environment variable or default value fallback, coercing strings
  * to the declared data type exactly as a value parsed from argv would be.
+ * Precedence is argv, then environment, then default.
  *
  * @param state - The parse state.
  * @param dest - The destination key in `state.argv`.
@@ -252,20 +267,23 @@ function applyFallback(
 	type: DataType | string,
 	multiple?: boolean
 ): void {
-	if (state.argv[dest] !== undefined) {
+	if (resolved(state, dest) !== undefined) {
 		return;
 	}
 
-	let value = def;
+	let value;
 
-	if (value === undefined) {
-		for (const env of envs) {
-			if (state.env[env] !== undefined) {
-				value = state.env[env];
-				break;
-			}
+	// the environment beats the default, so that a declared default does not
+	// make the variable unreachable — and so that a flag, which always has an
+	// implicit default, can be set from the environment at all
+	for (const env of envs) {
+		if (state.env[env] !== undefined) {
+			value = state.env[env];
+			break;
 		}
 	}
+
+	value ??= def;
 
 	if (value === undefined) {
 		return;
@@ -525,11 +543,14 @@ export async function processArgs(state: ParseState): Promise<void> {
 				const { multiple, type } = arg;
 				const { dest } = arg[Internal];
 				if (multiple) {
-					for (i++; i < state.$.length; i++) {
-						const parsed: ParsedBase = state.$[i];
-						if (parsed.type === 'Unknown') {
-							inputs.push(...parsed.inputs);
-							state.$.splice(i--, 1);
+					// gobble every remaining positional value, but with its own
+					// index: advancing `i` here would run the outer loop off the
+					// end and silently drop every option that follows
+					for (let k = i + 1; k < state.$.length; k++) {
+						const next: ParsedBase = state.$[k];
+						if (next.type === 'Unknown') {
+							inputs.push(...next.inputs);
+							state.$.splice(k--, 1);
 						}
 					}
 				}
@@ -562,10 +583,10 @@ export async function processArgs(state: ParseState): Promise<void> {
 			const { dest, isFlag } = option[Internal];
 
 			if (isFlag && option.type === 'count') {
-				state.argv[dest] =
-					typeof state.argv[dest] !== 'number' ? 1 : (state.argv[dest] as number) + 1;
+				const count = resolved(state, dest);
+				state.argv[dest] = typeof count !== 'number' ? 1 : count + 1;
 			} else if (option.multiple) {
-				if (Array.isArray(state.argv[dest])) {
+				if (Array.isArray(resolved(state, dest))) {
 					(state.argv[dest] as unknown[]).push(value);
 				} else {
 					state.argv[dest] = [value];
@@ -590,7 +611,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 		applyFallback(state, dest, arg.default, envs, arg.type, arg.multiple);
 
-		if (missingArguments.length || (required && state.argv[dest] === undefined)) {
+		if (missingArguments.length || (required && resolved(state, dest) === undefined)) {
 			missingArguments.unshift(`<${name}>`);
 		}
 	}
@@ -600,7 +621,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 	}
 
 	for (const arg of internal.args) {
-		assertChoices(arg.choices, state.argv[arg[Internal].dest], `argument <${arg.name}>`);
+		assertChoices(arg.choices, resolved(state, arg[Internal].dest), `argument <${arg.name}>`);
 	}
 }
 
@@ -620,13 +641,13 @@ export async function processOptions(state: ParseState): Promise<void> {
 				const existing = state.$.find(
 					(parsed) => parsed.type === 'Option' && parsed.option === opt
 				);
-				if (!existing && state.argv[dest] === undefined) {
+				if (!existing && resolved(state, dest) === undefined) {
 					missingOptions.unshift(label);
 				}
 			}
 
 			// only validate when there is actually a value to validate
-			assertChoices(choices, state.argv[dest], `option ${label}`);
+			assertChoices(choices, resolved(state, dest), `option ${label}`);
 		}
 	}
 

@@ -88,6 +88,26 @@ describe('regressions', () => {
 		});
 	});
 
+	describe('variadic arguments and later options', () => {
+		it('should not drop an option that follows a variadic argument value', async () => {
+			const result = await parse({
+				argv: ['one', '--foo', 'two'],
+				schema: { args: ['[rest...]'], options: { '--foo': null } },
+			});
+			expect(result.argv.rest).to.deep.equal(['one', 'two']);
+			expect(result.argv.foo).to.equal(true);
+		});
+
+		it('should not drop an unknown option that follows a variadic argument value', async () => {
+			const result = await parse({
+				argv: ['one', '--bar'],
+				schema: { args: ['[rest...]'] },
+			});
+			expect(result.argv.rest).to.deep.equal(['one']);
+			expect(result.argv.bar).to.equal(true);
+		});
+	});
+
 	describe('option lookup', () => {
 		it('should not resolve a positional value as an option of the same name', async () => {
 			const result = await parse({
@@ -263,6 +283,39 @@ describe('regressions', () => {
 				schema: { args: [{ name: '[port]', type: 'int', env: 'PORT' }] },
 			});
 			expect(result.argv.port).to.equal(3000);
+		});
+
+		it('should prefer an environment variable over a default', async () => {
+			const result = await parse({
+				env: { N: '42' },
+				schema: { options: { '--num <n>': { type: 'int', env: 'N', default: 8080 } } },
+			});
+			expect(result.argv.num).to.equal(42);
+		});
+
+		it('should prefer an environment variable over an argument default', async () => {
+			const result = await parse({
+				env: { PORT: '3000' },
+				schema: { args: [{ name: '[port]', type: 'int', env: 'PORT', default: 8080 }] },
+			});
+			expect(result.argv.port).to.equal(3000);
+		});
+
+		it('should reach an environment variable through a flag implicit default', async () => {
+			const result = await parse({
+				env: { FORCE: 'true' },
+				schema: { options: { '--force': { env: 'FORCE' } } },
+			});
+			expect(result.argv.force).to.equal(true);
+		});
+
+		it('should prefer an argv value over an environment variable', async () => {
+			const result = await parse({
+				argv: ['--num', '7'],
+				env: { N: '42' },
+				schema: { options: { '--num <n>': { type: 'int', env: 'N', default: 8080 } } },
+			});
+			expect(result.argv.num).to.equal(7);
 		});
 
 		it('should prefer an argv value over a default', async () => {
