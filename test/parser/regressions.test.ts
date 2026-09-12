@@ -452,6 +452,21 @@ describe('regressions', () => {
 		});
 	});
 
+	describe('a lazy load that fails', () => {
+		it('should throw again instead of passing the second time', async () => {
+			const schema = {
+				commands: { sub: { path: path.join(__dirname, 'fixtures/variadic/bad-hook.js') } },
+			};
+
+			// a command is only fully initialized once its init hooks have run, so
+			// a hook that throws leaves the placeholder unloaded and has to run
+			// again the next time the command is matched
+			for (let i = 0; i < 2; i++) {
+				await expect(parse({ argv: ['sub'], schema })).rejects.toThrow('init hook blew up');
+			}
+		});
+	});
+
 	describe('default data type', () => {
 		it('should leave an untyped option value as a string', async () => {
 			const result = await parse({

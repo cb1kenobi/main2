@@ -199,7 +199,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 				label: parsed.label,
 				options,
 				path: entryFile,
-				state: InternalState.OK,
+				// the command is not fully initialized until its init hooks have
+				// run, so a hook that throws leaves it dirty and it is rebuilt the
+				// next time it is initialized rather than silently accepted
+				state: InternalState.Dirty,
 			},
 		}),
 		{
@@ -244,6 +247,8 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			await hook({ cmd, ...cmd[Internal] });
 		}
 	}
+
+	cmd[Internal].state = InternalState.OK;
 
 	return cmd;
 }
