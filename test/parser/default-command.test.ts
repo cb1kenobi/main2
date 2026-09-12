@@ -289,6 +289,26 @@ describe('default command', () => {
 			expect(state.cmd?.name).toBe('one');
 		});
 
+		it('should not enforce the arguments of a command that cascaded to its default', async () => {
+			// only the innermost command's arguments are checked, which is the same
+			// rule a typed chain follows: `build all` never checks `build`'s
+			const state = await parse({
+				argv: [],
+				schema: {
+					commands: {
+						build: {
+							args: ['<entry>'],
+							commands: { all: { default: true } },
+							default: true,
+						},
+					},
+				},
+			});
+
+			expect(state.cmd?.name).toBe('all');
+			expect(state.argv).not.toHaveProperty('entry');
+		});
+
 		it('should cascade from one default command to the next', async () => {
 			const state = await parse({
 				argv: [],
@@ -358,6 +378,20 @@ describe('default command', () => {
 			expect(state.cmd?.name).toBe('all');
 		});
 
+		it('should ignore a default declared inside a module that is only a path', async () => {
+			// nothing loads a command module to find out whether it wants to be the
+			// default -- that would load every module a lazy schema was built to
+			// avoid loading
+			const state = await parse({
+				argv: [],
+				schema: {
+					commands: { solo: path.join(__dirname, 'fixtures/lazy-default/solo.js') },
+				},
+			});
+
+			expect(state.cmd).toBeUndefined();
+		});
+
 		it('should error if default is not a boolean', async () => {
 			await expect(
 				parse({
@@ -397,6 +431,31 @@ describe('default command', () => {
 				'build:Missing required arguments: <entry>',
 				'global:Missing required arguments: <entry>',
 			]);
+		});
+
+		it('should fire the default command hooks when its module will not load', async () => {
+			// the default joins the chain before its module is loaded, so a module
+			// that will not load is still an error the command's own hooks see
+			const fired: string[] = [];
+
+			const err = await parse({
+				argv: [],
+				schema: {
+					commands: {
+						gone: {
+							default: true,
+							hooks: { beforeError: [() => void fired.push('gone')] },
+							path: path.join(__dirname, 'fixtures/nope.js'),
+						},
+					},
+				},
+			}).catch((e: unknown) => e);
+
+			expect((err as Error).message).toMatch(/^Command module not found:/);
+			expect(fired).toStrictEqual(['gone']);
+
+			const state = (err as { [ErrorState]?: ParseState })[ErrorState];
+			expect(state?.cmd?.name).toBe('gone');
 		});
 
 		it('should render an error thrown by the default command run()', async () => {

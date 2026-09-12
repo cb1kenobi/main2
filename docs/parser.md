@@ -142,6 +142,11 @@ declare one cascades:
 | `build > all` default                  | —           | `build all`   |
 | `build` default, `build > all` default | `build all` | `build all`   |
 
+Only the innermost command's arguments and the chain's options are checked, the
+same as for a chain that was typed out — `mycli build all` never checks
+`build`'s arguments either — so a default that cascades into a default of its
+own does not enforce its parent's.
+
 Two sibling commands both marked `default` throw while the schema is built —
 `Only one default command is allowed: "build" and "test" are both default` —
 rather than one of them quietly winning, since which one won would come down to
