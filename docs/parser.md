@@ -497,11 +497,20 @@ delete cmd.args; // throws
 ```
 
 Everything else about a command is a plain property. An option or an argument
-the registry hands back is a plain object too, and nothing is derived from it
-after init, so editing one in place is simply editing what the parser reads.
-Changing an option's `name` or `format` is the exception, since those were read
-once to build the registry's lookups — declare another option and `add()` it
-instead.
+the registry hands back is a plain object too, so editing one in place is a
+supported way to reconfigure it — but only for the properties a parse reads
+each time it runs:
+
+| Property                                                                                    | Editing it in place |
+| ------------------------------------------------------------------------------------------- | ------------------- |
+| `choices`, `default`, `desc`, `hidden`, `hint`, `multiple`, `required`, `transform`, `type` | Live                |
+| `alias`, `env`, `format`, `name`, `negate`                                                  | Read once, at init  |
+
+The second row is everything the format string and the registry lookups were
+built from: the names an option answers to, its camelCase destination, and the
+environment variables it falls back to all live on `Internal` by the time
+`init*()` returns. Changing one of those changes nothing about the parse, so
+declare another option or argument and `add()` or `push()` it instead.
 
 ## Parse state
 

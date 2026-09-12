@@ -99,9 +99,10 @@ export interface InternalCommandBase extends InternalBase {
 	commands: CommandRegistry;
 	label: string;
 	/**
-	 * Whether `loadCommand()` has pulled in the module behind a lazily loaded
-	 * command. Always set: a command with no module to load, and a placeholder
-	 * whose load has not run or has failed, all read back `false`.
+	 * Whether `loadCommand()` has finished with this command. Always set: it
+	 * starts `false` and flips once there is nothing left to fetch — either the
+	 * module came in, or the command never had one. A load that throws leaves it
+	 * `false` so the next match tries again.
 	 */
 	loaded: boolean;
 	options: OptionRegistry;

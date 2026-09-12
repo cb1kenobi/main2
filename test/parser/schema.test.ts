@@ -538,6 +538,61 @@ describe('schema', () => {
 			expect(build?.[Internal].loaded).to.equal(true);
 		});
 
+		it('should refuse a container write from a parse hook too', async () => {
+			// a `parse` hook runs long after init, so the command it is handed is
+			// just as fixed as the one an `init` hook sees
+			const schema = {
+				commands: {
+					build: {
+						options: { '--target [name]': null },
+						hooks: {
+							parse: [
+								({ cmd }: CommandHookData) => {
+									cmd.options = {};
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: ['build'], schema })).rejects.toThrow(
+				/Cannot set "options" on the initialized "build" command/
+			);
+		});
+
+		it('should not read an option property back off the declaration', async () => {
+			// `env`, `format`, and the names are read once to build the registry
+			// lookups, so a hook editing one is documented as inert rather than
+			// half working
+			const schema = {
+				commands: {
+					build: {
+						options: { '--target [name]': { env: 'TARGET' } },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									const target = options.get('target')!;
+									target.env = 'OTHER';
+									target.name = 'renamed';
+								},
+							],
+						},
+					},
+				},
+			};
+
+			const { argv, contexts } = await parse({
+				argv: ['build'],
+				env: { TARGET: 'esm' },
+				schema,
+			});
+
+			// the destination and the env fallback are both the ones init built
+			expect(argv.target).to.equal('esm');
+			expect(contexts[0][Internal].options.find('--target')).to.not.equal(undefined);
+		});
+
 		it('should let an init hook edit an option in place', async () => {
 			// options and arguments are plain objects, so nothing is derived from
 			// them after init and a write to one is simply what the parser reads

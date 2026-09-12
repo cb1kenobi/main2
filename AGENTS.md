@@ -111,7 +111,10 @@ These look like bugs and are not. Each is intentional and covered by tests.
   registries it is handed — `options.add()`, `args.push(initArg(...))`,
   `commands.add(await initCommand(...))` — which take effect immediately. The
   Proxy `set` traps that used to stand in for this could never have worked:
-  building a command or an option is async and a `set` trap is not. Covered by
+  building a command or an option is async and a `set` trap is not. An option
+  or argument the registry hands back is editable in place, but only for the
+  properties a parse reads each time — `alias`, `env`, `format`, `name`, and
+  `negate` were read once to build the lookups. Covered by
   `test/parser/schema.test.ts`.
 
 ## Known bugs
