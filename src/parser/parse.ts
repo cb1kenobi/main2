@@ -1,7 +1,7 @@
 import debug from '../debug/index.js';
+import { attachState, fireBeforeError } from '../error-hooks.js';
 import {
 	DataType,
-	ErrorState,
 	Internal,
 	InternalCommand,
 	InternalOption,
@@ -11,6 +11,7 @@ import {
 	ParsedValue,
 	ParseOptions,
 	ParseState,
+	Schema,
 } from '../types.js';
 import { camelCase } from '../util/camel-case.js';
 import { transformValue } from '../util/transform.js';
@@ -25,93 +26,91 @@ const optionNoSpaceRE = /^([^'"]*)(['"])(.*)\2$/;
 const negatedRE = /^--no-/;
 const unknownOptionRE = /^(?:--(\w[\w-]*)|-(\w))$/;
 
+/**
+ * Parses argv against a schema.
+ *
+ * Every throw site -- an invalid schema, a command module that will not load,
+ * a missing required option, a bad data type, a hook or transform of the
+ * caller's own -- leaves through the one catch below, which is where the
+ * `beforeError` hooks fire and where the in-flight state is pinned to the
+ * error. So a caller using `parse()` without `main2()` gets the same error
+ * path.
+ *
+ * @param opts - The parse options.
+ * @returns The resolved parse state.
+ */
 export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
-	if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
-		throw new TypeError('Expected parse options to be an object');
-	}
-
-	const { argv, env = {}, schema = {} } = opts;
-
-	if (!schema || typeof schema !== 'object') {
-		throw new TypeError('Expected schema to be an object');
-	}
-
-	if (schema.name === undefined) {
-		schema.name = 'global';
-	} else if (!schema.name || typeof schema.name !== 'string') {
-		throw new TypeError('Expected schema name to be a non-empty string');
-	}
-
-	if (schema.hooks && typeof schema.hooks !== 'object') {
-		throw new TypeError('Expected hooks to be an object of hook names and callbacks');
-	}
-	const hooks = {
-		beforeParse: [],
-		afterParse: [],
-		beforeError: [],
-		...schema.hooks,
-	};
-	for (const [name, hookList] of Object.entries(hooks)) {
-		if (!Array.isArray(hookList) || hookList.some((h) => typeof h !== 'function')) {
-			throw new TypeError(`Expected "${name}" hook to be an array of functions`);
-		}
-	}
-
-	if (argv !== undefined && !Array.isArray(argv)) {
-		throw new TypeError('Expected argv to be an array');
-	}
-
-	if (!env || typeof env !== 'object') {
-		throw new TypeError('Expected environment option to be an object');
-	}
-
-	const state: ParseState = {
-		$: [],
-		$orig: argv || [],
-		_: [],
-		argv: {},
-		cmd: undefined,
-		contexts: [await initCommand(schema)],
-		env,
-		schema,
-		settings: opts.settings || {},
-	};
+	let schema: Schema | undefined;
+	let state: ParseState | undefined;
 
 	try {
+		if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
+			throw new TypeError('Expected parse options to be an object');
+		}
+
+		// the schema comes first because it is where the `beforeError` hooks
+		// live: reading anything else off the options ahead of it would leave a
+		// getter of the caller's own able to throw past its own hooks. Only an
+		// absent schema gets the empty default; `null` is an error
+		schema = opts.schema === undefined ? {} : opts.schema;
+
+		const { argv, env = {} } = opts;
+
+		if (!schema || typeof schema !== 'object') {
+			throw new TypeError('Expected schema to be an object');
+		}
+
+		if (schema.name === undefined) {
+			schema.name = 'global';
+		} else if (!schema.name || typeof schema.name !== 'string') {
+			throw new TypeError('Expected schema name to be a non-empty string');
+		}
+
+		if (schema.hooks && typeof schema.hooks !== 'object') {
+			throw new TypeError('Expected hooks to be an object of hook names and callbacks');
+		}
+		const hooks = {
+			beforeParse: [],
+			afterParse: [],
+			beforeError: [],
+			...schema.hooks,
+		};
+		for (const [name, hookList] of Object.entries(hooks)) {
+			if (!Array.isArray(hookList) || hookList.some((h) => typeof h !== 'function')) {
+				throw new TypeError(`Expected "${name}" hook to be an array of functions`);
+			}
+		}
+
+		if (argv !== undefined && !Array.isArray(argv)) {
+			throw new TypeError('Expected argv to be an array');
+		}
+
+		if (!env || typeof env !== 'object') {
+			throw new TypeError('Expected environment option to be an object');
+		}
+
+		state = {
+			$: [],
+			$orig: argv || [],
+			_: [],
+			argv: {},
+			cmd: undefined,
+			contexts: [await initCommand(schema)],
+			env,
+			schema,
+			settings: opts.settings || {},
+		};
+
 		await initArgv(state);
 		await parseArgv(state);
 		await processArgs(state);
 		await processOptions(state);
+
+		return state;
 	} catch (err) {
 		attachState(err, state);
-		throw err;
-	}
-
-	return state;
-}
-
-/**
- * Stashes the in-flight parse state on an error on its way out, so the error
- * path can still reach the matched command -- and with it the usage line worth
- * printing. Invisible to anything inspecting the error; see `ErrorState`.
- *
- * @param err - The thrown value.
- * @param state - The state that was in flight.
- */
-function attachState(err: unknown, state: ParseState): void {
-	if (err === null || (typeof err !== 'object' && typeof err !== 'function')) {
-		return;
-	}
-
-	try {
-		Object.defineProperty(err, ErrorState, {
-			configurable: true,
-			enumerable: false,
-			value: state,
-			writable: true,
-		});
-	} catch {
-		// a frozen error keeps its own counsel
+		// a hook may replace the error, never swallow it, so this always throws
+		throw await fireBeforeError(err, state, schema);
 	}
 }
 
@@ -405,14 +404,25 @@ async function parseArgv(state: ParseState): Promise<void> {
 			const cmd = contexts[0][Internal].commands.find(subject);
 			if (cmd) {
 				log(`Found command "${cmd.name}"`);
+
+				// the command has matched, so it joins the chain before the module
+				// behind it is loaded -- a module that will not load is an error
+				// this command's own `beforeError` hooks should still see
+				contexts.unshift(cmd);
+				state.cmd = cmd;
+
 				const loaded = await loadCommand(cmd);
+				if (loaded !== cmd) {
+					// loading merged the module's exports into a new command object
+					contexts[0] = loaded;
+					state.cmd = loaded;
+				}
+
 				$[j] = {
 					cmd: loaded,
 					inputs: arg.inputs,
 					type: 'Command',
 				};
-				contexts.unshift(loaded);
-				state.cmd = loaded;
 
 				if (loaded.hooks?.parse) {
 					for (const hook of loaded.hooks.parse) {

@@ -1,5 +1,6 @@
 import debug from './debug/index.js';
 import type { ErrorContext, ErrorHandlerOptions } from './types.js';
+import { safeLog as safeLogTo } from './util/safe-log.js';
 
 export type { ErrorContext, ErrorHandler, ErrorHandlerOptions, ErrorRenderer } from './types.js';
 
@@ -16,18 +17,12 @@ const defaultExitCode = 1;
 const fallbackMessage = 'Unknown error';
 
 /**
- * `log()` runs its argument through `util.inspect` whether or not `DEBUG` is
- * enabled, so a throwing getter or a hostile `inspect.custom` hook could throw
- * from inside the error path. Nothing here is worth failing over.
+ * Logs a value without letting the logger throw from inside the error path.
  *
  * @param value - The value to log.
  */
 function safeLog(value: unknown): void {
-	try {
-		log(value);
-	} catch {
-		// a value that cannot even be inspected has nothing to tell us
-	}
+	safeLogTo(log, value);
 }
 
 /**

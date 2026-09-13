@@ -79,6 +79,7 @@ export interface Command {
 	help?: string | Callback;
 	hidden?: boolean;
 	hooks?: {
+		beforeError?: BeforeErrorHook[];
 		init?: CommandHook[];
 		parse?: CommandHook[];
 	};
@@ -235,13 +236,38 @@ export interface Schema {
 	hooks?: {
 		beforeParse?: SchemaHook[];
 		afterParse?: SchemaHook[];
+		/**
+		 * Fires on the way out of any error. Commands in the context chain
+		 * declare their own, and those run first; see `BeforeErrorHook`.
+		 */
 		beforeError?: BeforeErrorHook[];
 	};
 	name?: string;
 	options?: Record<string, string | Option | undefined | null>;
 }
 
-export type BeforeErrorHook = (error: Error, state: ParseState) => Promise<void>;
+/**
+ * Fires for every error on its way out of `parse()` or `main2()`, before the
+ * error is rendered, handed to a custom handler, or rethrown.
+ *
+ * A hook may observe the error, mutate it, or return a replacement -- it may
+ * never suppress it. Returning `undefined`, which is what a hook that only
+ * looks returns, keeps the error as it is; returning anything else makes that
+ * value the error from there on. A hook that throws is logged under
+ * `DEBUG=main2:error` and skipped, leaving the error it was given in flight.
+ *
+ * Neither argument can be narrower than this: anything at all can be thrown,
+ * and an error raised before there was a parse state -- an invalid schema, an
+ * option format that will not parse -- arrives without one.
+ *
+ * @param err - The thrown value.
+ * @param state - The parse state, when parsing got far enough to produce one.
+ * @returns A replacement error, or `undefined` to keep the current one.
+ */
+export type BeforeErrorHook = (
+	err: unknown,
+	state: ParseState | undefined
+) => unknown | Promise<unknown>;
 
 export type SchemaHook =
 	| (() => Promise<void> | void)
