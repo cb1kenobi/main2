@@ -249,6 +249,17 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	}
 
+	// `help` hooks are fired by the help module rather than from here, and for the
+	// same reason as `beforeError`: a list that is not a list of functions is
+	// worth rejecting now, because the alternative is finding out when somebody
+	// asks for help and gets an error instead
+	if (decl.hooks?.help !== undefined) {
+		const help = decl.hooks.help;
+		if (!Array.isArray(help) || help.some((h) => typeof h !== 'function')) {
+			throw new TypeError('Expected command help hooks to be an array of functions');
+		}
+	}
+
 	if (decl.hooks?.init !== undefined) {
 		if (!Array.isArray(decl.hooks.init)) {
 			throw new TypeError('Expected command init hooks to be an array');

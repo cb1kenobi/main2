@@ -203,6 +203,21 @@ false` rethrows instead; a function replaces the handler.
   it, and answering with its screen would hide every other command there is. The
   chain is trimmed to the commands argv actually named -- one `ParsedCommand`
   each, none for a default.
+- **An option's `group` makes a section; a `help` hook contributes one.** Both
+  are the same idea -- a titled list of options -- and they differ in what they
+  are for. A group is the command's own options, split up, and still shadows
+  what it inherits. A contributed section is shown and not parsed, which is the
+  whole reason it exists: a `build` command has to describe every platform's
+  options while only the platform that was named may parse. Options that should
+  do both are added to the registry by a `parse` hook, which already works.
+  Sections come after the command's own groups and before the inherited options,
+  in the order they were added, and only the described command's hooks fire --
+  an ancestor's sections would appear under a command that has nothing to do
+  with them. See `test/help/sections.test.ts`.
+- **`HelpHookData` does not spread `InternalCommandBase`**, unlike every other
+  command hook's data, because that carries a `state` of its own -- the
+  command's `InternalState` -- and what a help hook wants under that name is the
+  parse state. The registries worth having are named instead.
 - **Help sorts commands and does not sort options.** Options are registered in
   the order the schema wrote them. Commands are registered as their
   initialization resolves, and one with subcommands of its own resolves after
