@@ -96,21 +96,41 @@ describe('commander: option formats', () => {
 				expect(result.argv.both).to.equal('v');
 			}
 		);
+	});
 
-		it('should accept a variadic-looking hint without making the option variadic', async () => {
+	describe('variadic hints', () => {
+		it('should reject a variadic hint', async () => {
 			// Commander reads `<files...>` as a variadic option that consumes
-			// consecutive values; here it is just a hint, and repetition with
-			// `multiple` is how a list is collected
+			// consecutive values; an option here never does, so the hint is
+			// refused rather than silently kept as decoration
+			await expect(
+				parse({
+					argv: ['-v', 'a', '-v', 'b'],
+					schema: { options: { '-v, --variadic <files...>': { multiple: true } } },
+				})
+			).rejects.toThrow(
+				new TypeError(
+					'Option "variadic" hint cannot be variadic; use `multiple: true` to collect repeated uses into an array'
+				)
+			);
+		});
+
+		it('should collect a list by repetition instead', async () => {
 			const result = await parse({
 				argv: ['-v', 'a', '-v', 'b'],
-				schema: { options: { '-v, --variadic <files...>': { multiple: true } } },
+				schema: { options: { '-v, --variadic <files>': { multiple: true } } },
 			});
 			expect(result.argv.variadic).to.deep.equal(['a', 'b']);
 		});
 	});
 
 	describe('an option and its negation declared separately', () => {
-		it('should work when the valued option is declared last', async () => {
+		// Commander supports this pair through its DualOptions helper: the two
+		// declarations share a destination, the valued one sets it and the negated
+		// flag turns it off. Here they are two registry entries keyed apart, so
+		// declaration order does not matter — Commander's does matter for the
+		// default, see the dual options tests in ../options.test.ts.
+		it('should keep both when the valued option is declared last', async () => {
 			const result = await parse({
 				argv: ['--cheese', 'blue'],
 				schema: { options: { '--no-cheese': {}, '--cheese <type>': {} } },
@@ -118,11 +138,7 @@ describe('commander: option formats', () => {
 			expect(result.argv.cheese).to.equal('blue');
 		});
 
-		// KNOWN BUG: both declarations resolve to the name `cheese`, so the
-		// option registry keeps only whichever was added last and the other is
-		// silently discarded. Declaring `--cheese <type>` first loses it
-		// entirely, taking its requiredness with it. Unskip when fixed.
-		it.skip('should keep both when the valued option is declared first', async () => {
+		it('should keep both when the valued option is declared first', async () => {
 			const result = await parse({
 				argv: ['--cheese', 'blue'],
 				schema: { options: { '--cheese <type>': {}, '--no-cheese': {} } },
@@ -130,13 +146,12 @@ describe('commander: option formats', () => {
 			expect(result.argv.cheese).to.equal('blue');
 		});
 
-		it('should currently discard the earlier declaration', async () => {
-			await expect(
-				parse({
-					argv: ['--cheese', 'blue'],
-					schema: { options: { '--cheese <type>': {}, '--no-cheese': {} } },
-				})
-			).rejects.toThrow('Unexpected argument "blue"');
+		it.each([
+			['the valued option first', { '--cheese <type>': {}, '--no-cheese': {} }],
+			['the negated flag first', { '--no-cheese': {}, '--cheese <type>': {} }],
+		])('should turn the destination off with %s', async (_label, options) => {
+			const result = await parse({ argv: ['--no-cheese'], schema: { options } });
+			expect(result.argv.cheese).to.equal(false);
 		});
 	});
 });

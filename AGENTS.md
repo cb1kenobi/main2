@@ -67,9 +67,22 @@ These look like bugs and are not. Each is intentional and covered by tests.
   takes `--undeclared` as the value. Commander errors on any dash-leading
   value, but values legitimately start with a dash and a schema only knows its
   own options. See `test/parser/option-values.test.ts` and `docs/parser.md`.
+- **An option takes one value per use; only arguments are variadic.**
+  `multiple` collects repeated uses (`--tag a --tag b`) into an array. An
+  option never eats consecutive values, so `--tag a b` leaves `b` positional;
+  `<files...>` on an _argument_ is how a list of loose values is collected. A
+  `...` hint on an option is therefore rejected by `initOption` rather than
+  accepted as decoration. Both Commander and yargs diverge here.
 - **A required option rejects a missing or empty value; an optional one gets
   an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
   (or `0`, per the data type) for `[value]`.
+- **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
+  true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
+  and anything else throws. It does not follow minimist's
+  "anything but `'false'`" rule, which made `--flag=0` true, nor
+  yargs-parser's "only `'true'`", which makes `--flag=1` false. Every other
+  data type already rejects input it cannot parse, and `0`/`1` is the usual
+  convention for boolean environment variables.
 - **Flags default to `false`, or `true` when negated — never `undefined`.**
   Commander leaves an unspecified flag undefined. A declared flag here always
   has a value, so `argv.verbose` is safe to read without a guard.
@@ -77,12 +90,21 @@ These look like bugs and are not. Each is intentional and covered by tests.
   treats a bare name as required. Brackets are the only thing that decides it
   here, which keeps `args` readable at a glance.
 - **String `default`s and environment values are coerced to the declared
-  type.** So `default: 'black'` on a flag is `true`, not `'black'`. Non-string
-  defaults pass through untouched.
+  type.** So `default: 'yes'` on a flag is `true`, not `'yes'`, and a value
+  the type rejects throws — `default: 'black'` on a flag is an error, the
+  same way a default of `'nope'` on an `int` is. Non-string defaults pass
+  through untouched.
 - **The option format string is loose on purpose.** Extra short or long names
   become aliases rather than errors, and a bare word declares `--word`.
   Commander rejects all of those. Genuinely malformed parts — `-ws`,
   `---triple` — still throw.
+- **An option and its negated twin share a destination, and the valued one
+  owns it.** `'--cheese <type>'` plus `'--no-cheese'` is one destination set
+  by two options, as in Commander. Unlike Commander it is order-independent,
+  which costs the negated flag its implied `true`: the valued twin decides the
+  default, so the pair is `undefined` until something sets it rather than
+  silently `true`. A `default` declared on the flag is still honored, and
+  `negate: false` opts out of the pairing. See `test/parser/options.test.ts`.
 - **`main2()` handles errors instead of rejecting.** A thrown value from
   `parse()` or from the command's `run()` is rendered by `errorHandler()` —
   the message, never a stack — `process.exitCode` is set, and `main2()`
@@ -103,21 +125,28 @@ false` rethrows instead; a function replaces the handler.
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
   not reach `state._`. `settings.allowUnknownOptions: false` restores the
   `Unknown option` error.
+- **The first bare label in a command name is the name; the rest are
+  aliases.** `'build, b'` and `'build b'` declare `build` aliased `b`. A `@` or
+  `!` prefixed label is always an alias and names the command only when there
+  is no bare label, so `'@ls, list'` is named `list` while `'@b'` alone is
+  named `b`. Covered by `test/parser/regressions.test.ts`.
+- **A `!` name prefix and an explicit `hidden` are additive.** Either one
+  hides a command; an explicit `hidden: false` does not un-hide a `!` prefixed
+  name — drop the `!` instead. That holds for a lazily loaded command too: the
+  placeholder carries the `!`, the module never sees it. A command that
+  declares neither always reads back `hidden: false`, never `undefined`, and a
+  non-boolean `hidden` throws. `!` on any label hides the whole command, not
+  just that one alias; an alias that should stay out of help without hiding
+  the command belongs in the `alias` property, which never reaches the help
+  label. Covered by `test/parser/regressions.test.ts`.
 
 ## Known bugs
 
-- `'build, b'` as a command name silently renames the command to `b` instead
-  of aliasing it. Only `@`-prefixed labels become aliases.
-- An explicit `hidden: true` on a command is overwritten by name parsing.
 - `command.default: true` is never dispatched.
 - `parse()` mutates the schema object it is given.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. See the warning in `docs/parser.md`.
-- An option and its negated twin declared separately (`'--cheese <type>'` plus
-  `'--no-cheese'`) both resolve to the name `cheese`, so the registry keeps
-  only whichever was added last and silently discards the other. Covered by a
-  skipped test in `test/parser/commander/option-formats.test.ts`.
 - A variadic argument that is not last silently swallows every remaining value,
   leaving the arguments declared after it unreachable. Commander rejects the
   schema. Covered by a skipped test in

@@ -1,5 +1,7 @@
 import type { DataType } from '../types.js';
 
+const boolFalseRE = /^(false|f|no|n|off|0)$/i;
+const boolTrueRE = /^(true|t|yes|y|on|1)$/i;
 const dateRE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?Z?)?$/i;
 const dateIntRE = /^\d{13}$/;
 const dateInvalid = /^Invalid Date$/i;
@@ -13,7 +15,17 @@ export function transformValue(
 	type: DataType | string
 ): Date | number | boolean | string | unknown {
 	if (type === 'bool') {
-		return !!value && value !== 'false';
+		// an omitted value is false, the same way `--num` with no value is 0
+		if (!value) {
+			return false;
+		}
+		if (boolTrueRE.test(value)) {
+			return true;
+		}
+		if (boolFalseRE.test(value)) {
+			return false;
+		}
+		throw new Error(`Invalid boolean: "${value}"`);
 	}
 
 	if (type === 'date') {
