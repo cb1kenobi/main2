@@ -1,8 +1,8 @@
 import debug from '../debug/index.js';
 import { attachState, fireBeforeError } from '../error-hooks.js';
 import {
-	DataType,
 	Internal,
+	InternalArgument,
 	InternalCommand,
 	InternalOption,
 	ParsedBase,
@@ -308,6 +308,47 @@ function resolved(state: ParseState, dest: string): unknown {
 }
 
 /**
+ * Which declaration put the current value on each destination.
+ *
+ * A destination can have more than one writer: a valued option and its negated
+ * twin share one, and an option and a positional argument of the same name do
+ * too. Every one of them has its own `choices`, so the only value any of them can
+ * validate is the value it produced -- `--cheese brie --no-cheese` ends with the
+ * twin's `false` on the destination, and checking that against `--cheese`'s
+ * choices rejected a command line that is perfectly legal.
+ *
+ * Kept beside the state rather than on it: this is bookkeeping for one parse, and
+ * `ParseState` is what callers read.
+ */
+const producers = new WeakMap<ParseState, Map<string, InternalOption | InternalArgument>>();
+
+/**
+ * Records that a declaration wrote a destination.
+ *
+ * @param state - The parse state.
+ * @param dest - The destination that was written.
+ * @param by - The option or argument that wrote it.
+ */
+function produced(state: ParseState, dest: string, by: InternalOption | InternalArgument): void {
+	let map = producers.get(state);
+	if (!map) {
+		producers.set(state, (map = new Map()));
+	}
+	map.set(dest, by);
+}
+
+/**
+ * Whether a declaration is the one that produced what is on its destination now.
+ *
+ * @param state - The parse state.
+ * @param it - The option or argument asking.
+ * @returns `true` when the value is this declaration's to validate.
+ */
+function isProducer(state: ParseState, it: InternalOption | InternalArgument): boolean {
+	return producers.get(state)?.get(it[Internal].dest) === it;
+}
+
+/**
  * Reads the first environment variable of a list that is set.
  *
  * @param state - The parse state.
@@ -331,20 +372,22 @@ function envValue(state: ParseState, envs: Set<string>): string | undefined {
  * make the variable unreachable — and so that a flag, which always has an
  * implicit default, can be set from the environment at all.
  *
+ * The declaration is passed rather than its parts because filling a destination
+ * makes this declaration the one that produced what is on it, and so the one whose
+ * `choices` the value answers to.
+ *
  * @param state - The parse state.
- * @param dest - The destination key in `state.argv`.
+ * @param it - The option or argument being filled.
  * @param value - The fallback value, if there is one.
- * @param type - The declared data type.
- * @param multiple - When set, scalar fallbacks are wrapped in an array. Ignored
- * for a counter, which is a number however it was declared.
  */
 function applyFallback(
 	state: ParseState,
-	dest: string,
-	value: unknown,
-	type: DataType | string,
-	multiple?: boolean
+	it: InternalOption | InternalArgument,
+	value: unknown
 ): void {
+	const { dest } = it[Internal];
+	const { multiple, type } = it;
+
 	if (value === undefined || resolved(state, dest) !== undefined) {
 		return;
 	}
@@ -364,6 +407,7 @@ function applyFallback(
 	// refuses the pair outright, and this is the invariant rather than the guard:
 	// `multiple` stays editable after init, so a hook could otherwise put it back
 	state.argv[dest] = multiple && type !== 'count' && !Array.isArray(value) ? [value] : value;
+	produced(state, dest, it);
 }
 
 /**
@@ -715,6 +759,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 				}
 
 				state.argv[dest] = multiple || !Array.isArray(inputs) ? inputs : inputs[0];
+				produced(state, dest, arg);
 			}
 
 			state._.push(...inputs);
@@ -745,8 +790,11 @@ export async function processArgs(state: ParseState): Promise<void> {
 			} else {
 				state.argv[dest] = value;
 			}
+
+			produced(state, dest, option);
 		} else if (parsedType === 'UnknownOption') {
 			const { dest, value } = parsed as ParsedUnknownOption;
+
 			state.argv[dest] = value;
 		}
 	}
@@ -760,7 +808,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 		const { dest, envs } = arg[Internal];
 
-		applyFallback(state, dest, envValue(state, envs) ?? arg.default, arg.type, arg.multiple);
+		applyFallback(state, arg, envValue(state, envs) ?? arg.default);
 
 		if (missingArguments.length || (required && resolved(state, dest) === undefined)) {
 			missingArguments.unshift(`<${name}>`);
@@ -771,8 +819,12 @@ export async function processArgs(state: ParseState): Promise<void> {
 		throw new Error(`Missing required arguments: ${missingArguments.join(' ')}`);
 	}
 
+	// only what this argument produced: an option can share the destination, and its
+	// value answers to its own `choices` rather than to these
 	for (const arg of internal.args) {
-		assertChoices(arg.choices, resolved(state, arg[Internal].dest), `argument <${arg.name}>`);
+		if (isProducer(state, arg)) {
+			assertChoices(arg.choices, resolved(state, arg[Internal].dest), `argument <${arg.name}>`);
+		}
 	}
 }
 
@@ -786,24 +838,24 @@ export async function processOptions(state: ParseState): Promise<void> {
 	// default precedence a lone option has, and is not reported missing just
 	// because the option that fills it comes second
 	for (const opt of all) {
-		const { dest, envs, parserOwned } = opt[Internal];
+		const { envs, parserOwned } = opt[Internal];
 		if (!parserOwned) {
-			applyFallback(state, dest, envValue(state, envs), opt.type, opt.multiple);
+			applyFallback(state, opt, envValue(state, envs));
 		}
 	}
 
 	for (const opt of all) {
-		const { dest, parserOwned, skipDefault } = opt[Internal];
+		const { parserOwned, skipDefault } = opt[Internal];
 
 		// the valued twin owns the default of the destination the two share
 		if (!skipDefault && !parserOwned) {
-			applyFallback(state, dest, opt.default, opt.type, opt.multiple);
+			applyFallback(state, opt, opt.default);
 		}
 	}
 
 	for (const opt of all) {
 		const { choices, required } = opt;
-		const { dest, label, negatedTwin } = opt[Internal];
+		const { dest, label } = opt[Internal];
 		const value = resolved(state, dest);
 		const typed = state.$.some((parsed) => parsed.type === 'Option' && parsed.option === opt);
 
@@ -811,10 +863,11 @@ export async function processOptions(state: ParseState): Promise<void> {
 			missingOptions.unshift(label);
 		}
 
-		// only validate when there is actually a value to validate, and never
-		// against a `false` this option did not produce: turning the destination
-		// off is what the negated twin means, not one of the values declared here
-		if (!negatedTwin || typed || value !== false) {
+		// only what this option produced. A destination can have more than one
+		// writer -- a negated twin, a positional argument of the same name, a
+		// nearer context's option of the same destination -- and each of them has
+		// its own `choices`, so a value belongs to whichever one wrote it
+		if (isProducer(state, opt)) {
 			assertChoices(choices, value, `option ${label}`);
 		}
 	}

@@ -482,9 +482,18 @@ valued twin's are read first — then a default.
 
 Because `<type>` makes the option required, anything that fills the shared
 destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`
-or environment variable declared on either twin. `choices` on the valued
-option constrain the values it takes, not the `false` its twin means, so
-`--no-cheese` is always allowed.
+or environment variable declared on either twin.
+
+`choices` belong to whichever of the two wrote the value. They constrain the
+values the valued option takes, not the `false` its twin means, so `--no-cheese`
+is always allowed — including after a value has already been given:
+`--cheese brie --no-cheese` is `cheese: false`, because the flag wrote last. A
+`false` the valued option produced itself is still checked, whether it came from
+its own `default` or from `--cheese false`.
+
+The same rule holds wherever two declarations share a destination — an option and
+a positional argument of the same name — and it is why a value is validated once,
+by its writer, rather than once per declaration that can reach it.
 
 Declaring `negate: false` on the flag opts out of all of this: the `no-` is
 then part of the name, so it keeps its own `noCheese` destination and reads as

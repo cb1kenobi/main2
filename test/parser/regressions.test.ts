@@ -250,6 +250,28 @@ describe('regressions', () => {
 			});
 			expect(result.argv.size).to.equal('sm');
 		});
+
+		// an option and a positional argument of the same name share a destination,
+		// and each has its own `choices`: whoever wrote the value is who it answers
+		// to. Validating whatever was on the destination meant the other one's rules
+		// were applied to a value it did not produce.
+		it('should hold each writer of a shared destination to its own choices', async () => {
+			const schema = {
+				help: false,
+				args: [{ name: 'size', choices: ['big'] }],
+				options: { '--size [s]': { choices: ['sm'] } },
+			};
+
+			expect((await parse({ argv: ['--size', 'sm'], schema })).argv.size).to.equal('sm');
+			expect((await parse({ argv: ['big'], schema })).argv.size).to.equal('big');
+
+			await expect(parse({ argv: ['--size', 'big'], schema })).rejects.toThrow(
+				'Invalid value "big" for option --size'
+			);
+			await expect(parse({ argv: ['sm'], schema })).rejects.toThrow(
+				'Invalid value "sm" for argument <size>'
+			);
+		});
 	});
 
 	describe('defaults and environment variables', () => {
