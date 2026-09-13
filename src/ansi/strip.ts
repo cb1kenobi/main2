@@ -52,13 +52,20 @@ function string(introducer: string): string {
 }
 
 /**
- * Matches one escape sequence. Built fresh per call rather than shared, because
- * a `g` flagged regex carries `lastIndex` and sharing one across calls makes
- * `test()` and `exec()` answer differently depending on what ran before.
+ * Matches one escape sequence, and nothing else.
+ *
+ * Built fresh per call rather than shared, because a `g` flagged regex carries
+ * `lastIndex` and sharing one across calls makes `test()` and `exec()` answer
+ * differently depending on what ran before.
+ *
+ * Exported because removing sequences is not the only thing anything wants to
+ * do with them: the wrapper has to find them in order to keep them out of a
+ * column count and out of the middle of a line break, which is the opposite of
+ * stripping them.
  *
  * @returns The matcher.
  */
-function matcher(): RegExp {
+export function matcher(): RegExp {
 	return new RegExp(sequences, 'g');
 }
 
