@@ -9,6 +9,7 @@ const config: UserConfig = defineConfig({
 		index: './src/index.ts',
 		paths: './src/paths.ts',
 		updates: './src/updates/index.ts',
+		width: './src/width/index.ts',
 	},
 	format: ['es'],
 	minify: true,

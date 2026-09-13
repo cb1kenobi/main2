@@ -40,6 +40,10 @@
       "types": "./dist/updates.d.mts",
       "default": "./dist/updates.mjs"
     },
+    "./width": {
+      "types": "./dist/width.d.mts",
+      "default": "./dist/width.mjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
