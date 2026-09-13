@@ -1,3 +1,4 @@
+import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Argument, Internal } from '../../src/types.js';
 import path from 'node:path';
@@ -448,7 +449,9 @@ describe('regressions', () => {
 			await expect(parse({ schema: { args } })).rejects.toThrow(
 				'Only the last argument can be variadic'
 			);
-			expect(args[1].required).to.equal(false);
+			// promotion runs after the check, and in any case only ever touches
+			// the copies the parser owns
+			expect(args).to.deep.equal([{ name: '[a...]' }, { name: '[b]' }, { name: '<c>' }]);
 		});
 	});
 
@@ -463,6 +466,24 @@ describe('regressions', () => {
 			// again the next time the command is matched
 			for (let i = 0; i < 2; i++) {
 				await expect(parse({ argv: ['sub'], schema })).rejects.toThrow('init hook blew up');
+			}
+		});
+
+		it('should throw again when the same placeholder is reloaded', async () => {
+			// every parse now builds its own placeholder, so the retry above no
+			// longer pins down the flag itself: load the one placeholder twice
+			const { contexts } = await parse({
+				argv: [],
+				schema: {
+					commands: { sub: { path: path.join(__dirname, 'fixtures/variadic/bad-hook.js') } },
+				},
+			});
+			const cmd = contexts[0][Internal].commands.find('sub');
+			expect(cmd).to.not.equal(undefined);
+
+			for (let i = 0; i < 2; i++) {
+				await expect(loadCommand(cmd!)).rejects.toThrow('init hook blew up');
+				expect(cmd![Internal].loaded).to.not.equal(true);
 			}
 		});
 	});
@@ -740,9 +761,10 @@ describe('regressions', () => {
 			};
 
 			// `compile` comes from the module, so it cannot resolve a command the
-			// parser has not loaded yet, but it must survive the merge
+			// parser has not loaded yet, but it must survive the merge — and the
+			// second pass reuses the very same schema object
 			for (const name of ['build', 'b']) {
-				const { contexts } = await parse({ argv: [name], schema: structuredClone(schema) });
+				const { contexts } = await parse({ argv: [name], schema });
 				expect(contexts[0].name).to.equal('build');
 				expect([...contexts[0][Internal].aliases].sort()).to.deep.equal(['b', 'compile']);
 			}

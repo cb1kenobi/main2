@@ -7,6 +7,7 @@ import {
 	InternalState,
 	Schema,
 } from '../../types.js';
+import { copyDeclaration } from '../../util/copy-declaration.js';
 import { initArg } from '../argument/init-arg.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
@@ -31,44 +32,64 @@ const nameSplitRegExp = /[, ]+/;
 
 type CommandsLike = Command | InternalCommand | Schema;
 
+interface ParsedName {
+	aliases: string[];
+	args: string[];
+	hidden: boolean;
+	label: string;
+	name: string;
+}
+
+/**
+ * Builds an internal command from a declaration.
+ *
+ * The declaration is only ever read. The parsed name, the `hidden` flag, the
+ * normalized arguments, and the `Internal` state are all written to a new
+ * object this library owns, so parsing the same schema twice sees the same
+ * schema twice and a frozen declaration parses like any other.
+ *
+ * @param it - The command or schema declaration.
+ * @param entryFile - The module this declaration came from, when lazy loaded.
+ * @returns A new internal command.
+ */
 export async function initCommand(it: CommandsLike, entryFile?: string): Promise<InternalCommand> {
 	if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
 		return it as InternalCommand;
 	}
 
-	const command = it as Command;
+	const decl = it as Command;
 
-	if (!it.name || typeof it.name !== 'string') {
+	if (!decl.name || typeof decl.name !== 'string') {
 		throw new TypeError('Expected command name to be a non-empty string');
 	}
 
-	log(`Initializing command "${it.name}"`);
+	log(`Initializing command "${decl.name}"`);
 
 	const aliases = new Set<string>();
 	const args: InternalArgument[] = [];
 	const commands = new CommandRegistry();
 	const options = new OptionRegistry();
 
-	if (command.run !== undefined && typeof command.run !== 'function') {
-		throw new TypeError(`Invalid run function in "${it.name}" command`);
+	if (decl.run !== undefined && typeof decl.run !== 'function') {
+		throw new TypeError(`Invalid run function in "${decl.name}" command`);
 	}
 
-	if (command.hidden !== undefined && typeof command.hidden !== 'boolean') {
-		throw new TypeError(`Expected hidden to be a boolean in "${it.name}" command`);
+	if (decl.hidden !== undefined && typeof decl.hidden !== 'boolean') {
+		throw new TypeError(`Expected hidden to be a boolean in "${decl.name}" command`);
 	}
 
-	if (command.default !== undefined && typeof command.default !== 'boolean') {
-		throw new TypeError(`Expected default in "${it.name}" command to be a boolean`);
+	if (decl.default !== undefined && typeof decl.default !== 'boolean') {
+		throw new TypeError(`Expected default in "${decl.name}" command to be a boolean`);
 	}
 
-	const parsed = parseName(it.name);
+	const parsed = parseName(decl.name);
 
 	for (const alias of parsed.aliases) {
 		aliases.add(alias);
 	}
 
-	if (command.alias !== undefined) {
-		const aliasList = typeof command.alias === 'string' ? [command.alias] : command.alias;
+	if (decl.alias !== undefined) {
+		const aliasList = typeof decl.alias === 'string' ? [decl.alias] : decl.alias;
 		if (Array.isArray(aliasList)) {
 			for (const alias of aliasList) {
 				if (typeof alias !== 'string') {
@@ -82,20 +103,21 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 	}
 
 	// args
+	let argDecls = decl.args;
 	if (parsed.args.length) {
-		if (it.args?.length) {
-			throw new Error(`Cannot combine command arguments with inline arguments "${it.name}"`);
+		if (decl.args?.length) {
+			throw new Error(`Cannot combine command arguments with inline arguments "${decl.name}"`);
 		}
-		it.args = parsed.args;
+		argDecls = parsed.args;
 	}
 
-	if (it.args !== undefined) {
-		if (!Array.isArray(it.args)) {
+	if (argDecls !== undefined) {
+		if (!Array.isArray(argDecls)) {
 			throw new TypeError('Expected arguments to be an array');
 		}
 
-		for (let i = 0; i < it.args.length; i++) {
-			args[i] = initArg(it.args[i]);
+		for (let i = 0; i < argDecls.length; i++) {
+			args[i] = initArg(argDecls[i]);
 		}
 
 		// a variadic argument takes every remaining value, so anything declared
@@ -110,7 +132,8 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 
 		// an optional argument before a required one is promoted to required
-		// since there is no way to skip it
+		// since there is no way to skip it. `args` holds copies, so this never
+		// reaches the caller's argument objects.
 		for (let i = args.length - 2; i >= 0; i--) {
 			if (!args[i].required) {
 				args[i].required = args[i + 1].required;
@@ -118,35 +141,29 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	}
 
-	// A `!` prefixed name and an explicit `hidden` are additive: either one
-	// hides the command. An explicit `hidden: false` does not un-hide a `!`
-	// prefixed name; drop the `!` to make the command visible.
-	command.hidden = parsed.hidden || command.hidden === true;
-
-	if (parsed.name !== it.name) {
-		log(`Command name changed "${it.name}" -> "${parsed.name}"`);
-		it.name = parsed.name;
+	if (parsed.name !== decl.name) {
+		log(`Command name changed "${decl.name}" -> "${parsed.name}"`);
 	}
 
 	// commands
-	if (it.commands !== undefined) {
-		if (it.commands && typeof it.commands === 'string') {
+	if (decl.commands !== undefined) {
+		if (decl.commands && typeof decl.commands === 'string') {
 			await registerCommandPath({
 				commands,
-				file: it.commands,
+				file: decl.commands,
 			});
-		} else if (Array.isArray(it.commands)) {
+		} else if (Array.isArray(decl.commands)) {
 			await Promise.all(
-				it.commands.map((cmdOrPath) =>
+				decl.commands.map((cmdOrPath) =>
 					registerCommand({
 						cmdOrPath,
 						commands,
 					})
 				)
 			);
-		} else if (it.commands && typeof it.commands === 'object') {
+		} else if (decl.commands && typeof decl.commands === 'object') {
 			await Promise.all(
-				Object.entries(it.commands).map(([name, cmdOrPath]) =>
+				Object.entries(decl.commands).map(([name, cmdOrPath]) =>
 					registerCommand({
 						cmdOrPath,
 						commands,
@@ -160,41 +177,37 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 	}
 
 	// options
-	if (it.options !== undefined) {
-		if (!it.options || typeof it.options !== 'object') {
+	if (decl.options !== undefined) {
+		if (!decl.options || typeof decl.options !== 'object') {
 			throw new TypeError('Expected options to be an object');
 		}
 
-		// eslint-disable-next-line prefer-const
-		for (let [format, params] of Object.entries(it.options)) {
+		for (const [format, params] of Object.entries(decl.options)) {
 			if (params === undefined || params === null) {
-				params = {
-					format,
-				};
+				await options.add({ format });
 			} else if (typeof params === 'string') {
-				params = {
-					desc: params,
-					format,
-				};
-			} else if (params && typeof params === 'object') {
-				params.format ??= format;
+				await options.add({ desc: params, format });
+			} else if (typeof params === 'object') {
+				// the format key fills in for a missing `format`, but folding it in
+				// must not write to the caller's option object
+				await options.add({ ...params, format: params.format ?? format });
 			} else {
 				throw new TypeError('Expected option to be an object');
 			}
-
-			await options.add(params);
 		}
 	}
 
+	// a command left dirty by a failed init hook is rebuilt from scratch, so
+	// recover the module it came from rather than losing it
 	entryFile ??= it[Internal]?.path;
 
-	const { path: commandPath } = it as Command;
+	const commandPath = decl.path;
 	if (commandPath) {
 		entryFile = entryFile ? join(dirname(entryFile), commandPath) : commandPath;
 	}
 
 	const cmd = new Proxy(
-		Object.defineProperty(it, Internal, {
+		Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
 			configurable: true,
 			value: {
 				aliases,
@@ -246,23 +259,79 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 	// a command's `beforeError` hooks are not fired from here, but a list that
 	// is not a list of functions has to be rejected while the schema is being
 	// built: the error path is the one place a silent no-op does the most harm
-	if (command.hooks?.beforeError !== undefined) {
-		const beforeError = command.hooks.beforeError;
+	if (decl.hooks?.beforeError !== undefined) {
+		const beforeError = decl.hooks.beforeError;
 		if (!Array.isArray(beforeError) || beforeError.some((h) => typeof h !== 'function')) {
 			throw new TypeError('Expected command beforeError hooks to be an array of functions');
 		}
 	}
 
-	if (command.hooks?.init !== undefined) {
-		if (!Array.isArray(command.hooks.init)) {
+	if (decl.hooks?.init !== undefined) {
+		if (!Array.isArray(decl.hooks.init)) {
 			throw new TypeError('Expected command init hooks to be an array');
 		}
-		for (const hook of command.hooks.init) {
+		for (const hook of decl.hooks.init) {
 			await hook({ cmd, ...cmd[Internal] });
 		}
 	}
 
 	cmd[Internal].state = InternalState.OK;
+
+	return cmd;
+}
+
+/**
+ * Copies a command declaration into a fresh object for the library to own and
+ * normalize.
+ *
+ * Every container is copied too — a consumer that reaches into `cmd.args`,
+ * `cmd.commands`, or `cmd.options` and changes something must not be editing
+ * the schema they handed in. Values inside those containers are shared, since
+ * cloning a user's `run` handler or `transform` is not something a library can
+ * do, but nothing here writes to them.
+ *
+ * @param decl - The caller's declaration.
+ * @param parsed - The pieces parsed out of the declaration's name string.
+ * @param argDecls - The effective argument declarations, inline or otherwise.
+ * @returns A new command object.
+ */
+function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['args']): Command {
+	const cmd: Command = copyDeclaration(decl);
+
+	cmd.name = parsed.name;
+
+	// A `!` prefixed name and an explicit `hidden` are additive: either one
+	// hides the command. An explicit `hidden: false` does not un-hide a `!`
+	// prefixed name; drop the `!` to make the command visible.
+	cmd.hidden = parsed.hidden || decl.hidden === true;
+
+	if (argDecls !== undefined) {
+		cmd.args = Array.isArray(argDecls) ? [...argDecls] : argDecls;
+	}
+
+	if (decl.commands && typeof decl.commands === 'object') {
+		cmd.commands = (
+			Array.isArray(decl.commands) ? [...decl.commands] : { ...decl.commands }
+		) as Command['commands'];
+	}
+
+	if (decl.options && typeof decl.options === 'object') {
+		cmd.options = { ...decl.options };
+	}
+
+	// the hook lists are copied as well, so a hook that registers another hook
+	// on the command it was handed does not append to the declaration — and
+	// does not extend the list `initCommand()` is in the middle of walking
+	if (decl.hooks && typeof decl.hooks === 'object') {
+		const hooks = { ...decl.hooks };
+		for (const name of ['init', 'parse'] as const) {
+			const list = hooks[name];
+			if (Array.isArray(list)) {
+				hooks[name] = [...list];
+			}
+		}
+		cmd.hooks = hooks;
+	}
 
 	return cmd;
 }
@@ -275,13 +344,7 @@ function argLabel(arg: InternalArgument): string {
 	return arg.required ? `<${name}>` : `[${name}]`;
 }
 
-function parseName(unparsedName: string): {
-	aliases: string[];
-	args: string[];
-	hidden: boolean;
-	label: string;
-	name: string;
-} {
+function parseName(unparsedName: string): ParsedName {
 	const aliases: string[] = [];
 	const args: string[] = [];
 	const labels: string[] = [];
@@ -360,10 +423,11 @@ async function registerCommand({
 			name,
 		});
 	} else if (cmdOrPath && typeof cmdOrPath === 'object') {
-		if (cmdOrPath.name === undefined) {
-			cmdOrPath.name = name;
-		}
-		commands.add(await initCommand(cmdOrPath));
+		// the key a command is declared under names it, but that name belongs on
+		// the copy `initCommand()` makes, not on the caller's object
+		commands.add(
+			await initCommand(cmdOrPath.name === undefined ? { ...cmdOrPath, name } : cmdOrPath)
+		);
 	} else {
 		throw new TypeError('Expected commands to be one or more paths or an object');
 	}
@@ -469,8 +533,14 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 		throw new TypeError(`Expected command package to default export an object: ${entryFile}`);
 	}
 
-	cmd.name ??= name;
-	cmd.desc ??= description;
-
-	return initCommand(cmd, entryFile);
+	// the module object is cached by the ESM loader and shared with every other
+	// importer, so the package's name and description fill in a copy
+	return initCommand(
+		{
+			...cmd,
+			desc: cmd.desc ?? description,
+			name: cmd.name ?? name,
+		},
+		entryFile
+	);
 }

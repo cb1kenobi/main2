@@ -791,13 +791,40 @@ Command-level hooks live on `command.hooks`:
 | `cmd`      | The innermost matched or default command, if any |
 | `contexts` | The context chain, innermost first               |
 | `env`      | The environment used for fallbacks               |
-| `schema`   | The schema, after initialization                 |
+| `schema`   | The schema, exactly as it was given              |
 | `settings` | The settings in effect                           |
 
 Each entry in `$` is classified as one of `Command`, `Option`, `UnknownOption`,
 `Extra`, or `Unknown`, the last being a positional value.
 
-> [!WARNING]
-> `parse()` currently mutates the schema object it is given — it writes
-> `name`, `args`, and `hidden` in place. Do not reuse a schema object across
-> calls where that matters.
+## The schema is read, never written
+
+`parse()` never writes to the schema it is given. The parsed command name, the
+`hidden` flag, normalized arguments, the data type an option format implies,
+and the `Internal` state all land on objects the parser builds for itself, so:
+
+- The same schema object can be parsed any number of times, with different
+  argv each time, and every parse sees what the first one saw.
+- A schema can be frozen — `Object.freeze`, deeply — and still parse.
+- A schema can be shared between CLIs, or exported as a module constant,
+  without one consumer's parse changing what another one sees.
+- A lazily loaded command module is merged into a copy. The ESM loader hands
+  the same object to every importer, so writing the placeholder's name and
+  aliases into it would outlive the parse.
+
+`state.schema` is therefore the caller's own object, unchanged. The
+initialized form of it is the outermost entry of `state.contexts`, whose
+`Internal` state carries the built registries.
+
+Every array a declaration carries is copied with it — `alias`, `args`,
+`choices`, `default`, `env`, the hook lists, and anything custom — as is an
+array `default` on its way to `argv`. So nothing the parser hands back can be
+appended to and have that reach the declaration, whether it is reached from an
+`init` hook or from the parse state afterwards.
+
+The copy is shallow beyond that. A `run` handler, a `transform`, an object
+used as a `default`, and the argument and option declarations sitting inside
+`cmd.args` and `cmd.options` are the very ones that were declared; cloning a
+function is not something a library can do. The parser never writes to any of
+them, but a consumer who reaches in and mutates one is mutating their own
+schema.

@@ -1,5 +1,6 @@
 import { Internal, InternalOption, InternalState, Option } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
+import { copyDeclaration } from '../../util/copy-declaration.js';
 
 /**
  * "all"
@@ -22,18 +23,31 @@ const optionShortRE = /^-\w$/;
 const optionSplitRE = /[ ,|=]+/;
 const optionTypesRE = /^auto|bool|count|date|int|json|number|string|yesno$/;
 
+/**
+ * Builds an internal option from a declaration. Everything the format string
+ * implies — the name, hint, requiredness, negation, data type, and default —
+ * is written to a new object this library owns, never back onto the caller's
+ * declaration, so the same declaration always parses the same way.
+ *
+ * @param it - The option declaration, or an already initialized option.
+ * @returns A new internal option.
+ */
 export async function initOption(it: Option | InternalOption): Promise<InternalOption> {
 	if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
 		return it as InternalOption;
 	}
 
+	// copy the declaration instead of decorating it so the caller's object is
+	// never written to
+	const opt: Option = copyDeclaration(it);
+
 	const long = new Set<string>();
 	const short = new Set<string>();
-	let isFlag = !it.hint && !Array.isArray(it.choices);
+	let isFlag = !opt.hint && !Array.isArray(opt.choices);
 
-	if (it.format !== undefined) {
+	if (opt.format !== undefined) {
 		const parts =
-			it.format && typeof it.format === 'string' && new Set(it.format.split(optionSplitRE));
+			opt.format && typeof opt.format === 'string' && new Set(opt.format.split(optionSplitRE));
 		if (!parts) {
 			throw new TypeError('Expected option format to be a non-empty string');
 		}
@@ -46,7 +60,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 					throw new TypeError(`Invalid option format: ${p}`);
 				}
 				long.add(p);
-				it.name ??= m[1];
+				opt.name ??= m[1];
 				continue;
 			}
 
@@ -57,79 +71,79 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 				m = p.match(optionHintRE);
 				if (m) {
 					// we have an option, not a flag
-					it.hint ??= m[2];
+					opt.hint ??= m[2];
 					isFlag = false;
 					if (m[1] === '<') {
-						it.required ??= true;
+						opt.required ??= true;
 					}
 				} else if (!optionNameRE.test(p)) {
 					// not a long name, a short name, or a hint, so the only thing
 					// left it can be is a bare name; anything else is malformed
 					// and would otherwise become an untypable option
 					throw new TypeError(`Invalid option format: ${p}`);
-				} else if (!it.name) {
-					it.name = p;
-					long.add(`--${it.negate ? 'no-' : ''}${it.name}`);
+				} else if (!opt.name) {
+					opt.name = p;
+					long.add(`--${opt.negate ? 'no-' : ''}${opt.name}`);
 				}
 			}
 		}
 
-		it.name ??= short[Symbol.iterator]().next().value?.slice(1);
-	} else if (it.name) {
-		long.add(`--${it.name}`);
+		opt.name ??= short[Symbol.iterator]().next().value?.slice(1);
+	} else if (opt.name) {
+		long.add(`--${opt.name}`);
 	}
 
-	if (!it.name) {
+	if (!opt.name) {
 		throw new TypeError('Expected option name to be a non-empty string');
 	}
 
-	if (it.hint?.endsWith('...')) {
+	if (opt.hint?.endsWith('...')) {
 		// a variadic hint promises `--tag a b c`, which an option never does;
 		// only a positional argument can consume consecutive values
 		throw new TypeError(
-			`Option "${it.name}" hint cannot be variadic; use \`multiple: true\` to collect repeated uses into an array`
+			`Option "${opt.name}" hint cannot be variadic; use \`multiple: true\` to collect repeated uses into an array`
 		);
 	}
 
-	if (it.type && !optionTypesRE.test(it.type)) {
-		throw new Error(`Option "${it.name}" has unsupported data type "${it.type}"`);
+	if (opt.type && !optionTypesRE.test(opt.type)) {
+		throw new Error(`Option "${opt.name}" has unsupported data type "${opt.type}"`);
 	}
 
 	// parse negate
-	const m = it.name.match(optionNegateRE);
-	if (m && isFlag && it.negate !== false) {
-		it.negate = true;
-		it.name = m[1];
-		long.add(`--${it.name}`); // add non-negated value
+	const m = opt.name.match(optionNegateRE);
+	if (m && isFlag && opt.negate !== false) {
+		opt.negate = true;
+		opt.name = m[1];
+		long.add(`--${opt.name}`); // add non-negated value
 	}
 
-	it.type ||= isFlag ? 'bool' : 'string';
+	opt.type ||= isFlag ? 'bool' : 'string';
 
 	// a default the parser supplied is weaker than one the schema declared: it
 	// gives way to the twin that shares its destination, if there is one
 	let impliedDefault = false;
 
 	if (isFlag) {
-		if (it.type === 'auto' || it.type === 'yesno') {
-			it.type = 'bool';
-		} else if (it.type !== 'bool' && it.type !== 'count') {
+		if (opt.type === 'auto' || opt.type === 'yesno') {
+			opt.type = 'bool';
+		} else if (opt.type !== 'bool' && opt.type !== 'count') {
 			throw new Error("Option flags must have type of 'auto', 'bool', 'count', or 'yesno'");
 		}
-		if (it.default === undefined) {
-			it.default = it.type === 'count' ? 0 : !!it.negate;
+		if (opt.default === undefined) {
+			opt.default = opt.type === 'count' ? 0 : !!opt.negate;
 			impliedDefault = true;
 		}
-	} else if (it.type === 'count') {
+	} else if (opt.type === 'count') {
 		throw new Error('Only flags can be of type "count"');
 	}
 
-	if (it.alias !== undefined) {
+	if (opt.alias !== undefined) {
 		let aliases;
-		if (typeof it.alias === 'string') {
-			aliases = new Set(it.alias.split(optionAliasSplitRE));
-		} else if (Array.isArray(it.alias)) {
+		if (typeof opt.alias === 'string') {
+			aliases = new Set(opt.alias.split(optionAliasSplitRE));
+		} else if (Array.isArray(opt.alias)) {
 			aliases = new Set(
-				it.alias.flatMap((a) => {
+				opt.alias.flatMap((a) => {
 					if (typeof a !== 'string') {
 						throw new TypeError('Expected option alias to be a string or list of strings');
 					}
@@ -157,9 +171,9 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		}
 	}
 
-	const envs = new Set();
-	if (it.env !== undefined) {
-		const env = typeof it.env === 'string' ? [it.env] : it.env;
+	const envs = new Set<string>();
+	if (opt.env !== undefined) {
+		const env = typeof opt.env === 'string' ? [opt.env] : opt.env;
 
 		if (!Array.isArray(env)) {
 			throw new TypeError(
@@ -174,32 +188,33 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		}
 	}
 
-	if (it.choices !== undefined) {
-		if (!Array.isArray(it.choices)) {
+	if (opt.choices !== undefined) {
+		if (!Array.isArray(opt.choices)) {
 			throw new TypeError('Expected option choices to be an array');
 		}
-		it.hint ??= 'value';
+		opt.hint ??= 'value';
 	}
 
-	if (it.transform && typeof it.transform !== 'function') {
+	if (opt.transform && typeof opt.transform !== 'function') {
 		throw new TypeError('Expected option transform function to be a function');
 	}
 
 	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
 
 	return new Proxy(
-		Object.defineProperty(it, Internal, {
+		Object.defineProperty(opt, Internal, {
 			configurable: true,
 			value: {
-				dest: camelCase(it.name),
+				dest: camelCase(opt.name),
 				envs,
 				impliedDefault,
 				isFlag,
 				label,
-				format: label + (isFlag ? '' : it.required ? `=<${it.hint}>` : `=[${it.hint}]`),
+				format: label + (isFlag ? '' : opt.required ? `=<${opt.hint}>` : `=[${opt.hint}]`),
 				long,
 				short,
 				skipDefault: false,
+				state: InternalState.OK,
 			},
 		}),
 		{

@@ -60,9 +60,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 			throw new TypeError('Expected schema to be an object');
 		}
 
-		if (schema.name === undefined) {
-			schema.name = 'global';
-		} else if (!schema.name || typeof schema.name !== 'string') {
+		if (schema.name !== undefined && (!schema.name || typeof schema.name !== 'string')) {
 			throw new TypeError('Expected schema name to be a non-empty string');
 		}
 
@@ -95,7 +93,9 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 			_: [],
 			argv: {},
 			cmd: undefined,
-			contexts: [await initCommand(schema)],
+			// the root context is built from a copy of the schema, never by writing
+			// a default name onto the caller's object
+			contexts: [await initCommand({ ...schema, name: schema.name ?? 'global' })],
 			env,
 			schema,
 			settings: opts.settings || {},
@@ -342,6 +342,11 @@ function applyFallback(
 
 	if (typeof value === 'string') {
 		value = transformValue(value, type);
+	} else if (Array.isArray(value)) {
+		// an array `default` belongs to the caller; handing it straight to
+		// `argv` would let a consumer's `push` reach back into the schema and
+		// change what the next parse defaults to
+		value = [...value];
 	}
 
 	state.argv[dest] = multiple && !Array.isArray(value) ? [value] : value;

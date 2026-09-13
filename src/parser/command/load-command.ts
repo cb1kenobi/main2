@@ -1,5 +1,5 @@
 import debug from '../../debug/index.js';
-import { Internal, InternalCommand } from '../../types.js';
+import { Command, Internal, InternalCommand } from '../../types.js';
 import { initCommand } from './init-command.js';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -39,37 +39,42 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 			// placeholder's
 			const renamed = def.name !== undefined;
 
-			// let the setter update the internals
+			// the ESM loader caches the module and hands the same object to every
+			// importer, so the placeholder is merged into a copy — mutating `def`
+			// would leak the placeholder's name and aliases into the next parse
+			const merged: Command = { ...def };
 
 			for (const [key, value] of Object.entries(cmd)) {
-				if (def[key] === undefined) {
-					def[key] = value;
+				if (merged[key] === undefined) {
+					merged[key] = value;
 				}
 			}
 
 			// `hidden` is additive, but only the placeholder saw the `!` name
 			// prefix, so a module that declares itself visible must not un-hide it
 			if (cmd.hidden === true) {
-				def.hidden = true;
+				merged.hidden = true;
 			}
 
 			// the module never saw the placeholder's name string either, so the
 			// aliases parsed from it have to come across as an explicit list
 			if (
 				internal.aliases.size &&
-				(def.alias === undefined || typeof def.alias === 'string' || Array.isArray(def.alias))
+				(merged.alias === undefined ||
+					typeof merged.alias === 'string' ||
+					Array.isArray(merged.alias))
 			) {
-				def.alias = [
+				merged.alias = [
 					...internal.aliases,
-					...(def.alias === undefined
+					...(merged.alias === undefined
 						? []
-						: typeof def.alias === 'string'
-							? [def.alias]
-							: def.alias),
+						: typeof merged.alias === 'string'
+							? [merged.alias]
+							: merged.alias),
 				];
 			}
 
-			const loaded = await initCommand(def, file);
+			const loaded = await initCommand(merged, file);
 
 			// ...and the same goes for the help label, unless the module renamed
 			// the command and brought its own labels
