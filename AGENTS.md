@@ -18,6 +18,7 @@ necessary, raise it rather than adding it.
 | `src/width/`             | Display width: grapheme clusters, East Asian Width   |
 | `src/wrap/`              | Text wrapping, SGR state, terminal width             |
 | `src/help/`              | The generated help screen and its two-column layout  |
+| `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
 | `src/paths.ts`           | XDG base directories                                 |
@@ -255,9 +256,90 @@ false` rethrows instead; a function replaces the handler.
 
 ### Sharing options between commands
 
+- **Nothing declares what a command inherits, because nothing has to.** Options
+  resolve across the whole context chain, so a child sees its parent's; the tree
+  the parser walks is the only place that relationship lives. Help reads the same
+  chain -- the described command, then each ancestor outward, with what is left
+  under `Global options` -- so there is no second mechanism to keep in agreement.
+  An earlier `inherits` property was added so that _inference_ could reach a
+  parent, and removed again: it was a claim about the schema that the schema
+  already made, it needed a runtime check of its own to stay honest, and it bought
+  types that spreading a group into the command's own options also buys.
 - **`options()` is the identity function.** It exists for the types: a `const`
   type parameter keeps `type: 'int'` from widening to `string`, so a group is
   still worth inferring from wherever it is used.
+
+### Type inference
+
+- **`src/infer.ts` is `initOption()` and `initArg()` written again in the type
+  system.** That is the cost and there is no way around it: knowing that
+  `'--port <n>'` with `type: 'int'` produces a non-optional `port: number` means
+  reading the format string the way the parser reads it. The rules there move
+  when those functions move, and `test/infer.test.ts` pins the pairs that are
+  easy to get wrong -- including negative cases, since `unknown` and `any`
+  satisfy any assertion and would otherwise make the whole file vacuous.
+- **Inference happens at a call, not at a literal.** A nested object literal is
+  checked against the declared type of the property it sits on, and checking does
+  not re-infer that type's parameters. So `command()` is a function rather than a
+  type: a bare literal inside `commands` keeps `Record<string, unknown>` and a
+  wrapped one gets the narrow `argv`. Wrapping is optional and per command.
+- **Anything wide contributes `Record<string, unknown>`, and that is deliberate.**
+  An index signature in an intersection makes every key on it `unknown`, which is
+  the honest answer when nothing was narrowed. `any` is checked first and counts
+  as wide -- it arrives through `AnyCommand`, and left alone it satisfies the
+  tuple walk and recurses on itself forever.
+- **`AnyCommand` is `Command<any, any>`, not the wide defaults.** A command
+  whose `run` takes a narrow `argv` is not assignable to one whose `run` takes a
+  wide one, because a function parameter is contravariant, so every `commands` map
+  would reject its own contents.
+- **`choices` is `readonly unknown[]`.** `as const` is what produces a literal
+  union, and a readonly array was not assignable to `unknown[]` -- which silently
+  failed the constraint and made the whole declaration read as wide.
+- **Nothing in `src/infer.ts` imports anything.** The rules read the shape of a
+  declaration rather than its declared type, so `types.ts` imports it without a
+  cycle.
+- **The inference does not decide whether a schema is valid.** A variadic argument
+  that is not last, `type: 'count'` on a valued option, and a format the parser
+  rejects such as `'---triple'` are all things it throws on, and the types describe
+  them as though they had worked. Validity is the parser's to report, with a
+  message that says what to do; a type error would say less, and the code never
+  runs either way.
+- **A command's own declaration is typed and everything else in `argv` is
+  `unknown`.** `InferArgv` intersects what it read with `Record<string, unknown>`
+  rather than merging it: a merge would spread the index signature over the
+  declared keys and make those `unknown` too. The keys it cannot see are the ones
+  the commands above declared, which do resolve at runtime -- a command is typed at
+  its own `command()` call and nothing there knows where in the tree it will be
+  mounted -- so an error about a value that is genuinely there would be the wrong
+  answer. A command that wants them typed spreads the group into its own options,
+  and pays for it by shadowing what is above and moving those rows out of
+  `Global options`.
+- **A destination two sources share is merged, not intersected.** An `&` of a
+  `boolean` and a `string` on one key is `never`, a key nothing can be assigned to,
+  and an option and a positional argument of the same name really do both write to
+  one destination. A shared key holds the union and is always there if either
+  source fills it.
+- **A declared `format`, `name`, or `hint` is read**, because `initOption()` reads
+  all three and each changes the answer: a `format` wins over the key it was
+  written under, a `name` wins over what the format would have named, and a `hint`
+  makes a flag valued.
+- **A default fills a destination whatever else was said**, including alongside
+  `required: false`, which stops the parse demanding the option without stopping
+  the fallback filling it. `default: undefined` is not a default -- `applyFallback()`
+  skips it.
+- **The rules that are easy to get wrong, and are therefore pinned by a test that
+  also parses argv to confirm:** `choices` gives an option an implied hint and so
+  makes it _valued_ rather than a flag; an empty `choices` list is `never`, because
+  the parser rejects every value against it; `required` written out wins over what
+  `<>` or `[]` implied, in both directions; only a _flag_ is negated and only when
+  `negate` is not `false`, so `'--no-cheese [type]'` lands on `noCheese`; the first
+  part of a format that is a long name or a bare word names the option, so position
+  decides it and `'verbose, --all'` is `verbose`; a dual option is one destination
+  holding either value and is optional, because the negated flag's implied default
+  gives way to its valued twin; a pair of _flags_ on one destination is always set,
+  because the positive one's default still applies; an optional argument before a
+  required one is promoted; and `multiple`, `required`, `type`, and `choices`
+  written out on an argument object are all read.
 
 ## Known bugs
 

@@ -367,7 +367,11 @@ function applyFallback(
  * @param value - The resolved value.
  * @param label - The option or argument label used in the error message.
  */
-function assertChoices(choices: unknown[] | undefined, value: unknown, label: string): void {
+function assertChoices(
+	choices: readonly unknown[] | undefined,
+	value: unknown,
+	label: string
+): void {
 	if (!Array.isArray(choices) || value === undefined) {
 		return;
 	}

@@ -1,3 +1,4 @@
+import type { InferArgv } from './infer.js';
 import { CommandRegistry } from './parser/command/command-registry.js';
 import { OptionRegistry } from './parser/option/option-registry.js';
 
@@ -80,7 +81,7 @@ export type Transformer = <T>(value: T, state: ParseState) => Promise<T | unknow
 
 export interface Argument {
 	[key: string]: unknown; // custom data
-	choices?: unknown[];
+	choices?: readonly unknown[];
 	default?: unknown;
 	/** What the argument is for, as help prints it. */
 	desc?: string;
@@ -102,19 +103,42 @@ export interface InternalArgumentBase extends InternalBase {
 	envs: Set<string>;
 }
 
-export type CommandRunHandler = (state: ParseState) => unknown | Promise<unknown>;
+export type CommandRunHandler<Argv = Record<string, unknown>> = (
+	state: ParseState<Argv>
+) => unknown | Promise<unknown>;
 
 export interface CommandExample {
 	label: string;
 	text: string;
 }
 
-export interface Command {
+/**
+ * Any instantiation of `Command`, for the places that hold a command without
+ * caring what it declared -- a registry, a `commands` map, the internal side.
+ * `any` rather than the wide defaults on purpose: a command whose `run` takes a
+ * narrow `argv` is not assignable to one whose `run` takes a wide one, because a
+ * function parameter is contravariant, and every `commands` map would reject its
+ * own contents.
+ */
+export type AnyCommand = Command<any, any>;
+
+/**
+ * A command declaration.
+ *
+ * The two type parameters are what `command()` infers, and they exist so that
+ * `run()` knows what `argv` holds. Left off, they are the wide types and `argv` is
+ * `Record<string, unknown>` -- which is what it has always been, so every
+ * declaration written without `command()` is unaffected.
+ */
+export interface Command<
+	O extends OptionDeclarations = OptionDeclarations,
+	A extends readonly (string | Argument)[] = readonly (string | Argument)[],
+> {
 	[key: string]: unknown; // custom data
 	alias?: string | string[];
-	args?: (string | Argument)[];
-	choices?: unknown[];
-	commands?: Record<string, Command>;
+	args?: A;
+	choices?: readonly unknown[];
+	commands?: Record<string, AnyCommand>;
 	default?: boolean;
 	desc?: string;
 	examples?: CommandExample | CommandExample[];
@@ -132,12 +156,12 @@ export interface Command {
 		parse?: CommandHook[];
 	};
 	name?: string;
-	options?: Record<string, string | Option | undefined | null>;
+	options?: O;
 	path?: string;
-	run?: CommandRunHandler | null;
+	run?: CommandRunHandler<InferArgv<O, A>> | null;
 }
 
-export interface InternalCommand extends Command {
+export interface InternalCommand extends AnyCommand {
 	[Internal]: InternalCommandBase;
 	name: string;
 }
@@ -211,7 +235,7 @@ export interface HelpSection {
 	 * Read the same way `Command.options` is. A `group` on one of them is ignored:
 	 * the section is already the group.
 	 */
-	options?: Record<string, string | Option | undefined | null>;
+	options?: OptionDeclarations;
 	/**
 	 * The section's subject. Help appends the word, so `'Android'` reads as
 	 * `Android options:`.
@@ -237,13 +261,22 @@ export type DataTransformer = (value: string) => unknown;
 export type OptionDataType = DataType | 'count';
 
 /**
+ * A set of options, keyed by format string.
+ *
+ * `null` and `undefined` declare a format and nothing else; a string is the
+ * description. The same shape wherever options are declared -- a schema, a
+ * command, a help section, and an `options()` group.
+ */
+export type OptionDeclarations = Record<string, string | Option | undefined | null>;
+
+/**
  * All properties are optional because most of them can be populated by the
  * format key of the `Command.options`.
  */
 export interface Option {
 	[key: string]: unknown; // custom data
 	alias?: string | string[];
-	choices?: unknown[];
+	choices?: readonly unknown[];
 	default?: unknown;
 	desc?: string;
 	env?: string | string[];
@@ -266,15 +299,6 @@ export interface Option {
 	transform?: Transformer;
 	type?: OptionDataType | string;
 }
-
-/**
- * A set of options, keyed by format string.
- *
- * `null` and `undefined` declare a format and nothing else; a string is the
- * description. The same shape wherever options are declared -- a schema, a
- * command, a help section, and an `options()` group.
- */
-export type OptionDeclarations = Record<string, string | Option | undefined | null>;
 
 export interface InternalOption extends Option {
 	[Internal]: InternalOptionBase;
@@ -362,11 +386,11 @@ export type ParsedValue =
 	| ParsedUnknown
 	| ParsedUnknownOption;
 
-export interface ParseState {
+export interface ParseState<Argv = Record<string, unknown>> {
 	$orig: string[];
 	$: ParsedValue[];
 	_: unknown[];
-	argv: Record<string, unknown>;
+	argv: Argv;
 	cmd?: InternalCommand;
 	contexts: InternalCommand[];
 	env: Record<string, string | undefined>;
@@ -381,7 +405,7 @@ export interface ParseState {
 
 export interface Schema {
 	args?: (string | Argument)[];
-	commands?: string | (string | Command)[] | Record<string, string | Command>;
+	commands?: string | (string | AnyCommand)[] | Record<string, string | AnyCommand>;
 	/**
 	 * Whether to add `--help` and a `help` command. On unless set to `false`; an
 	 * app that declares either of them keeps its own either way.
@@ -397,7 +421,7 @@ export interface Schema {
 		beforeError?: BeforeErrorHook[];
 	};
 	name?: string;
-	options?: Record<string, string | Option | undefined | null>;
+	options?: OptionDeclarations;
 }
 
 /**
