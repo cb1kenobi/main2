@@ -42,6 +42,7 @@ Still to do:
 - [ ] Generated, context-sensitive help
 - [ ] ANSI: styling, strip, display width
 - [ ] Text wrapping and terminal width detection
+- [ ] A terminal wrapper: width detection, EPIPE handling
 - [ ] `beforeError` hooks
 - [ ] Default command dispatch
 - [ ] Fix the subpath exports
