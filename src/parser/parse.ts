@@ -338,6 +338,19 @@ function produced(state: ParseState, dest: string, by: InternalOption | Internal
 }
 
 /**
+ * Whether this declaration is the one that wrote what is on its destination, which
+ * is what accumulating onto a value requires: `multiple` extends its own array and
+ * a counter increments its own number, never another declaration's.
+ *
+ * @param state - The parse state.
+ * @param it - The option or argument asking.
+ * @returns `true` when the value on the destination is this declaration's.
+ */
+function wrote(state: ParseState, it: InternalOption | InternalArgument): boolean {
+	return producers.get(state)?.get(it[Internal].dest) === it;
+}
+
+/**
  * Every declaration that can validate something in this parse: the options of the
  * whole chain, since that is where options resolve from, and the arguments of the
  * innermost context, since those are the only ones read.
@@ -825,11 +838,20 @@ export async function processArgs(state: ParseState): Promise<void> {
 				continue;
 			}
 
+			// accumulating reads the destination back, so it has to be this option's
+			// own value it reads: a destination can be shared -- a positional argument
+			// of the same name, a negated twin -- and the rule everywhere else is that
+			// the last writer wins rather than extends. A counter that incremented a
+			// positional's `10` made `-v` mean 11, and a `multiple` option that
+			// appended to a variadic argument's array made one list out of two
+			// declarations and then validated all of it against its own `choices`.
+			const mine = wrote(state, option);
+
 			if (isFlag && option.type === 'count') {
-				const count = resolved(state, dest);
+				const count = mine ? resolved(state, dest) : undefined;
 				state.argv[dest] = typeof count !== 'number' ? 1 : count + 1;
 			} else if (option.multiple) {
-				if (Array.isArray(resolved(state, dest))) {
+				if (mine && Array.isArray(resolved(state, dest))) {
 					(state.argv[dest] as unknown[]).push(value);
 				} else {
 					state.argv[dest] = [value];
