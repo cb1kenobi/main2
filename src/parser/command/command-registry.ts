@@ -1,7 +1,12 @@
 import { Internal, InternalCommand } from '../../types.js';
 
 export class CommandRegistry extends Map<string, InternalCommand> {
-	#lookup: Record<string, string> = {};
+	// null-prototype: a command really can be named `__proto__`, and on a plain
+	// object `#lookup['__proto__'] = name` goes through `Object.prototype`'s
+	// accessor and is dropped, so the command registered but never matched. The
+	// inherited members are the other half of it -- `constructor` and `toString`
+	// read back truthy from a plain object and answered a lookup nothing declared
+	#lookup: Record<string, string> = Object.create(null);
 	#default: string | undefined;
 
 	add(cmd: InternalCommand): void {

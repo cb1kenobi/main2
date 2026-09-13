@@ -445,6 +445,61 @@ async function registerCommandPath({
 	commands.add(await initCommand({ name }, file));
 }
 
+/**
+ * Resolves a package's `exports` down to the one relative path to import.
+ *
+ * An `exports` map nests: `"."` holds a conditions object, a condition holds
+ * another, and an array is a fallback list to try in order. Unwrapping exactly
+ * one level -- `exports['.'] || exports.default` -- left a plain object for the
+ * ordinary `{ ".": { "import": "./index.js" } }`, which then reached `join()` as
+ * `[object Object]` and reported the package as having no valid export.
+ *
+ * Only what this loader can actually import is considered: `import` and `node`
+ * before `default`, and `require` last, since a CommonJS entry still loads. The
+ * conditions it cannot honor -- `browser`, `types`, a user condition -- are
+ * skipped rather than guessed at.
+ *
+ * @param exports - The `exports` field, whatever shape it is in.
+ * @param subpath - Whether a `"."` subpath is still to be taken.
+ * @returns The relative path, if one resolved.
+ */
+function resolveEntry(exports: unknown, subpath = true): string | undefined {
+	if (typeof exports === 'string') {
+		return exports;
+	}
+
+	if (Array.isArray(exports)) {
+		for (const candidate of exports) {
+			const resolved = resolveEntry(candidate, subpath);
+			if (resolved !== undefined) {
+				return resolved;
+			}
+		}
+		return;
+	}
+
+	if (!exports || typeof exports !== 'object') {
+		return;
+	}
+
+	const map = exports as Record<string, unknown>;
+
+	// a map whose keys are subpaths is a different thing from one whose keys are
+	// conditions, and `"."` is only a subpath at the top
+	if (subpath && Object.hasOwn(map, '.')) {
+		return resolveEntry(map['.'], false);
+	}
+
+	for (const condition of ['import', 'node', 'default', 'require']) {
+		if (Object.hasOwn(map, condition)) {
+			const resolved = resolveEntry(map[condition], false);
+			if (resolved !== undefined) {
+				return resolved;
+			}
+		}
+	}
+}
+
 async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
 	const pkgFile = join(dir, 'package.json');
 
@@ -465,10 +520,7 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 
 	const { description, exports, main, name, type } = pkgJson;
 
-	let entry = exports || main;
-	if (entry && typeof entry === 'object') {
-		entry = entry['.'] || entry.default;
-	}
+	const entry = resolveEntry(exports) ?? (typeof main === 'string' ? main : undefined);
 
 	const filePaths = entry ? [entry] : ['index.js', 'index.mjs', 'index.cjs'];
 	let entryFile;

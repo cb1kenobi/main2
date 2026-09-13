@@ -930,4 +930,143 @@ describe('regressions', () => {
 			);
 		});
 	});
+	describe('cross-model review round 1', () => {
+		// `--name=value` split the token and then trimmed both halves, while a value
+		// in the following token was taken as typed, so the two spellings of the
+		// same thing disagreed about whitespace the caller meant
+		it('should not trim whitespace out of an attached option value', async () => {
+			const schema = { options: { '--name [value]': {} } };
+
+			expect((await parse({ argv: ['--name=  padded  '], schema })).argv.name).to.equal(
+				'  padded  '
+			);
+			expect((await parse({ argv: ['--name', '  padded  '], schema })).argv.name).to.equal(
+				'  padded  '
+			);
+		});
+
+		// trimming turned a value that was one space into `''`, which for a required
+		// option then failed as a value that was never given
+		it('should accept a single space as a required option value', async () => {
+			const result = await parse({
+				argv: ['--sep= '],
+				schema: { options: { '--sep <value>': {} } },
+			});
+			expect(result.argv.sep).to.equal(' ');
+		});
+
+		// `inputs` is the split form -- `--foo=bar` was taken apart before anything
+		// knew a terminator preceded it -- so flattening it made two extras of one
+		it('should keep an argument after the terminator whole', async () => {
+			const result = await parse({
+				argv: ['--', '--foo=bar', '-x=1', 'a=b'],
+				schema: {},
+				settings: { allowExtraArguments: true },
+			});
+			expect(result._).to.deep.equal(['--foo=bar', '-x=1', 'a=b']);
+		});
+
+		// `number` returns 0 for an empty value because `Number('')` is 0, and a
+		// counter returns 0 explicitly, so `int` was the one integer type that failed
+		// the parse over a value the docs say is 0
+		it('should read an empty int value as zero', async () => {
+			const schema = { options: { '--port [n]': { type: 'int' } } };
+
+			expect((await parse({ argv: ['--port'], schema })).argv.port).to.equal(0);
+			expect((await parse({ argv: ['--port='], schema })).argv.port).to.equal(0);
+			expect(
+				(
+					await parse({
+						argv: [],
+						env: { PORT: '' },
+						schema: { options: { '--port [n]': { env: 'PORT', type: 'int' } } },
+					})
+				).argv.port
+			).to.equal(0);
+		});
+
+		// an empty value is 0, but whitespace is still not a number, the same way
+		// `bool` reads an empty value as false and throws on whitespace
+		it('should still reject whitespace as an int', async () => {
+			await expect(
+				parse({ argv: ['--port= '], schema: { options: { '--port [n]': { type: 'int' } } } })
+			).rejects.toThrow('Invalid integer:');
+		});
+
+		// every flag read an attached value as a `bool`, so a counter given a number
+		// threw, and a counter given `false` was counted up to 1 -- the counting path
+		// increments and never looks at the value
+		it('should let an explicit value set a counter', async () => {
+			const schema = { options: { '-v, --verbose': { type: 'count' } } };
+
+			expect((await parse({ argv: ['-v=2'], schema })).argv.verbose).to.equal(2);
+			expect((await parse({ argv: ['--verbose=5'], schema })).argv.verbose).to.equal(5);
+			expect((await parse({ argv: ['-v='], schema })).argv.verbose).to.equal(0);
+
+			// and it sets rather than increments, so what follows counts up from it
+			expect((await parse({ argv: ['-v', '-v=5', '-v'], schema })).argv.verbose).to.equal(6);
+		});
+
+		it('should reject a counter value that is not a number', async () => {
+			await expect(
+				parse({ argv: ['-v=false'], schema: { options: { '-v': { type: 'count' } } } })
+			).rejects.toThrow('Invalid count: false');
+		});
+
+		// the lookup was a plain object, so `#lookup['__proto__'] = name` went
+		// through `Object.prototype`'s accessor and was dropped: the command
+		// registered and could never be matched
+		it('should match a command named __proto__', async () => {
+			const result = await parse({
+				argv: ['__proto__'],
+				schema: { commands: { ['__proto__']: { desc: 'proto' } } },
+			});
+			expect(result.cmd?.name).to.equal('__proto__');
+		});
+
+		// the same plain-object hazard on the option registry. Argv reaches an
+		// option by its dashed spelling, which registers fine, so the parse was
+		// right -- but the bare name is a key too, and that one was dropped, so
+		// `get()` could not find an option the registry holds. The registries are
+		// what a hook is handed, so that is somebody's lookup
+		it('should find an option named __proto__ by name', async () => {
+			const result = await parse({
+				argv: ['--__proto__', 'x'],
+				schema: { options: { '--__proto__ [v]': {} } },
+			});
+			const options = result.contexts[0][Internal].options;
+			const opt = [...options.values()][0];
+
+			expect(opt.name).to.equal('__proto__');
+			expect(options.get('__proto__')).to.equal(opt);
+			expect(options.find('--__proto__')).to.equal(opt);
+			expect(result.argv.Proto_).to.equal('x');
+		});
+
+		// an `exports` map nests, and unwrapping exactly one level left a conditions
+		// object that reached `join()` as `[object Object]`
+		it('should load a command package with conditional exports', async () => {
+			const result = await parse({
+				argv: ['conditions'],
+				schema: { commands: path.join(__dirname, 'fixtures/good-pkg-export-conditions') },
+			});
+			expect(result.cmd?.name).to.equal('conditions');
+			expect(result.cmd?.desc).to.equal('Conditions command');
+		});
+
+		// `typeof null` is `'object'` and so is an array, so both slipped past the
+		// check: the parse succeeded with a command that has no `run`, and the load
+		// was recorded as done so it was never retried
+		it.each([
+			['null', 'null-default.js'],
+			['an array', 'array-default.js'],
+		])('should reject a command module that default exports %s', async (_label, file) => {
+			await expect(
+				parse({
+					argv: ['foo'],
+					schema: { commands: { foo: { path: path.join(__dirname, 'fixtures', file) } } },
+				})
+			).rejects.toThrow('Command module default export is not a valid command object');
+		});
+	});
 });

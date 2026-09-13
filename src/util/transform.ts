@@ -59,8 +59,16 @@ export function transformValue(
 		// a counter is a flag, and a flag with no value is off: `bool` reads an empty
 		// value as false, so an empty counter is 0 rather than an error. `VERBOSE=` in
 		// the environment means the variable is there and says nothing, which is the
-		// one reading that is not worth failing a parse over
-		if (type === 'count' && !value) {
+		// one reading that is not worth failing a parse over.
+		//
+		// `int` reads it the same way, because the rule is the data type's and not the
+		// counter's: `--port` and `--port=` on a `[value]` option are documented to
+		// yield "'' or 0, per the data type", and `number` already returns 0 because
+		// `Number('')` is 0. Only `int` threw, so one integer type answered an empty
+		// value with 0 and the other failed the parse -- and `PORT=` in the
+		// environment, which is the same "there and says nothing" reading, failed too.
+		// Whitespace still throws for both, matching `bool`
+		if (!value) {
 			return 0;
 		}
 
