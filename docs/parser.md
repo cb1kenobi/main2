@@ -429,12 +429,18 @@ nothing said what they are:
   `--age 20` is the number `20`, not `'20'`.
 - `no-` is not read as negation. `--no-color` is `noColor: true`, not
   `color: false`.
-- They never write a destination the schema describes. An undeclared spelling can
-  land on a declared destination — `--verbose` where `-v` is declared as
-  `{ name: 'verbose' }`, or `--logLevel` where `--log-level` is declared — and
+- They never write a destination something active describes. An undeclared
+  spelling can land on a declared destination — `--verbose` where `-v` is declared
+  as `{ name: 'verbose' }`, or `--logLevel` where `--log-level` is declared — and
   writing it would replace a value the schema described, with its type, `choices`,
   `multiple`, and `transform` all skipped. The declared value stands and the
   undeclared one is dropped from `argv`; what was typed is still on `state.$`.
+  Active means every option in the context chain, since that is where options
+  resolve from, and the arguments of the command being run: an ancestor's
+  arguments are not read once a subcommand is dispatched, so they own nothing and
+  `mycli build --mode x` writes `mode` even where the root declares `[mode]`. What
+  owns a destination is asked at the moment of the write, so an option a hook or a
+  `transform` added mid-parse counts.
 
 Only the `--long-name` and `-x` forms are recognized. An unresolved short group
 such as `-abc` stays a positional value. Repeating an undeclared option
@@ -501,6 +507,11 @@ its own `default` or from `--cheese false`.
 The same rule holds wherever two declarations share a destination — an option and
 a positional argument of the same name — and it is why a value is validated once,
 by its writer, rather than once per declaration that can reach it.
+
+A value with no writer is the exception, and it is validated by every declaration
+that can reach the destination. That covers a value a hook put on `state.argv`
+itself, and one whose writer a hook has since replaced: without it, writing or
+replacing from a hook would be a way around `choices`.
 
 Declaring `negate: false` on the flag opts out of all of this: the `no-` is
 then part of the name, so it keeps its own `noCheese` destination and reads as

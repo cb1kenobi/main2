@@ -166,7 +166,7 @@ false` rethrows instead; a function replaces the handler.
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
   not reach `state._`. `settings.allowUnknownOptions: false` restores the
   `Unknown option` error.
-- **An undeclared option never writes a destination the schema describes.** An
+- **An undeclared option never writes a destination something active describes.** An
   undeclared spelling can land on one -- `--verbose` where `-v` is declared
   `{ name: 'verbose' }`, `--logLevel` where `--log-level` is declared -- and it
   arrives with none of what the declaration says: `auto` guessed its value, and the
@@ -174,7 +174,11 @@ false` rethrows instead; a function replaces the handler.
   declared value stands and the undeclared one is dropped from `argv` rather than
   overwriting it. Dropped rather than an error because pass-through is what
   `allowUnknownOptions` is for, and an unlucky spelling should not fail the parse;
-  what was typed is still on `state.$`.
+  what was typed is still on `state.$`. Active is every option in the chain plus
+  the arguments of the command being run -- an ancestor's arguments are never read
+  once a subcommand is dispatched, so they own nothing -- and it is asked at the
+  moment of the write, because a `transform` or a hook can add an option while argv
+  is still being walked.
 - **A value is validated by whoever wrote it.** More than one declaration can reach
   one destination -- a valued option and its negated twin, an option and a
   positional argument of the same name, a nearer context's option of the same
@@ -184,8 +188,11 @@ false` rethrows instead; a function replaces the handler.
   `Invalid value "false" for option --cheese`, and a `false` the valued option
   produced itself is still checked. The old rule -- skip a `false` when a negated
   twin exists -- was a guess at the writer's identity from the value, and it was
-  wrong in both directions. See `test/parser/options.test.ts` and
-  `test/parser/regressions.test.ts`.
+  wrong in both directions. A value with no _live_ writer is the exception and is
+  checked by every declaration that can reach the destination: that is a value a
+  hook wrote on `state.argv` itself, or one whose writer a hook has since replaced,
+  and without it a hook would be a way around `choices`. See
+  `test/parser/options.test.ts` and `test/parser/regressions.test.ts`.
 - **The first bare label in a command name is the name; the rest are
   aliases.** `'build, b'` and `'build b'` declare `build` aliased `b`. A `@` or
   `!` prefixed label is always an alias and names the command only when there
