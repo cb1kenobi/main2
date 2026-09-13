@@ -253,6 +253,12 @@ false` rethrows instead; a function replaces the handler.
   is what the `!` name prefix is for. `help <command>` does load the module,
   since it is describing that one command.
 
+### Sharing options between commands
+
+- **`options()` is the identity function.** It exists for the types: a `const`
+  type parameter keeps `type: 'int'` from widening to `string`, so a group is
+  still worth inferring from wherever it is used.
+
 ## Known bugs
 
 - A subcommand's option used before its subcommand is not protected from being

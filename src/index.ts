@@ -5,6 +5,7 @@ import { type AppOptions, type ParseState, type Schema, type Settings } from './
 
 export * from './types.js';
 export { errorExitCode, errorHandler, renderError } from './error-handler.js';
+export { options } from './options.js';
 
 const { log } = debug('main2');
 
