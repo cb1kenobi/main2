@@ -251,6 +251,85 @@ describe('regressions', () => {
 			expect(result.argv.size).to.equal('sm');
 		});
 
+		// accumulating reads the destination back, so what it reads has to be its own:
+		// the rule for a shared destination is that the last writer wins, not that it
+		// extends whatever was there
+		it('should not let a multiple option extend an argument array', async () => {
+			const result = await parse({
+				argv: ['a', '-n', '1'],
+				schema: {
+					help: false,
+					args: [{ name: '[tag...]', choices: ['a'] }],
+					options: { '-n [v]': { choices: [1], multiple: true, name: 'tag', type: 'int' } },
+				},
+			});
+
+			// `['a', 1]` used to come out of this, and then failed the option's choices
+			expect(result.argv.tag).to.deep.equal([1]);
+		});
+
+		it('should not let a counter increment an argument value', async () => {
+			const result = await parse({
+				argv: ['10', '-v'],
+				schema: {
+					help: false,
+					args: [{ name: '[v]', type: 'int' }],
+					options: { '-v': { type: 'count' } },
+				},
+			});
+
+			// `-v` appeared once, so it is 1 rather than 11
+			expect(result.argv.v).to.equal(1);
+		});
+
+		// two declarations on one destination replace rather than merge, which is what
+		// last-writer-wins means everywhere else and what `src/infer.ts` types: a union
+		// of what each source produces, never one value built out of both. An alias is
+		// not a second declaration, so it still accumulates.
+		it('should let the second declaration of a destination replace the first', async () => {
+			const tags = await parse({
+				argv: ['cmd', '--tag', 'a', '--label', 'b'],
+				schema: {
+					help: false,
+					options: { '--tag [t]': { multiple: true } },
+					commands: { cmd: { options: { '--label [l]': { multiple: true, name: 'tag' } } } },
+				},
+			});
+			expect(tags.argv.tag).to.deep.equal(['b']);
+
+			const counted = await parse({
+				argv: ['cmd', '-v', '--verbose'],
+				schema: {
+					help: false,
+					options: { '-v': { name: 'verbose', type: 'count' } },
+					commands: { cmd: { options: { '--verbose': { type: 'count' } } } },
+				},
+			});
+			expect(counted.argv.verbose).to.equal(1);
+		});
+
+		it('should accumulate across an alias, which is the same declaration', async () => {
+			const result = await parse({
+				argv: ['--tag', 'a', '-t', 'b'],
+				schema: { help: false, options: { '-t, --tag [t]': { multiple: true } } },
+			});
+			expect(result.argv.tag).to.deep.equal(['a', 'b']);
+		});
+
+		it('should still accumulate its own repeated uses', async () => {
+			const tags = await parse({
+				argv: ['--tag', 'a', '--tag', 'b'],
+				schema: { help: false, options: { '--tag [t]': { multiple: true } } },
+			});
+			expect(tags.argv.tag).to.deep.equal(['a', 'b']);
+
+			const counted = await parse({
+				argv: ['-vvv'],
+				schema: { help: false, options: { '-v': { type: 'count' } } },
+			});
+			expect(counted.argv.v).to.equal(3);
+		});
+
 		// an option and a positional argument of the same name share a destination,
 		// and each has its own `choices`: whoever wrote the value is who it answers
 		// to. Validating whatever was on the destination meant the other one's rules
