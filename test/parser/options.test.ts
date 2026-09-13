@@ -1,5 +1,12 @@
+import { initOption } from '../../src/parser/option/init-option.js';
 import { parse } from '../../src/parser/parse.js';
-import { Internal, Option, type Schema } from '../../src/types.js';
+import {
+	Internal,
+	Option,
+	type ParseState,
+	type Schema,
+	type Transformer,
+} from '../../src/types.js';
 import { describe, it, expect } from 'vitest';
 
 describe('options', () => {
@@ -1562,6 +1569,32 @@ describe('options', () => {
 			expect(result.argv.verbose).to.equal(0);
 			// and what was typed is still there for anything that wants it
 			expect(result.$.some((parsed) => parsed.type === 'UnknownOption')).to.equal(true);
+		});
+
+		// an argument's `transform` runs while the parsed values are being walked and may
+		// add an option, so what owns a destination cannot be decided before the walk
+		it('should not let an undeclared option overwrite an option a transform added', async () => {
+			const result = await parse({
+				argv: ['seed', '--tag', '007'],
+				schema: {
+					help: false,
+					args: [
+						{
+							name: '[seed]',
+							transform: (async (value, state) => {
+								const { options } = (state as ParseState).contexts[0][Internal];
+								await options.add(await initOption({ format: '--tag [t]', type: 'string' }));
+								return value;
+							}) as Transformer,
+						},
+					],
+				},
+			});
+
+			// `--tag` is declared `string`; the undeclared write had `auto` make it the
+			// number 7, and used to land anyway
+			expect(Object.hasOwn(result.argv, 'tag')).to.equal(false);
+			expect(result.argv.seed).to.equal('seed');
 		});
 
 		// only the innermost context's arguments are read, so an ancestor's own
