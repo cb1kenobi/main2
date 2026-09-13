@@ -9,7 +9,7 @@ import {
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { lockDerived } from '../../util/lock-derived.js';
-import { initArg } from '../argument/init-arg.js';
+import { initArgs } from '../argument/init-args.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -117,29 +117,7 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			throw new TypeError('Expected arguments to be an array');
 		}
 
-		for (let i = 0; i < argDecls.length; i++) {
-			args[i] = initArg(argDecls[i]);
-		}
-
-		// a variadic argument takes every remaining value, so anything declared
-		// after it could never be given a value. this runs before the promotion
-		// below so a rejected schema is not left half promoted.
-		for (let i = 0; i < args.length - 1; i++) {
-			if (args[i].multiple) {
-				throw new Error(
-					`Only the last argument can be variadic: ${argLabel(args[i])} is followed by ${argLabel(args[i + 1])} in the "${parsed.name}" command`
-				);
-			}
-		}
-
-		// an optional argument before a required one is promoted to required
-		// since there is no way to skip it. `args` holds copies, so this never
-		// reaches the caller's argument objects.
-		for (let i = args.length - 2; i >= 0; i--) {
-			if (!args[i].required) {
-				args[i].required = args[i + 1].required;
-			}
-		}
+		args.push(...initArgs(argDecls, `the "${parsed.name}" command`));
 	}
 
 	if (parsed.name !== decl.name) {
@@ -249,6 +227,17 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	}
 
+	// `help` hooks are fired by the help module rather than from here, and for the
+	// same reason as `beforeError`: a list that is not a list of functions is
+	// worth rejecting now, because the alternative is finding out when somebody
+	// asks for help and gets an error instead
+	if (decl.hooks?.help !== undefined) {
+		const help = decl.hooks.help;
+		if (!Array.isArray(help) || help.some((h) => typeof h !== 'function')) {
+			throw new TypeError('Expected command help hooks to be an array of functions');
+		}
+	}
+
 	if (decl.hooks?.init !== undefined) {
 		if (!Array.isArray(decl.hooks.init)) {
 			throw new TypeError('Expected command init hooks to be an array');
@@ -306,25 +295,18 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
 	// on the command it was handed does not append to the declaration — and
 	// does not extend the list `initCommand()` is in the middle of walking
 	if (decl.hooks && typeof decl.hooks === 'object') {
-		const hooks = { ...decl.hooks };
-		for (const name of ['init', 'parse'] as const) {
-			const list = hooks[name];
+		// every list, not a named few: a hook that adds to the list it was read from
+		// would otherwise reach the caller's declaration and grow it on every parse
+		const hooks: Record<string, unknown> = { ...decl.hooks };
+		for (const [name, list] of Object.entries(hooks)) {
 			if (Array.isArray(list)) {
 				hooks[name] = [...list];
 			}
 		}
-		cmd.hooks = hooks;
+		cmd.hooks = hooks as Command['hooks'];
 	}
 
 	return cmd;
-}
-
-/**
- * Renders an argument the way it would be declared so an error can point at it.
- */
-function argLabel(arg: InternalArgument): string {
-	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
-	return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 function parseName(unparsedName: string): ParsedName {

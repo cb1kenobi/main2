@@ -673,6 +673,133 @@ what a command does and answering is not a failure. A value that is not an exit
 code is ignored rather than assigned, because assigning it would turn printing
 help into a crash.
 
+### Option groups
+
+An option declaring a `group` is listed under a heading of its own. The group is a
+noun and help appends the word, so it reads as an options list like every other
+section:
+
+```js
+options: {
+  '--verbose': 'Say more',
+  '--sdk [version]': { desc: 'Which SDK to build with', group: 'Advanced' },
+  '--trace': { desc: 'Dump the resolution tree', group: 'Advanced' },
+}
+```
+
+```
+Options:
+  --verbose         Say more
+
+Advanced options:
+  --sdk [version]   Which SDK to build with
+  --trace           Dump the resolution tree
+```
+
+Groups appear in the order they are first seen, which is the order the schema
+declared them in. A group whose every option is `hidden` is not a heading with
+nothing under it.
+
+### Contributing help sections
+
+Some options are not the command's to own. A `build` command with per-platform
+options has to describe all of them, while only the platform that was named
+should actually parse — putting every platform's options in the registry would
+make `--ios-version` accepted for an Android build.
+
+A `help` hook contributes titled sections for exactly that. It is handed the
+command, its registries, and the parse state, and adds sections that are _shown
+and not parsed_:
+
+```js
+const platforms = {
+  android: {
+    title: 'Android',
+    args: [{ name: '[avd]', desc: 'The AVD to launch' }],
+    options: { '--device-id [id]': 'Which device or emulator' },
+  },
+  ios: {
+    title: 'iOS',
+    options: { '--pp-uuid [uuid]': 'The provisioning profile' },
+  },
+};
+
+export default {
+  name: 'build',
+  desc: 'Builds a project',
+  options: {
+    '-p, --platform [name]': { choices: Object.keys(platforms), desc: 'The target' },
+  },
+  hooks: {
+    // what help describes: every platform, or only the one that was named
+    help: [
+      async ({ sections, state }) => {
+        for (const [name, conf] of Object.entries(platforms)) {
+          if (!state.argv.platform || state.argv.platform === name) {
+            await sections.add(conf);
+          }
+        }
+      },
+    ],
+    // what actually parses: the platform that was named, and nothing else
+    parse: [
+      async ({ options }) => {
+        const conf = platforms[/* the platform */];
+        for (const [format, opt] of Object.entries(conf?.options ?? {})) {
+          await options.add(typeof opt === 'string' ? { desc: opt, format } : { ...opt, format });
+        }
+      },
+    ],
+  },
+};
+```
+
+```
+$ ti build --help
+Usage: ti build [options]
+
+Builds a project
+
+Options:
+  -p, --platform [name]  The target (choices: android, ios)
+
+Android arguments:
+  [avd]                  The AVD to launch
+
+Android options:
+  --device-id [id]       Which device or emulator
+
+iOS options:
+  --pp-uuid [uuid]       The provisioning profile
+
+Global options:
+  -h, --help             Show help for a command
+```
+
+`sections.add({ title, args, options })` reads its declarations exactly the way
+`Command.options` and `Command.args` are read — a string is the description,
+`null` is a format and nothing else — and runs them through the same
+initialization, so a contributed option is described exactly as a declared one:
+spellings shortest first, hints, defaults, choices, `hidden`, and a negated flag
+sharing its pair's row.
+
+Handing the hook the state is the point of it being a function rather than a list
+on the declaration. `ti build --help` and `ti build --platform ios --help` can
+describe different things, and which is a decision for the command.
+
+A title used twice is one section rather than two headings saying the same thing,
+so two platforms that share one add to it. `Global` is not available as a title or
+a group, because help writes `Global options` itself.
+
+Sections are listed after the command's own options and groups, and before what
+it inherited, in the order they were added. Only the command being described is
+asked: an ancestor's sections would appear under a command that has nothing to do
+with them. A contributed option shadows nothing, because nothing resolves to it.
+
+`resolveHelp()` is what fires the hooks — `renderHelp()` is synchronous and takes
+built sections as an option, so a caller doing its own rendering supplies its own
+or none.
+
 ### Writing your own help for one command
 
 `Command.help` replaces the generated screen. A string is printed as it is:

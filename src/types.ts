@@ -123,6 +123,11 @@ export interface Command {
 	hidden?: boolean;
 	hooks?: {
 		beforeError?: BeforeErrorHook[];
+		/**
+		 * Fires when this command's help is about to be rendered, to contribute
+		 * titled sections. See `HelpHook`.
+		 */
+		help?: HelpHook[];
 		init?: CommandHook[];
 		parse?: CommandHook[];
 	};
@@ -161,6 +166,72 @@ export type CommandHookData = InternalCommandBase & {
 	cmd: Command;
 };
 
+/**
+ * Contributes titled sections to a command's help screen.
+ *
+ * For options a command has but does not own: a `build` command whose
+ * per-platform options are only in effect for the platform that was named still
+ * has to describe all of them, and adding them to its registry would make every
+ * platform's options parse for every platform. A section is shown and not
+ * parsed. Options that should do both are added to the registry by a `parse`
+ * hook, which is a different question with a different answer.
+ *
+ * The hook is handed the parse state, which is the reason this is a function
+ * rather than a list of sections on the declaration: `mycli build --help` and
+ * `mycli build --platform ios --help` may describe different things, and which
+ * is a decision for the command rather than for the framework.
+ */
+export type HelpHook = (data: HelpHookData) => Promise<void> | void;
+
+/**
+ * Unlike `CommandHookData` this does not spread `InternalCommandBase`, because
+ * that carries a `state` of its own -- the `InternalState` of the command -- and
+ * what a help hook wants under that name is the parse state. The three registries
+ * worth having are named instead.
+ */
+export interface HelpHookData {
+	/** The command's arguments, as the parser reads them. */
+	args: InternalArgument[];
+	/** The command being described. */
+	cmd: InternalCommand;
+	/** The command's subcommands. */
+	commands: CommandRegistry;
+	/** The command's own options. */
+	options: OptionRegistry;
+	/** Where sections are added. */
+	sections: HelpSections;
+	/** What argv said, so a hook can describe only what is relevant to it. */
+	state: ParseState;
+}
+
+/** A titled group of options and arguments, added to a help screen. */
+export interface HelpSection {
+	args?: (string | Argument)[];
+	/**
+	 * Read the same way `Command.options` is. A `group` on one of them is ignored:
+	 * the section is already the group.
+	 */
+	options?: Record<string, string | Option | undefined | null>;
+	/**
+	 * The section's subject. Help appends the word, so `'Android'` reads as
+	 * `Android options:`.
+	 */
+	title: string;
+}
+
+/**
+ * Collects the sections a command's `help` hooks contribute, in the order they
+ * are added.
+ */
+export interface HelpSections {
+	/**
+	 * Adds a section. The declarations go through the same initialization the
+	 * schema's own do, so a contributed option is described exactly as a declared
+	 * one is -- spellings, hint, default, `hidden`, and all.
+	 */
+	add(section: HelpSection): Promise<void>;
+}
+
 export type DataTransformer = (value: string) => unknown;
 
 export type OptionDataType = DataType | 'count';
@@ -177,6 +248,15 @@ export interface Option {
 	desc?: string;
 	env?: string | string[];
 	format?: string;
+	/**
+	 * The help section this option is listed under. Options that declare no group
+	 * share one section; each group named here becomes one of its own, in the
+	 * order the groups are first seen.
+	 *
+	 * The name is a noun and help appends the word, so `'Advanced'` reads as
+	 * `Advanced options:`.
+	 */
+	group?: string;
 	hidden?: boolean;
 	hint?: string;
 	multiple?: boolean;

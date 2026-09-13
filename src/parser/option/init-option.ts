@@ -1,4 +1,5 @@
 import { Internal, InternalOption, InternalState, Option } from '../../types.js';
+import { assertSectionTitle } from '../../util/assert-label.js';
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { lockDerived } from '../../util/lock-derived.js';
@@ -198,6 +199,13 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	if (opt.transform && typeof opt.transform !== 'function') {
 		throw new TypeError('Expected option transform function to be a function');
+	}
+
+	// the group becomes a heading of its own, so it is checked here rather than
+	// where it is printed: a bad declaration is worth rejecting while the schema is
+	// being built, not when somebody asks for help
+	if (opt.group !== undefined) {
+		opt.group = assertSectionTitle(opt.group, `option "${opt.name}" group`);
 	}
 
 	const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;

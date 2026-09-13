@@ -12,9 +12,11 @@ import {
 } from '../types.js';
 import { terminalWidth, wrap } from '../wrap/index.js';
 import { type Definition, definitions, type LayoutOptions } from './layout.js';
+import { type BuiltSection, byGroup, createSections, withoutTwins } from './sections.js';
 import { basename } from 'node:path';
 
 export { type Definition, definitions, pad } from './layout.js';
+export { type BuiltSection, createSections } from './sections.js';
 
 /**
  * What help needs to know, which is what `parse()` already built.
@@ -45,6 +47,12 @@ export interface HelpOptions {
 	maxLabel?: number;
 	/** The program's name, for the usage line. Defaults to the schema's name. */
 	name?: string;
+	/**
+	 * Titled sections to list after the command's own options and before the
+	 * inherited ones. `resolveHelp()` fills these in from the command's `help`
+	 * hooks; a caller rendering directly supplies its own or none.
+	 */
+	sections?: BuiltSection[];
 	/** The column to wrap at. Defaults to `terminalWidth()`. */
 	width?: number;
 }
@@ -86,10 +94,18 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 		width,
 	};
 
+	// the visible options of each contributed section, read once: both the usage
+	// line and the sections themselves need to know what is actually in them
+	const contributed = (opts.sections ?? []).map((section_) => ({
+		args: section_.args,
+		options: optionsOf(section_.options),
+		title: section_.title,
+	}));
 	const cmd = contexts[0]!;
 	const internal = cmd[Internal];
 	const commands = shown(internal.commands.values()).sort((a, b) => a.name.localeCompare(b.name));
 	const options = optionsOf(internal.options);
+	const { groups, ungrouped } = byGroup(options);
 
 	// an option the command declares itself shadows the one above it -- the parser
 	// resolves options across the chain innermost first -- so listing the outer one
@@ -100,26 +116,31 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	// typed: a command declaring a short-only `-x` does not shadow a root `--x`,
 	// and `mycli build --x` still reaches the root's. An outer option is left out
 	// only when every one of its spellings has been claimed by a nearer one.
-	const claimed = new Set(options.flatMap(resolvable));
-	const inherited: InternalOption[] = [];
+	//
+	// Every option claims, including a hidden one. Being hidden is about whether
+	// help lists it, not about whether it resolves -- a command with a hidden
+	// `--mode` is still the `--mode` that `mycli build --mode` reaches, so listing
+	// the root's under "Global options" would describe the wrong one.
+	const claimed = new Set([...internal.options.values()].flatMap(resolvable));
+	const reachable: InternalOption[] = [];
 	for (const ctx of contexts.slice(1)) {
-		for (const opt of optionsOf(ctx[Internal].options)) {
+		for (const opt of ctx[Internal].options.values()) {
 			const spellings = resolvable(opt);
-			if (spellings.every((spelling) => claimed.has(spelling))) {
-				continue;
+			if (!spellings.every((spelling) => claimed.has(spelling))) {
+				reachable.push(opt);
 			}
 			for (const spelling of spellings) {
 				claimed.add(spelling);
 			}
-			inherited.push(opt);
 		}
 	}
+	const inherited = withoutTwins(shown(reachable));
 	const args = internal.args;
 	// a name that is nothing but an alias -- `'@b'` -- is its own alias, and the
 	// command is already named on the usage line
 	const aliases = [...internal.aliases].filter((alias) => alias !== cmd.name);
 
-	const sections: string[][] = [
+	const blocks: string[][] = [
 		usageLine(
 			{
 				args,
@@ -127,7 +148,14 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 				commands: commands.length > 0,
 				defaulted: internal.commands.default !== undefined,
 				name: programName(target, opts),
-				options: options.length > 0 || inherited.length > 0,
+				// a contributed section counts: options can follow, whether or not this
+				// command's own registry is what ends up resolving them
+				// a contributed section counts, but only when it has options in it: one
+				// that contributes arguments alone is not a reason to promise options
+				options:
+					options.length > 0 ||
+					inherited.length > 0 ||
+					contributed.some((section_) => section_.options.length > 0),
 				path: contexts
 					.slice(0, -1)
 					.reverse()
@@ -138,14 +166,14 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	];
 
 	if (cmd.desc?.trim()) {
-		sections.push(lines(cmd.desc, width));
+		blocks.push(lines(cmd.desc, width));
 	}
 
 	// the root context is the schema, and its aliases are nobody's business: what
 	// would be aliased is the program, and the program is not what it declares
 	if (aliases.length > 0 && contexts.length > 1) {
 		const title = aliases.length === 1 ? 'Alias:' : 'Aliases:';
-		sections.push(
+		blocks.push(
 			wrap(`${ansi.bold(title)} ${aliases.join(', ')}`, {
 				hangingIndent: title.length + 1,
 				width,
@@ -154,11 +182,11 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	}
 
 	if (commands.length > 0) {
-		sections.push(section('Commands', commands.map(commandRow), layout, ansi));
+		blocks.push(section('Commands', commands.map(commandRow), layout, ansi));
 	}
 
 	if (args.length > 0) {
-		sections.push(
+		blocks.push(
 			section(
 				'Arguments',
 				args.map((arg) => argRow(arg, ansi)),
@@ -168,19 +196,36 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 		);
 	}
 
-	if (options.length > 0) {
-		sections.push(
+	if (ungrouped.length > 0) {
+		blocks.push(
 			section(
 				'Options',
-				options.map((opt) => optionRow(opt, ansi)),
+				ungrouped.map((opt) => optionRow(opt, ansi)),
 				layout,
 				ansi
 			)
 		);
 	}
 
+	// the command's own groups, then the sections its hooks contributed: both are
+	// the command's, and both come before what it inherited
+	for (const group of groups) {
+		blocks.push(
+			section(
+				`${group.title} options`,
+				group.options.map((opt) => optionRow(opt, ansi)),
+				layout,
+				ansi
+			)
+		);
+	}
+
+	for (const section_ of contributed) {
+		blocks.push(...contributedBlocks(section_, layout, ansi));
+	}
+
 	if (inherited.length > 0) {
-		sections.push(
+		blocks.push(
 			section(
 				'Global options',
 				inherited.map((opt) => optionRow(opt, ansi)),
@@ -192,12 +237,12 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 
 	const examples = exampleList(cmd.examples);
 	if (examples.length > 0) {
-		sections.push(exampleSection(examples, layout, ansi, width));
+		blocks.push(exampleSection(examples, layout, ansi, width));
 	}
 
-	return sections
-		.map((section) => section.join('\n'))
-		.filter((section) => section !== '')
+	return blocks
+		.map((block) => block.join('\n'))
+		.filter((block) => block !== '')
 		.join('\n\n');
 }
 
@@ -226,9 +271,52 @@ function shown<T extends { hidden?: boolean }>(values: Iterable<T>): T[] {
  * @returns The options to show.
  */
 function optionsOf(registry: OptionRegistry): InternalOption[] {
-	const options = shown(registry.values());
-	const twins = new Set(options.map((opt) => opt[Internal].negatedTwin).filter(Boolean));
-	return options.filter((opt) => !twins.has(opt));
+	return withoutTwins(shown(registry.values()));
+}
+
+/**
+ * The blocks one contributed section makes: its arguments, then its options.
+ *
+ * A section with nothing visible in it makes none, so a hook that contributed an
+ * empty one -- a platform with no options of its own -- does not leave a heading
+ * with nothing under it.
+ *
+ * @param section - The section.
+ * @param layout - Where the columns are.
+ * @param ansi - The styler.
+ * @returns The blocks.
+ */
+function contributedBlocks(
+	section_: { args: InternalArgument[]; options: InternalOption[]; title: string },
+	layout: LayoutOptions,
+	ansi: Ansi
+): string[][] {
+	const blocks: string[][] = [];
+	const { args, options } = section_;
+
+	if (args.length > 0) {
+		blocks.push(
+			section(
+				`${section_.title} arguments`,
+				args.map((arg) => argRow(arg, ansi)),
+				layout,
+				ansi
+			)
+		);
+	}
+
+	if (options.length > 0) {
+		blocks.push(
+			section(
+				`${section_.title} options`,
+				options.map((opt) => optionRow(opt, ansi)),
+				layout,
+				ansi
+			)
+		);
+	}
+
+	return blocks;
 }
 
 /**
@@ -523,7 +611,10 @@ function exampleSection(
  * @returns The lines.
  */
 function section(title: string, items: Definition[], layout: LayoutOptions, ansi: Ansi): string[] {
-	return [ansi.bold(`${title}:`), ...definitions(items, layout)];
+	// a heading is wrapped like anything else. A title long enough to need it is
+	// one somebody wrote, so it breaks at a space, unlike an option's label
+	const heading = wrap(ansi.bold(`${title}:`), { width: layout.width }).split('\n');
+	return [...heading, ...definitions(items, layout)];
 }
 
 /**
@@ -556,14 +647,20 @@ export async function resolveHelp(state: ParseState, opts: HelpOptions = {}): Pr
 	const target: HelpTarget = state.help
 		? { contexts: state.help.contexts, schema: state.schema }
 		: state;
-	const generated = renderHelp(target, opts);
 	const cmd = target.contexts[0]!;
 	const custom = cmd.help as string | HelpRenderer | undefined;
 
+	// a string replaces the screen outright, so there is no screen to build and no
+	// hook to fire: a command that writes its own help should not be able to fail
+	// on the way to not using the generated one
 	if (typeof custom === 'string') {
 		return custom;
 	}
 
+	const generated = renderHelp(target, {
+		...opts,
+		sections: opts.sections ?? (await contributedSections(cmd, state)),
+	});
 	if (typeof custom === 'function') {
 		const replacement = await custom({ cmd, generated, state });
 		return typeof replacement === 'string' ? replacement : generated;
@@ -571,3 +668,64 @@ export async function resolveHelp(state: ParseState, opts: HelpOptions = {}): Pr
 
 	return generated;
 }
+
+/**
+ * The sections a command's `help` hooks contribute.
+ *
+ * Only the command being described is asked. An ancestor's sections would appear
+ * under a command that has nothing to do with them, and a command that wants to
+ * describe something about its subcommands can say so in its own screen.
+ *
+ * @param cmd - The command being described.
+ * @param state - The parse state, handed to each hook.
+ * @returns The sections, or `undefined` when there are no hooks.
+ */
+async function contributedSections(
+	cmd: InternalCommand,
+	state: ParseState
+): Promise<BuiltSection[] | undefined> {
+	const hooks = cmd.hooks?.help;
+
+	if (!Array.isArray(hooks) || hooks.length === 0) {
+		return undefined;
+	}
+
+	// a hook is handed the state, which is everything `resolveHelp()` needs, so
+	// calling it from inside one is an easy mistake to make and a stack overflow is
+	// a poor way to find out. What a hook wanting the generated screen is looking
+	// for is `Command.help`, which is handed it.
+	if (rendering.has(cmd)) {
+		throw new Error(
+			`A help hook for "${cmd.name}" asked for the help it is contributing to; use Command.help to read the generated screen`
+		);
+	}
+
+	const internal = cmd[Internal];
+	const sections = createSections();
+	rendering.add(cmd);
+
+	try {
+		// a copy: a hook that adds to the list it is being read from would otherwise
+		// extend the run it is already in
+		for (const hook of hooks.slice()) {
+			await hook({
+				args: internal.args,
+				cmd,
+				commands: internal.commands,
+				options: internal.options,
+				sections,
+				state,
+			});
+		}
+	} finally {
+		rendering.delete(cmd);
+	}
+
+	return sections.list;
+}
+
+/**
+ * The commands whose `help` hooks are running, so that one asking for the screen
+ * it is building gets told rather than filling the stack.
+ */
+const rendering = new WeakSet<InternalCommand>();
