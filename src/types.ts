@@ -146,10 +146,16 @@ export interface InternalOption extends Option {
 export interface InternalOptionBase extends InternalBase {
 	dest: string;
 	envs: Set<string>;
+	/** The parser supplied the default, the declaration did not. */
+	impliedDefault: boolean;
 	isFlag: boolean;
 	label: string;
 	long: Set<string>;
+	/** The negated flag declared alongside this option, sharing its destination. */
+	negatedTwin?: InternalOption;
 	short: Set<string>;
+	/** Another option owns the default for the destination they share. */
+	skipDefault: boolean;
 }
 
 export interface ParseOptions {

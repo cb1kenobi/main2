@@ -327,6 +327,49 @@ registered, and the one actually typed decides the value:
 | `--color=false`    | `false` |
 | `--no-color=false` | `true`  |
 
+Every other name a negated flag answers to turns the destination off, the same
+as `--no-color` does. Given `-C, --no-color`, `-C` is `color: false`. Only the
+positive spelling the flag registers for itself — `--color` — turns it on.
+
+#### Declaring both a value and its negation
+
+A valued option and a negated flag of the same name may be declared together.
+They are two options sharing one destination: the valued one sets it and the
+flag turns it off. Declaration order does not matter.
+
+```js
+{
+	options: {
+		'--cheese <type>': 'cheese flavour',
+		'--no-cheese': 'hold the cheese'
+	}
+}
+```
+
+| Input            | Result                           |
+| ---------------- | -------------------------------- |
+| `--cheese gouda` | `cheese: 'gouda'`                |
+| `--no-cheese`    | `cheese: false`                  |
+| `--cheese`       | throws, `<type>` demands a value |
+
+The valued option owns the destination's default, so the `true` a lone
+negated flag would imply is dropped: the pair above starts out undefined, and
+`--cheese [type]` with a `default` of `'mozzarella'` starts out
+`'mozzarella'`. A `default` declared on the flag itself is still honored when
+the valued twin declares none. Precedence over the shared destination is the
+usual one: argv, then an environment variable declared on either twin — the
+valued twin's are read first — then a default.
+
+Because `<type>` makes the option required, anything that fills the shared
+destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`
+or environment variable declared on either twin. `choices` on the valued
+option constrain the values it takes, not the `false` its twin means, so
+`--no-cheese` is always allowed.
+
+Declaring `negate: false` on the flag opts out of all of this: the `no-` is
+then part of the name, so it keeps its own `noCheese` destination and reads as
+present rather than inverted.
+
 ### Short option groups
 
 Groups are expanded against the schema, not by shape, because whether a
