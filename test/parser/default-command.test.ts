@@ -538,4 +538,81 @@ describe('default command', () => {
 			process.exitCode = exitCode;
 		});
 	});
+	// the default joins the context chain like any other command, so every
+	// rule decided elsewhere has to keep holding for it
+	describe('interaction with the rest of the parser', () => {
+		it('should dispatch a default declared with a bare alias list', async () => {
+			const state = await parse({
+				argv: [],
+				schema: { commands: { 'build, b': { default: true }, test: {} } },
+			});
+
+			expect(state.cmd?.name).toBe('build');
+		});
+
+		it('should still resolve that alias when it is typed', async () => {
+			const state = await parse({
+				argv: ['b'],
+				schema: { commands: { 'build, b': { default: true }, test: {} } },
+			});
+
+			expect(state.cmd?.name).toBe('build');
+		});
+
+		it('should dispatch a hidden default', async () => {
+			const state = await parse({
+				argv: [],
+				schema: { commands: { build: { default: true, hidden: true } } },
+			});
+
+			expect(state.cmd?.name).toBe('build');
+			expect(state.cmd?.hidden).toBe(true);
+		});
+
+		it('should dispatch a "!" prefixed default', async () => {
+			const state = await parse({
+				argv: [],
+				schema: { commands: { '!build': { default: true } } },
+			});
+
+			expect(state.cmd?.name).toBe('build');
+		});
+
+		it('should reject a default whose variadic argument is not last', async () => {
+			await expect(
+				parse({
+					argv: [],
+					schema: { commands: { build: { args: ['<files...>', '[out]'], default: true } } },
+				})
+			).rejects.toThrow('Only the last argument can be variadic');
+		});
+
+		it("should share a destination between the default's negated twins", async () => {
+			const state = await parse({
+				argv: ['--no-cheese'],
+				schema: {
+					commands: {
+						build: { default: true, options: { '--cheese [type]': {}, '--no-cheese': {} } },
+					},
+				},
+			});
+
+			expect(state.cmd?.name).toBe('build');
+			expect(state.argv.cheese).toBe(false);
+		});
+
+		it("should bind a loose value to the default's argument, not to the option", async () => {
+			const state = await parse({
+				argv: ['--tag', 'a', 'b'],
+				schema: {
+					commands: {
+						build: { args: ['[extra]'], default: true, options: { '--tag [v]': {} } },
+					},
+				},
+			});
+
+			expect(state.argv.tag).toBe('a');
+			expect(state.argv.extra).toBe('b');
+		});
+	});
 });

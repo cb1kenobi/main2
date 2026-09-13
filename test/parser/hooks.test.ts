@@ -256,6 +256,52 @@ describe('hooks', () => {
 					message: 'Expected argv to be an array',
 					opts: { argv: 'nope' as never, schema: {} },
 				},
+				{
+					name: 'an option handed a second consecutive value',
+					message: 'Unexpected argument "b"',
+					opts: { argv: ['--tag', 'a', 'b'], schema: { options: { '--tag [v]': {} } } },
+				},
+				{
+					name: 'a variadic hint on an option',
+					message: 'Invalid option format: <v>...',
+					opts: { argv: [], schema: { options: { '--tag <v>...': {} } } },
+				},
+				{
+					name: 'a value bool refuses to coerce',
+					message: 'Invalid boolean: "maybe"',
+					opts: {
+						argv: ['--flag=maybe'],
+						schema: { options: { '--flag [v]': { type: 'bool' } } },
+					},
+				},
+				{
+					name: 'a bad choice on a paired valued twin',
+					message: 'Invalid value "blue" for option --cheese',
+					opts: {
+						argv: ['--cheese', 'blue'],
+						schema: {
+							options: { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} },
+						},
+					},
+				},
+				{
+					name: 'a required valued twin nothing satisfied',
+					message: 'Missing required options: --cheese',
+					opts: { argv: [], schema: { options: { '--cheese <type>': {}, '--no-cheese': {} } } },
+				},
+				{
+					name: 'a variadic argument that is not last',
+					message: 'Only the last argument can be variadic',
+					opts: { argv: [], schema: { args: ['<rest...>', '[extra]'] } },
+				},
+				{
+					name: 'a variadic argument that is not last inside a subcommand',
+					message: 'Only the last argument can be variadic',
+					opts: {
+						argv: ['build'],
+						schema: { commands: { build: { args: ['<files...>', '[out]'] } } },
+					},
+				},
 			];
 
 			for (const { name, message, opts } of cases) {

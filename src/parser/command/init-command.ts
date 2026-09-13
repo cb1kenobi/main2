@@ -53,6 +53,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		throw new TypeError(`Invalid run function in "${it.name}" command`);
 	}
 
+	if (command.hidden !== undefined && typeof command.hidden !== 'boolean') {
+		throw new TypeError(`Expected hidden to be a boolean in "${it.name}" command`);
+	}
+
 	if (command.default !== undefined && typeof command.default !== 'boolean') {
 		throw new TypeError(`Expected default in "${it.name}" command to be a boolean`);
 	}
@@ -90,15 +94,34 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			throw new TypeError('Expected arguments to be an array');
 		}
 
-		for (let i = it.args.length - 1, j = i; i >= 0; i--) {
+		for (let i = 0; i < it.args.length; i++) {
 			args[i] = initArg(it.args[i]);
-			if (i < j && !args[i].required) {
+		}
+
+		// a variadic argument takes every remaining value, so anything declared
+		// after it could never be given a value. this runs before the promotion
+		// below so a rejected schema is not left half promoted.
+		for (let i = 0; i < args.length - 1; i++) {
+			if (args[i].multiple) {
+				throw new Error(
+					`Only the last argument can be variadic: ${argLabel(args[i])} is followed by ${argLabel(args[i + 1])} in the "${parsed.name}" command`
+				);
+			}
+		}
+
+		// an optional argument before a required one is promoted to required
+		// since there is no way to skip it
+		for (let i = args.length - 2; i >= 0; i--) {
+			if (!args[i].required) {
 				args[i].required = args[i + 1].required;
 			}
 		}
 	}
 
-	(it as Command).hidden = parsed.hidden;
+	// A `!` prefixed name and an explicit `hidden` are additive: either one
+	// hides the command. An explicit `hidden: false` does not un-hide a `!`
+	// prefixed name; drop the `!` to make the command visible.
+	command.hidden = parsed.hidden || command.hidden === true;
 
 	if (parsed.name !== it.name) {
 		log(`Command name changed "${it.name}" -> "${parsed.name}"`);
@@ -180,7 +203,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 				label: parsed.label,
 				options,
 				path: entryFile,
-				state: InternalState.OK,
+				// the command is not fully initialized until its init hooks have
+				// run, so a hook that throws leaves it dirty and it is rebuilt the
+				// next time it is initialized rather than silently accepted
+				state: InternalState.Dirty,
 			},
 		}),
 		{
@@ -236,7 +262,17 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	}
 
+	cmd[Internal].state = InternalState.OK;
+
 	return cmd;
+}
+
+/**
+ * Renders an argument the way it would be declared so an error can point at it.
+ */
+function argLabel(arg: InternalArgument): string {
+	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
+	return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 function parseName(unparsedName: string): {
@@ -250,29 +286,50 @@ function parseName(unparsedName: string): {
 	const args: string[] = [];
 	const labels: string[] = [];
 	let hidden = false;
-	let name;
+	let name: string | undefined;
+	let fallbackName: string | undefined;
 
 	for (let label of unparsedName.split(nameSplitRegExp)) {
+		if (!label) {
+			// a leading, trailing, or doubled separator
+			continue;
+		}
+
 		const c = label[0];
 		if ('<['.includes(c)) {
 			args.push(label);
 			continue;
 		}
 
-		if ('!@'.includes(c)) {
-			label = label.slice(1);
-			aliases.push(label);
-			name ??= label;
-		} else {
-			name = label;
+		if (c === '!') {
+			// "!" hides the command, not just the label it sits on, so a stray
+			// "!" still hides rather than quietly doing nothing
+			hidden = true;
 		}
 
-		if (c === '!') {
-			hidden = true;
+		if ('!@'.includes(c)) {
+			label = label.slice(1);
+			if (!label) {
+				// a stray "!" or "@" declares no name
+				continue;
+			}
+			aliases.push(label);
+			// a prefixed label names the command only if no bare label does
+			fallbackName ??= label;
+		} else if (name === undefined) {
+			// the first bare label is the name...
+			name = label;
 		} else {
+			// ...and every bare label after it is an alias
+			aliases.push(label);
+		}
+
+		if (c !== '!') {
 			labels.push(label);
 		}
 	}
+
+	name ??= fallbackName;
 
 	if (!name) {
 		throw new Error(`Unable to determine command name from "${unparsedName}"`);

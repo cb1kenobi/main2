@@ -54,17 +54,20 @@ The name string carries more than a name:
 | ----------- | --------------------------------------------- |
 | `build`     | Command named `build`                         |
 | `@b`        | Alias — resolves to the command, not its name |
-| `!internal` | Hidden alias, omitted from help               |
+| `!internal` | Hidden alias; also hides the command itself   |
 | `<arg>`     | Inline required argument                      |
 | `[arg]`     | Inline optional argument                      |
 
 Labels are separated by commas or spaces, so `'build, @b <entry>'` declares a
 command named `build`, aliased `b`, taking one required argument.
 
-> [!WARNING]
-> A bare comma list such as `'build, b'` does **not** create an alias. Each
-> unprefixed label overwrites the name in turn, so the command ends up named
-> `b` and `build` is never registered. Use `@b`. This is a known bug.
+The first bare label names the command and every bare label after it becomes an
+alias, so `'build, b'`, `'build b'`, and `'build, @b'` all declare a command
+named `build` answering to `b`. A `@` or `!` prefixed label is always an alias;
+it names the command only when the string has no bare label at all, which is
+what makes `'@b'` and `'!internal'` on their own work, and why `'@ls, list'` is
+named `list`. Empty labels — a leading, trailing, or doubled separator — are
+ignored, and a name string with no label at all throws.
 
 Aliases can also be given as a property, which is clearer for more than one:
 
@@ -88,14 +91,27 @@ declaring both throws.
 | `commands` | `object \| string`       | Subcommands, or a path to load them from            |
 | `default`  | `boolean`                | Runs when argv named no command — see below         |
 | `desc`     | `string`                 | Description for help                                |
-| `hidden`   | `boolean`                | Omit from help — **see bug note below**             |
+| `hidden`   | `boolean`                | Omit from help; a `!` name prefix sets it too       |
 | `hooks`    | `{ init, parse }`        | Lifecycle callbacks                                 |
 | `options`  | `object`                 | Options scoped to this command and its children     |
 | `run`      | `(state) => unknown`     | Handler invoked by `main2()` when this command wins |
 
-> [!WARNING]
-> An explicit `hidden: true` is currently overwritten by name parsing, so it
-> only takes effect via the `!` name prefix. Known bug.
+A command is hidden if its name carries a `!` prefix **or** it declares
+`hidden: true`. The two are additive: either one alone is enough, and an
+explicit `hidden: false` does **not** un-hide a `!` prefixed name — marking a
+name internal is the more deliberate act, and staying hidden is the safer
+outcome. The same holds for a lazily loaded command: a `!` on the placeholder
+wins over a `hidden: false` in the module, which never saw the prefix. Drop the
+`!` to make the command visible. A command that declares neither always reads
+back `hidden: false`, never `undefined`. A non-boolean `hidden` throws.
+
+Note that a `!` prefixed label is still registered as an alias — it is only
+left out of the help label — and it hides the whole command, not just that one
+alias, so `'build, !internal'` hides `build` too. `!` marks the command, not
+the label it happens to sit on: making it positional would mean `'!build, b'`
+silently published a visible command. An alias that should stay out of help
+without hiding the command goes in the `alias` property, which never reaches
+the label.
 
 ### The default command
 
@@ -192,6 +208,13 @@ honored.
 The module must default-export a command object. Loading is deferred until the
 command is actually matched, so a large CLI only pays for the branch it takes.
 
+Only the placeholder sees the name string, so the aliases and help label parsed
+from it are carried onto the loaded command; a module that declares its own
+`name` string brings its own label instead. An `alias` the module declares is
+merged in, but it cannot resolve the command — the parser has to match the
+command before it can load the module that declares the alias, so a name a user
+is expected to type belongs on the placeholder.
+
 ## Arguments
 
 Positional arguments are declared as strings or objects:
@@ -206,7 +229,20 @@ Positional arguments are declared as strings or objects:
 | `[foo...]` | no       | yes      |
 | `[foo]...` | no       | yes      |
 
-A variadic argument collects every remaining positional value into an array.
+A variadic argument collects every remaining positional value into an array,
+so only the last argument may be variadic. An argument declared after one
+could never be given a value, and the schema is rejected when it is
+initialized:
+
+```
+Only the last argument can be variadic: <files...> is followed by [extra] in
+the "build" command
+```
+
+That holds however the arguments are declared — inline in the command name
+(`'build <files...> [extra]'`), in an `args` array, or by a lazily loaded
+command module, which is checked when the module loads.
+
 An optional argument that precedes a required one is promoted to required,
 since there is no way to skip it.
 
@@ -250,7 +286,9 @@ part is interpreted by shape:
 | `<hint>` | Takes a value, and the **option is required**  |
 | `[hint]` | Takes a value                                  |
 
-An option with no hint and no `choices` is a **flag**.
+An option with no hint and no `choices` is a **flag**. A hint ending in `...`
+is rejected — only a positional argument can be variadic. See
+[Repeatable options](#repeatable-options).
 
 > [!IMPORTANT]
 > `<hint>` marks the _option_ as required, not just its value. This diverges
@@ -312,6 +350,46 @@ reaches step 3, or that is handed an explicitly empty value, throws instead:
 | `--name --declared`   | throws                  | `''`                    |
 | `--name --undeclared` | `'--undeclared'`        | `'--undeclared'`        |
 
+### Repeatable options
+
+An option takes **one** value per use. `multiple` makes it repeatable, and each
+use appends to an array:
+
+```js
+parse({
+	argv: ['--tag', 'a', '--tag', 'b'],
+	schema: { options: { '--tag <t>': { multiple: true } } },
+});
+// { tag: ['a', 'b'] }
+```
+
+An option never consumes consecutive values, so `--tag a b` is `tag: ['a']`
+with `b` left as a positional. Consuming consecutive values is what a variadic
+**argument** is for:
+
+```js
+parse({ argv: ['a', 'b', 'c'], schema: { args: ['<files...>'] } });
+// { files: ['a', 'b', 'c'] }
+```
+
+This divides the job cleanly: repetition is unambiguous, while a greedy option
+competes with the positional arguments for every token after it — which is why
+Commander needs `--` and yargs needs `greedy-arrays=false` to get back out. It
+is also the same rule as [how an option gets its value](#how-an-option-gets-its-value):
+one token, then stop.
+
+Because of that, a `...` hint on an option is a promise the parser will not
+keep, so it is refused at schema-build time rather than accepted as decoration:
+
+```js
+parse({ schema: { options: { '--tag <tags...>': { multiple: true } } } });
+// TypeError: Option "tag" hint cannot be variadic; use `multiple: true` to
+// collect repeated uses into an array
+```
+
+An environment fallback or a scalar `default` on a `multiple` option is wrapped
+in an array, so the value's shape does not depend on where it came from.
+
 ### Undeclared options
 
 An option-like token that nothing declared still produces a value, so a CLI can
@@ -358,6 +436,49 @@ registered, and the one actually typed decides the value:
 | `--color=false`    | `false` |
 | `--no-color=false` | `true`  |
 
+Every other name a negated flag answers to turns the destination off, the same
+as `--no-color` does. Given `-C, --no-color`, `-C` is `color: false`. Only the
+positive spelling the flag registers for itself — `--color` — turns it on.
+
+#### Declaring both a value and its negation
+
+A valued option and a negated flag of the same name may be declared together.
+They are two options sharing one destination: the valued one sets it and the
+flag turns it off. Declaration order does not matter.
+
+```js
+{
+	options: {
+		'--cheese <type>': 'cheese flavour',
+		'--no-cheese': 'hold the cheese'
+	}
+}
+```
+
+| Input            | Result                           |
+| ---------------- | -------------------------------- |
+| `--cheese gouda` | `cheese: 'gouda'`                |
+| `--no-cheese`    | `cheese: false`                  |
+| `--cheese`       | throws, `<type>` demands a value |
+
+The valued option owns the destination's default, so the `true` a lone
+negated flag would imply is dropped: the pair above starts out undefined, and
+`--cheese [type]` with a `default` of `'mozzarella'` starts out
+`'mozzarella'`. A `default` declared on the flag itself is still honored when
+the valued twin declares none. Precedence over the shared destination is the
+usual one: argv, then an environment variable declared on either twin — the
+valued twin's are read first — then a default.
+
+Because `<type>` makes the option required, anything that fills the shared
+destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`
+or environment variable declared on either twin. `choices` on the valued
+option constrain the values it takes, not the `false` its twin means, so
+`--no-cheese` is always allowed.
+
+Declaring `negate: false` on the flag opts out of all of this: the `no-` is
+then part of the name, so it keeps its own `noCheese` destination and reads as
+present rather than inverted.
+
 ### Short option groups
 
 Groups are expanded against the schema, not by shape, because whether a
@@ -395,7 +516,7 @@ retried once more contexts are known.
 | Type     | Accepts                                      | Produces  |
 | -------- | -------------------------------------------- | --------- |
 | `string` | anything                                     | `string`  |
-| `bool`   | anything; `'false'` and `''` are false       | `boolean` |
+| `bool`   | `true`/`t`/`yes`/`y`/`on`/`1` and negations  | `boolean` |
 | `yesno`  | `y`, `yes`, `n`, `no` (case-insensitive)     | `boolean` |
 | `int`    | `-?\d+` or `0x…`                             | `number`  |
 | `number` | anything `Number()` accepts                  | `number`  |
@@ -408,11 +529,15 @@ retried once more contexts are known.
 it turns `007` into `7` — and because it makes static types unusable.
 
 Flags accept only `bool`, `count`, `yesno`, and `auto`; the last two are
-normalized to `bool`. `count` is rejected on non-flags.
+normalized to `bool`. `count` is rejected on non-flags. Normalizing `yesno`
+to `bool` loses nothing, since `bool` accepts `yes` and `no` too.
 
-> [!NOTE]
-> `bool` treats any non-empty string other than `'false'` as true, so
-> `--flag=0` is `true`.
+`bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
+`f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.
+Anything else throws `Invalid boolean: "…"` rather than guessing — `0` and
+`no` are far more likely to mean false than to be a value someone wants
+coerced to true, and a typo such as `--flag=ture` should not silently read
+as true.
 
 ## Value precedence
 
@@ -616,6 +741,7 @@ Commander, these are the ones that will bite:
 | String `default`                | used as-is                       | coerced to the declared type             |
 | Option format strictness        | one short, one long              | extras become aliases; bare word allowed |
 | Repeatable option               | `<v...>` eats consecutive values | `multiple` collects repeated uses        |
+| `...` in an option hint         | makes the option variadic        | rejected; only arguments are variadic    |
 | `-p=value`                      | value is `=value`                | value is `value`                         |
 | `-0`                            | negative zero                    | undeclared short option `0`              |
 

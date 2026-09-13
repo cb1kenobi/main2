@@ -96,19 +96,10 @@ describe('commander: arguments', () => {
 			expect(result.argv.value).to.deep.equal(['one', 'two']);
 		});
 
-		// KNOWN BUG: a variadic argument that is not last silently swallows every
-		// remaining value and leaves the arguments after it unreachable.
-		// Commander rejects the schema outright. Unskip when that is fixed.
-		it.skip('should reject a variadic argument that is not last', async () => {
+		it('should reject a variadic argument that is not last', async () => {
 			await expect(parse({ schema: { args: ['<rest...>', '[extra]'] } })).rejects.toThrow(
 				'Only the last argument can be variadic'
 			);
-		});
-
-		it('should currently let a non-final variadic swallow everything', async () => {
-			const result = await parse({ argv: ['x', 'y'], schema: { args: ['<rest...>', '[extra]'] } });
-			expect(result.argv.rest).to.deep.equal(['x', 'y']);
-			expect(result.argv.extra).to.equal(undefined);
 		});
 	});
 

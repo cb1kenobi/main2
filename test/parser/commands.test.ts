@@ -63,6 +63,20 @@ describe('commands', () => {
 				})
 			).rejects.toThrow(new TypeError('Invalid run function in "foo" command'));
 		});
+
+		it('should error if hidden is not a boolean', async () => {
+			await expect(
+				parse({
+					schema: {
+						commands: {
+							foo: {
+								hidden: 'false' as any,
+							},
+						},
+					},
+				})
+			).rejects.toThrow(new TypeError('Expected hidden to be a boolean in "foo" command'));
+		});
 	});
 
 	describe('string', () => {

@@ -13,8 +13,6 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		return cmd;
 	}
 
-	cmd[Internal].loaded = true;
-
 	if (internal.path) {
 		const file = pathToFileURL(internal.path).toString();
 		log(`Loading command: ${file}`);
@@ -37,6 +35,10 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		}
 
 		if (def) {
+			// the module's own name string, if it has one, wins over the
+			// placeholder's
+			const renamed = def.name !== undefined;
+
 			// let the setter update the internals
 
 			for (const [key, value] of Object.entries(cmd)) {
@@ -45,9 +47,46 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 				}
 			}
 
-			return initCommand(def, file);
+			// `hidden` is additive, but only the placeholder saw the `!` name
+			// prefix, so a module that declares itself visible must not un-hide it
+			if (cmd.hidden === true) {
+				def.hidden = true;
+			}
+
+			// the module never saw the placeholder's name string either, so the
+			// aliases parsed from it have to come across as an explicit list
+			if (
+				internal.aliases.size &&
+				(def.alias === undefined || typeof def.alias === 'string' || Array.isArray(def.alias))
+			) {
+				def.alias = [
+					...internal.aliases,
+					...(def.alias === undefined
+						? []
+						: typeof def.alias === 'string'
+							? [def.alias]
+							: def.alias),
+				];
+			}
+
+			const loaded = await initCommand(def, file);
+
+			// ...and the same goes for the help label, unless the module renamed
+			// the command and brought its own labels
+			if (!renamed) {
+				loaded[Internal].label = internal.label;
+			}
+
+			// only mark the load done once it actually succeeded: a module that
+			// throws must throw again the next time the command is matched
+			// instead of quietly resolving to the placeholder
+			internal.loaded = true;
+
+			return loaded;
 		}
 	}
+
+	internal.loaded = true;
 
 	return cmd;
 }
