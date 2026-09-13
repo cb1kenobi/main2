@@ -1308,7 +1308,18 @@ describe('options', () => {
 						options: { '-v, --verbose': { env: 'VERBOSE', type: 'count' } },
 					},
 				})
-			).rejects.toThrow('Invalid integer: lots');
+			).rejects.toThrow('Invalid count: lots');
+		});
+
+		// a counter is a flag, and `bool` -- the other flag type -- reads an empty
+		// value as false, so an environment variable that is set and says nothing is 0
+		it('should read an empty counter value as zero', async () => {
+			const result = await parse({
+				argv: [],
+				env: { VERBOSE: '' },
+				schema: { options: { '-v, --verbose': { env: 'VERBOSE', type: 'count' } } },
+			});
+			expect(result.argv.verbose).to.equal(0);
 		});
 	});
 
