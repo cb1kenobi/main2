@@ -90,9 +90,25 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			throw new TypeError('Expected arguments to be an array');
 		}
 
-		for (let i = it.args.length - 1, j = i; i >= 0; i--) {
+		for (let i = 0; i < it.args.length; i++) {
 			args[i] = initArg(it.args[i]);
-			if (i < j && !args[i].required) {
+		}
+
+		// a variadic argument takes every remaining value, so anything declared
+		// after it could never be given a value. this runs before the promotion
+		// below so a rejected schema is not left half promoted.
+		for (let i = 0; i < args.length - 1; i++) {
+			if (args[i].multiple) {
+				throw new Error(
+					`Only the last argument can be variadic: ${argLabel(args[i])} is followed by ${argLabel(args[i + 1])} in the "${parsed.name}" command`
+				);
+			}
+		}
+
+		// an optional argument before a required one is promoted to required
+		// since there is no way to skip it
+		for (let i = args.length - 2; i >= 0; i--) {
+			if (!args[i].required) {
 				args[i].required = args[i + 1].required;
 			}
 		}
@@ -183,7 +199,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 				label: parsed.label,
 				options,
 				path: entryFile,
-				state: InternalState.OK,
+				// the command is not fully initialized until its init hooks have
+				// run, so a hook that throws leaves it dirty and it is rebuilt the
+				// next time it is initialized rather than silently accepted
+				state: InternalState.Dirty,
 			},
 		}),
 		{
@@ -239,7 +258,17 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	}
 
+	cmd[Internal].state = InternalState.OK;
+
 	return cmd;
+}
+
+/**
+ * Renders an argument the way it would be declared so an error can point at it.
+ */
+function argLabel(arg: InternalArgument): string {
+	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
+	return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 function parseName(unparsedName: string): {

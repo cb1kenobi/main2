@@ -147,10 +147,6 @@ false` rethrows instead; a function replaces the handler.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. See the warning in `docs/parser.md`.
-- A variadic argument that is not last silently swallows every remaining value,
-  leaving the arguments declared after it unreachable. Commander rejects the
-  schema. Covered by a skipped test in
-  `test/parser/commander/arguments.test.ts`.
 
 ## Conventions
 

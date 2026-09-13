@@ -289,6 +289,19 @@ describe('hooks', () => {
 					message: 'Missing required options: --cheese',
 					opts: { argv: [], schema: { options: { '--cheese <type>': {}, '--no-cheese': {} } } },
 				},
+				{
+					name: 'a variadic argument that is not last',
+					message: 'Only the last argument can be variadic',
+					opts: { argv: [], schema: { args: ['<rest...>', '[extra]'] } },
+				},
+				{
+					name: 'a variadic argument that is not last inside a subcommand',
+					message: 'Only the last argument can be variadic',
+					opts: {
+						argv: ['build'],
+						schema: { commands: { build: { args: ['<files...>', '[out]'] } } },
+					},
+				},
 			];
 
 			for (const { name, message, opts } of cases) {
