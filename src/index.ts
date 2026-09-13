@@ -4,8 +4,9 @@ import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { type AppOptions, type ParseState, type Schema, type Settings } from './types.js';
 
 export * from './types.js';
-export { errorExitCode, errorHandler, renderError } from './error-handler.js';
+export { command } from './command.js';
 export { options } from './options.js';
+export { errorExitCode, errorHandler, renderError } from './error-handler.js';
 
 const { log } = debug('main2');
 

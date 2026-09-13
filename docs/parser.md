@@ -613,6 +613,102 @@ reason: a `const` type parameter keeps `type: 'int'` from widening to `string`,
 which is what makes `--port` a number rather than a string wherever the group ends
 up.
 
+### Typed argv
+
+`command()` derives what `run()` sees from what the command declared:
+
+```js
+import main2, { command, options } from 'main2';
+
+const global = options({ '-v, --verbose': 'Say more' });
+
+await main2({
+	schema: {
+		options: global,
+		commands: {
+			build: command({
+				args: ['<entry>', '[extras]...'],
+				options: {
+					'--target [name]': { choices: ['node', 'browser'] },
+					'--port [n]': { type: 'int', default: 8080 },
+					'--tag [t]': { multiple: true },
+					'--no-color': 'Turn color off',
+				},
+				run({ argv }) {
+					argv.entry; // string
+					argv.extras; // string[] | undefined
+					argv.target; // 'node' | 'browser' | undefined
+					argv.port; // number
+					argv.tag; // string[] | undefined
+					argv.color; // boolean
+					argv.verbose; // unknown -- declared by the schema, not by `build`
+				},
+			}),
+		},
+	},
+});
+```
+
+Everything the format string and the declaration say is read: the destination
+after camelCase, a negated flag sharing its twin's key, `choices` as a literal
+union, the data type, `multiple` as an array, and whether the key can be absent at
+all. A flag is always there, and so is an option with a default or one whose
+`<value>` made it required — the same rules the parser follows, because the types
+are those rules written a second time.
+
+`command()` hands back exactly what it was given, like `options()`.
+
+### The types stop at the command that declared them
+
+Resolution walks the chain; inference cannot. A command is typed at its own
+`command()` call, and nothing at that call knows where in the tree the command will
+be mounted — so what a command declares is typed, and every other key in `argv` is
+`unknown`:
+
+```js
+build: command({
+	options: { '-w, --watch': 'Rebuild on change' },
+	run({ argv }) {
+		argv.watch; // boolean
+		argv.verbose; // unknown -- the schema declares it, not this command
+	},
+});
+```
+
+`unknown` rather than an error, because the value is genuinely there: a key this
+command did not declare is one a command above it may well have. It is also not an
+index signature over the declared keys — those keep their types — so the narrow
+half stays narrow.
+
+A command that wants the shared options typed declares them, by spreading the group
+into its own:
+
+```js
+options: { ...global, '-w, --watch': 'Rebuild on change' }
+```
+
+which makes `argv.verbose` a `boolean`. The cost is that the command now owns a
+declaration of its own: it shadows the one above it, and help lists it among the
+command's options rather than under `Global options`.
+
+### Why it is a call
+
+A nested object literal is checked against the declared type of the property it
+sits on, and checking does not re-infer that type's parameters. Only a generic
+_call_ infers. So a command written as a bare literal inside `commands` keeps the
+`argv` it always had — `Record<string, unknown>`, readable with no guard — and one
+written through `command()` gets the narrow one.
+
+Wrapping is optional and per command. A command with no `run`, or one whose `argv`
+nobody reads, can stay a plain object.
+
+### What inference cannot see
+
+A command loaded lazily from a directory or a package is not known until runtime,
+so it is invisible to inference by construction. An inline schema gets full
+types; a lazily loaded command gets the base type. That is a property of where the
+command lives rather than something to work around.
+
 ## Help
 
 A schema gets `--help` and a `help` command for free. Both go on the root
@@ -669,7 +765,7 @@ The added flag's value does not. A flag always has a value, so an added `--help`
 would put `help: false` on the parsed values of every app that never asked for
 it; the parser reads the flag off `state.$` instead.
 
-### Help wins over what is missing
+## Help wins over what is missing
 
 `parse()` decides whether help was asked for after walking argv and before
 validating anything, so:

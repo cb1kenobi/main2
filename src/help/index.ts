@@ -507,7 +507,7 @@ function spellingsOf(opt: InternalOption): string[] {
  */
 function describe(
 	desc: string | undefined,
-	choices: unknown[] | undefined,
+	choices: readonly unknown[] | undefined,
 	dflt: unknown,
 	ansi: Ansi
 ): string {
