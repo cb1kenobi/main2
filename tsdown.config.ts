@@ -6,6 +6,7 @@ const config: UserConfig = defineConfig({
 	entry: {
 		ansi: './src/ansi/index.ts',
 		'error-handler': './src/error-handler.ts',
+		help: './src/help/index.ts',
 		index: './src/index.ts',
 		paths: './src/paths.ts',
 		updates: './src/updates/index.ts',
