@@ -1,6 +1,8 @@
+import { initOption } from '../../src/parser/option/init-option.js';
 import { parse } from '../../src/parser/parse.js';
 import {
 	ErrorState,
+	Internal,
 	type BeforeErrorHook,
 	type ParseOptions,
 	type ParseState,
@@ -560,5 +562,29 @@ describe('hooks', () => {
 
 			expect(calls).toHaveLength(1);
 		});
+	});
+
+	// a hook that replaces an option after its value was read leaves the writer on
+	// record pointing at the object the replacement evicted. Every live declaration
+	// then read that value as somebody else's, so nothing validated it at all.
+	it('should validate a value whose writer a hook replaced', async () => {
+		await expect(
+			parse({
+				argv: ['--mode', 'three'],
+				schema: {
+					help: false,
+					name: 'mycli',
+					options: { '--mode [m]': { choices: ['three'] } },
+					hooks: {
+						afterParse: [
+							async (state) => {
+								const { options } = state.contexts[0][Internal];
+								await options.add(await initOption({ choices: ['two'], format: '--mode [m]' }));
+							},
+						],
+					},
+				},
+			})
+		).rejects.toThrow('Invalid value "three" for option --mode');
 	});
 });
