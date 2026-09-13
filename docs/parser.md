@@ -386,7 +386,10 @@ parse({ schema: { options: { '--tag <tags...>': { multiple: true } } } });
 ```
 
 An environment fallback or a scalar `default` on a `multiple` option is wrapped
-in an array, so the value's shape does not depend on where it came from.
+in an array, so the value's shape does not depend on where it came from. How many
+values arrived is decided before coercion: a string is one value even when it
+parses to an array, so `ITEMS='[1,2]'` on a `json` option is `[[1, 2]]`, the same
+as `--items '[1,2]'`. An array `default` is the list itself and is used as it is.
 
 A counter is refused the same way, from the other direction: `type: 'count'`
 already collects repeated uses — into a number rather than an array — so

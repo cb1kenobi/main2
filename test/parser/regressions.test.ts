@@ -251,6 +251,34 @@ describe('regressions', () => {
 			expect(result.argv.size).to.equal('sm');
 		});
 
+		// `multiple` is about shape, so the shape cannot depend on where the value came
+		// from: a string is one value even when it parses to an array
+		it('should wrap an environment value that coerces to an array', async () => {
+			const options = { '--items [i]': { env: 'ITEMS', multiple: true, type: 'json' } };
+
+			const fromEnv = await parse({
+				argv: [],
+				env: { ITEMS: '[1,2]' },
+				schema: { help: false, options },
+			});
+			const fromArgv = await parse({
+				argv: ['--items', '[1,2]'],
+				schema: { help: false, options },
+			});
+
+			expect(fromEnv.argv.items).to.deep.equal([[1, 2]]);
+			expect(fromEnv.argv.items).to.deep.equal(fromArgv.argv.items);
+		});
+
+		// an array `default` is the list itself, which is the existing rule
+		it('should leave an array default as the list', async () => {
+			const result = await parse({
+				argv: [],
+				schema: { help: false, options: { '--tag [t]': { default: ['a', 'b'], multiple: true } } },
+			});
+			expect(result.argv.tag).to.deep.equal(['a', 'b']);
+		});
+
 		// accumulating reads the destination back, so what it reads has to be its own:
 		// the rule for a shared destination is that the last writer wins, not that it
 		// extends whatever was there
