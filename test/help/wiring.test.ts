@@ -127,6 +127,38 @@ describe('the --help flag', () => {
 		expect(state.argv.help).toBe(true);
 	});
 
+	// the registry stores an option under its name, so one spelled `-x` and named
+	// `help` holds the key an added `--help` would take
+	it('should not replace an option that took the name help', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			options: { '-x': { desc: 'The app own', name: 'help' } },
+		};
+		const state = await parse({ argv: ['-x'], schema });
+		expect(state.help).toBeUndefined();
+		expect(state.argv.help).toBe(true);
+		const { options } = state.contexts[0][Internal];
+		expect(options.get('help')?.desc).toBe('The app own');
+		expect(options.size).toBe(1);
+	});
+
+	// options resolve across the chain innermost first, so the nearer one wins
+	// where it applies and the root's applies everywhere else
+	it('should let a subcommand -h shadow it only where the subcommand is', async () => {
+		const run1 = vi.fn();
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				build: { desc: 'Build', options: { '-h, --host [name]': 'The host' }, run: run1 },
+			},
+		};
+		expect((await run(schema, ['build', '-h', 'example.com'])).out).toBe('');
+		expect(run1).toHaveBeenCalled();
+		expect((await run(schema, ['build', '--help'])).out).toContain('Usage: mycli build');
+		// before the subcommand there is no subcommand to shadow it
+		expect((await run(schema, ['-h', 'build'])).out).toContain('Usage: mycli build');
+	});
+
 	it('should add nothing when help is turned off', async () => {
 		const state = await parse({ argv: [], schema: { help: false, name: 'mycli' } });
 		const { commands, options } = state.contexts[0][Internal];
@@ -370,6 +402,33 @@ describe('Command.help', () => {
 			commands: { notes: { desc: 'Notes', help: () => undefined } },
 		};
 		expect((await run(schema, ['notes', '--help'])).out).toContain('Usage: mycli notes');
+	});
+
+	// `beforeError` walks the chain argv walked, and `help notes` never walked into
+	// `notes` -- it asked about it. `notes --help` does, and its hook fires there.
+	it('should fire the command own beforeError only when argv went through it', async () => {
+		const fired: string[] = [];
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				notes: {
+					desc: 'Notes',
+					help: () => {
+						throw new Error('help is broken');
+					},
+					hooks: { beforeError: [() => void fired.push('notes')] },
+				},
+			},
+		};
+		const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+		try {
+			await run(schema, ['help', 'notes']);
+			expect(fired).toEqual([]);
+			await run(schema, ['notes', '--help']);
+			expect(fired).toEqual(['notes']);
+		} finally {
+			stderr.mockRestore();
+		}
 	});
 
 	it('should be used by the help command as well as the flag', async () => {

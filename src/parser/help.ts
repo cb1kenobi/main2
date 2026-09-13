@@ -45,7 +45,12 @@ export async function registerHelp(root: InternalCommand, schema: Schema): Promi
 	const internal = root[Internal];
 	const handles: HelpHandles = {};
 
-	if (!internal.options.find('--help')) {
+	// `find()` answers about spellings and `has()` about the key the registry
+	// stores an option under, which is its name. Both have to be free: an option
+	// spelled `-x` and named `help` takes the key `help` without answering to
+	// `--help`, and adding one there would replace it -- leaving `-x` pointing at
+	// the option that replaced it.
+	if (!internal.options.find('--help') && !internal.options.has('help')) {
 		// the short form only when it is free: `-h` is a common spelling for
 		// something else, and taking it from an app that wants it would be worse
 		// than not having it
