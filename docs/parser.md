@@ -567,14 +567,132 @@ values — see [Undeclared options](#undeclared-options).
 
 ## Settings
 
-| Setting                    | Default | Effect                                                        |
-| -------------------------- | ------- | ------------------------------------------------------------- |
-| `allowExtraArguments`      | `false` | Permit arguments after `--`                                   |
-| `allowUnexpectedArguments` | `false` | Permit undeclared positional arguments                        |
-| `allowUnknownOptions`      | `true`  | Collect undeclared options instead of throwing                |
-| `assertCwd`                | `true`  | Fail early if the working directory is gone                   |
-| `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself   |
-| `helpExitCode`             | —       | Exit code after printing help _(help is not implemented yet)_ |
+| Setting                    | Default | Effect                                                      |
+| -------------------------- | ------- | ----------------------------------------------------------- |
+| `allowExtraArguments`      | `false` | Permit arguments after `--`                                 |
+| `allowUnexpectedArguments` | `false` | Permit undeclared positional arguments                      |
+| `allowUnknownOptions`      | `true`  | Collect undeclared options instead of throwing              |
+| `assertCwd`                | `true`  | Fail early if the working directory is gone                 |
+| `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself |
+| `helpExitCode`             | `0`     | Exit code `main2()` sets after printing help                |
+
+## Help
+
+A schema gets `--help` and a `help` command for free. Both go on the root
+context, because options resolve across the whole context chain: one `--help`
+there answers everywhere, and `mycli build --help` describes `build` rather than
+the program.
+
+```js
+await main2({
+	schema: {
+		name: 'mycli',
+		commands: {
+			build: { args: ['<entry>'], desc: 'Compile the project', run: build },
+		},
+	},
+});
+```
+
+```
+$ mycli build --help
+Usage: mycli build <entry>
+
+Compile the project
+
+Arguments:
+  <entry>
+
+Global options:
+  -h, --help  Show help for a command
+```
+
+`help [command...]` answers the same question from the other direction, and takes
+a path: `mycli help build targets` describes `targets` with the chain above it
+intact, so the options it inherits are the ones that actually reach it. A name it
+cannot find throws `Unknown command "…"`.
+
+### What gets added, and what does not
+
+Nothing is added over the top of a declaration.
+
+| The app declares | What it gets                                             |
+| ---------------- | -------------------------------------------------------- |
+| nothing          | `-h, --help` and a `help` command                        |
+| `-h` for its own | `--help` with no short form; the app keeps `-h`          |
+| `--help`         | neither the flag nor the short-circuit — the app owns it |
+| a `help` command | no `help` command from here; the app's runs              |
+| `help: false`    | nothing at all                                           |
+
+An app that declares `--help` itself is responsible for what `--help` does, which
+is the only reading of a declaration that means anything. Its value reaches
+`argv` like any other option's.
+
+The added flag's value does not. A flag always has a value, so an added `--help`
+would put `help: false` on the parsed values of every app that never asked for
+it; the parser reads the flag off `state.$` instead.
+
+### Help wins over what is missing
+
+`parse()` decides whether help was asked for after walking argv and before
+validating anything, so:
+
+```
+$ mycli build --help
+```
+
+prints `build`'s help rather than `Missing required arguments: <entry>`. Asking
+what a command needs and being told that you did not provide it is not an answer.
+
+That covers a missing required option and a missing required argument, and
+nothing else. A value that will not coerce still throws, because it failed while
+argv was being read — before there was a question to answer.
+
+`--help` with no command named describes the program even when a default command
+would have run. The default is in the context chain without argv having named it,
+and answering with its screen would hide every other command there is.
+
+### Reading the request yourself
+
+`parse()` sets `state.help` and runs no command; it never writes anything. A
+caller using `parse()` on its own decides what to do with it:
+
+```js
+const state = await parse({ argv, schema });
+
+if (state.help) {
+	const { resolveHelp } = await import('main2/help');
+	process.stdout.write(`${await resolveHelp(state)}\n`);
+	return;
+}
+```
+
+`main2()` does exactly that, and then sets `process.exitCode` from
+`settings.helpExitCode` — `0` unless the app says otherwise, since being asked
+what a command does and answering is not a failure. A value that is not an exit
+code is ignored rather than assigned, because assigning it would turn printing
+help into a crash.
+
+### Writing your own help for one command
+
+`Command.help` replaces the generated screen. A string is printed as it is:
+
+```js
+{ name: 'notes', help: 'Read the manual: https://example.com/docs' }
+```
+
+A function is handed the generated screen, the command, and the state, so one
+that only wants to add something does not have to rebuild the rest:
+
+```js
+{
+  name: 'build',
+  help: ({ generated }) => `${generated}\n\nSee the docs for the full list.`,
+}
+```
+
+It may be async. Returning anything but a string leaves the generated screen
+alone, which is how a function that only wants to look declines to replace it.
 
 ## Errors
 

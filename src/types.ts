@@ -7,7 +7,39 @@ export type AppOptions = {
 	settings?: Settings;
 };
 
-export type Callback = (schema: Schema) => Promise<string>;
+/**
+ * Replaces the generated help screen for one command.
+ *
+ * The generated screen is handed in, so a renderer that only wants to add to it
+ * -- a note about configuration files, a link to the docs -- does not have to
+ * rebuild the rest. Returning anything but a string leaves the generated screen
+ * alone, which is how a renderer that only wants to look declines to replace it.
+ */
+export type HelpRenderer = (ctx: HelpRenderContext) => unknown | Promise<unknown>;
+
+export interface HelpRenderContext {
+	/** The command being described. */
+	cmd: InternalCommand;
+	/** The screen that would have been printed. */
+	generated: string;
+	/** The parse state. */
+	state: ParseState;
+}
+
+/**
+ * Why a parse produced no command run: argv asked what something does instead of
+ * asking for it to be done.
+ *
+ * Set by `parse()` before anything is validated, because help has to win over a
+ * missing required option -- `mycli build --help` is asking what `build` needs,
+ * and answering "you did not say" is not an answer.
+ */
+export interface HelpRequest {
+	/** The context chain to describe, innermost first. */
+	contexts: InternalCommand[];
+	/** Whether it was the `--help` flag or the `help` command. */
+	via: 'command' | 'option';
+}
 
 export const Internal: unique symbol = Symbol();
 
@@ -87,7 +119,7 @@ export interface Command {
 	desc?: string;
 	examples?: CommandExample | CommandExample[];
 	file?: string;
-	help?: string | Callback;
+	help?: string | HelpRenderer;
 	hidden?: boolean;
 	hooks?: {
 		beforeError?: BeforeErrorHook[];
@@ -171,6 +203,13 @@ export interface InternalOptionBase extends InternalBase {
 	long: Set<string>;
 	/** The negated flag declared alongside this option, sharing its destination. */
 	negatedTwin?: InternalOption;
+	/**
+	 * The parser added this option, rather than the schema declaring it, so its
+	 * value is the parser's business and never reaches `argv`. `--help` is the
+	 * only one: a flag always has a value, and an app that never declared this one
+	 * should not find `help: false` among its parsed values.
+	 */
+	parserOwned?: boolean;
 	short: Set<string>;
 	/** Another option owns the default for the destination they share. */
 	skipDefault: boolean;
@@ -242,6 +281,11 @@ export interface ParseState {
 	cmd?: InternalCommand;
 	contexts: InternalCommand[];
 	env: Record<string, string | undefined>;
+	/**
+	 * Set when argv asked for help rather than for work. `main2()` prints it and
+	 * runs nothing; a caller using `parse()` on its own decides for itself.
+	 */
+	help?: HelpRequest;
 	schema: Schema;
 	settings: Settings;
 }
@@ -249,6 +293,10 @@ export interface ParseState {
 export interface Schema {
 	args?: (string | Argument)[];
 	commands?: string | (string | Command)[] | Record<string, string | Command>;
+	/**
+	 * Whether to add `--help` and a `help` command. On unless set to `false`; an
+	 * app that declares either of them keeps its own either way.
+	 */
 	help?: boolean;
 	hooks?: {
 		beforeParse?: SchemaHook[];
@@ -305,6 +353,10 @@ export interface Settings {
 	 * or to a function to replace the built-in handler entirely.
 	 */
 	errorHandler?: ErrorHandler | false;
+	/**
+	 * The exit code `main2()` sets after printing help. Defaults to `0`: being
+	 * asked what a command does and answering is not a failure.
+	 */
 	helpExitCode?: number;
 }
 

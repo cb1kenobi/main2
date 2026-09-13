@@ -17,6 +17,7 @@ import { camelCase } from '../util/camel-case.js';
 import { transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
+import { detectHelp, registerHelp } from './help.js';
 
 const { log } = debug('main2:parser');
 
@@ -101,8 +102,15 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 			settings: opts.settings || {},
 		};
 
+		const handles = await registerHelp(state.contexts[0], schema);
+
 		await initArgv(state);
 		await parseArgv(state);
+
+		// before anything is validated: help wins over a missing required option,
+		// which is a parser-ordering concern and not a rendering one
+		state.help = await detectHelp(state, handles);
+
 		await processArgs(state);
 		await processOptions(state);
 
@@ -708,7 +716,12 @@ export async function processArgs(state: ParseState): Promise<void> {
 			}
 		} else if (parsedType === 'Option') {
 			const { option, value } = parsed as ParsedOption;
-			const { dest, isFlag } = option[Internal];
+			const { dest, isFlag, parserOwned } = option[Internal];
+
+			if (parserOwned) {
+				// the parser reads this one off `state.$`; it is not the app's value
+				continue;
+			}
 
 			if (isFlag && option.type === 'count') {
 				const count = resolved(state, dest);
@@ -744,7 +757,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 		}
 	}
 
-	if (missingArguments.length) {
+	if (missingArguments.length && !state.help) {
 		throw new Error(`Missing required arguments: ${missingArguments.join(' ')}`);
 	}
 
@@ -763,15 +776,17 @@ export async function processOptions(state: ParseState): Promise<void> {
 	// default precedence a lone option has, and is not reported missing just
 	// because the option that fills it comes second
 	for (const opt of all) {
-		const { dest, envs } = opt[Internal];
-		applyFallback(state, dest, envValue(state, envs), opt.type, opt.multiple);
+		const { dest, envs, parserOwned } = opt[Internal];
+		if (!parserOwned) {
+			applyFallback(state, dest, envValue(state, envs), opt.type, opt.multiple);
+		}
 	}
 
 	for (const opt of all) {
-		const { dest, skipDefault } = opt[Internal];
+		const { dest, parserOwned, skipDefault } = opt[Internal];
 
 		// the valued twin owns the default of the destination the two share
-		if (!skipDefault) {
+		if (!skipDefault && !parserOwned) {
 			applyFallback(state, dest, opt.default, opt.type, opt.multiple);
 		}
 	}
@@ -794,7 +809,7 @@ export async function processOptions(state: ParseState): Promise<void> {
 		}
 	}
 
-	if (missingOptions.length) {
+	if (missingOptions.length && !state.help) {
 		throw new Error(`Missing required options: ${missingOptions.join(' ')}`);
 	}
 }
