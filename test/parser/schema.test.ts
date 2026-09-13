@@ -331,4 +331,51 @@ describe('schema', () => {
 			}
 		});
 	});
+	// the guarantee has to keep holding for everything decided after it: a
+	// default command, a negated twin, and the error path all write during a
+	// parse, and none of it may reach the caller's object
+	describe('interaction with the rest of the parser', () => {
+		it('should leave a schema carrying a default command untouched', async () => {
+			const schema = { commands: { build: { default: true }, test: {} } };
+			const before = structuredClone(schema);
+
+			await parse({ argv: [], schema });
+
+			expect(schema).toStrictEqual(before);
+			expect(Internal in schema).to.equal(false);
+			expect(Internal in schema.commands.build).to.equal(false);
+		});
+
+		it('should parse a frozen schema carrying a default command', async () => {
+			const schema = deepFreeze({ commands: { build: { default: true } } });
+
+			expect((await parse({ argv: [], schema })).cmd?.name).to.equal('build');
+		});
+
+		it('should dispatch a default identically on a second parse', async () => {
+			const schema = { commands: { build: { args: ['[out]'], default: true } } };
+
+			const first = await parse({ argv: ['x'], schema });
+			const second = await parse({ argv: ['x'], schema });
+
+			expect(first.cmd?.name).to.equal(second.cmd?.name);
+			expect(first.argv).toStrictEqual(second.argv);
+		});
+
+		it('should parse a frozen schema carrying negated twins, twice', async () => {
+			const schema = deepFreeze({ options: { '--cheese [type]': {}, '--no-cheese': {} } });
+
+			expect((await parse({ argv: ['--no-cheese'], schema })).argv.cheese).to.equal(false);
+			expect((await parse({ argv: ['--cheese', 'brie'], schema })).argv.cheese).to.equal('brie');
+		});
+
+		it('should not mutate the schema on the error path', async () => {
+			const schema = { options: { '--name <value>': {} } };
+			const before = structuredClone(schema);
+
+			await expect(parse({ argv: [], schema })).rejects.toThrow();
+
+			expect(schema).toStrictEqual(before);
+		});
+	});
 });
