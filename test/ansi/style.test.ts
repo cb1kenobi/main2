@@ -1,4 +1,5 @@
 import { codes } from '../../src/ansi/codes.js';
+import type { ColorLevel } from '../../src/ansi/color-support.js';
 import { ansi } from '../../src/ansi/index.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -9,7 +10,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	ansi.level = undefined as never;
+	ansi.level = undefined;
 });
 
 describe('styling', () => {
@@ -30,11 +31,19 @@ describe('styling', () => {
 		expect(ansi.bold.red('hi')).toBe(`${ESC}[1m${ESC}[31mhi${ESC}[39m${ESC}[22m`);
 	});
 
-	it('should return the same styler for the same chain', () => {
+	// the named styles are a fixed set and a chain of them is only as deep as
+	// the source that spells it out, so caching them is bounded by the caller
+	it('should return the same styler for the same named chain', () => {
 		expect(ansi.bold.red).toBe(ansi.bold.red);
 		expect(ansi.bold.red).not.toBe(ansi.red.bold);
-		expect(ansi.hex('#ff0000')).toBe(ansi.hex('#ff0000'));
-		expect(ansi.rgb(255, 0, 0)).toBe(ansi.hex('#f00'));
+	});
+
+	// a cache keyed on a color would be bounded by that color's input instead,
+	// and a process cycling through a gradient would grow an entry per frame
+	it('should not cache a color, but should still render it the same', () => {
+		expect(ansi.hex('#ff0000')).not.toBe(ansi.hex('#ff0000'));
+		expect(ansi.hex('#ff0000')('x')).toBe(ansi.hex('#ff0000')('x'));
+		expect(ansi.rgb(255, 0, 0)('x')).toBe(ansi.hex('#f00')('x'));
 	});
 
 	it('should pass text through when the root styler is called', () => {
@@ -71,6 +80,17 @@ describe('nesting', () => {
 	it('should reopen every style in the chain', () => {
 		expect(ansi.bold.red(`a${ansi.dim('b')}c`)).toBe(
 			`${ESC}[1m${ESC}[31ma${ESC}[2mb${ESC}[22m${ESC}[1mc${ESC}[39m${ESC}[22m`
+		);
+	});
+
+	// a reset turns every attribute off, not just the one that named it, so the
+	// whole chain has to come back rather than one part of it
+	it('should reopen the whole chain after a reset', () => {
+		expect(ansi.red(`a${ansi.reset('x')}b`)).toBe(
+			`${ESC}[31ma${ESC}[0m${ESC}[31mx${ESC}[0m${ESC}[31mb${ESC}[39m`
+		);
+		expect(ansi.bold.red(`a${ESC}[mb`)).toBe(
+			`${ESC}[1m${ESC}[31ma${ESC}[m${ESC}[1m${ESC}[31mb${ESC}[39m${ESC}[22m`
 		);
 	});
 
@@ -144,6 +164,24 @@ describe('truecolor', () => {
 		expect(ansi.bgHex('#ff0000')('hi')).toBe(`${ESC}[101mhi${ESC}[49m`);
 	});
 
+	// rounding each channel to a bit and reading the result as a color index
+	// cannot reach a gray at all: every channel rounds the same way, so the only
+	// grays it produces are black and white
+	it('should downsample a gray to the nearest gray, not to black or white', () => {
+		ansi.level = 1;
+		// 90 is exactly #808080 and 37 is #c0c0c0
+		expect(ansi.hex('#808080')('hi')).toBe(`${ESC}[90mhi${ESC}[39m`);
+		expect(ansi.hex('#c0c0c0')('hi')).toBe(`${ESC}[37mhi${ESC}[39m`);
+		expect(ansi.hex('#ffffff')('hi')).toBe(`${ESC}[97mhi${ESC}[39m`);
+		expect(ansi.hex('#555555')('hi')).toBe(`${ESC}[90mhi${ESC}[39m`);
+		// #404040 is exactly as far from black as from #808080, and a tie goes to
+		// the lower index
+		expect(ansi.hex('#404040')('hi')).toBe(`${ESC}[30mhi${ESC}[39m`);
+		expect(ansi.hex('#0a0a0a')('hi')).toBe(`${ESC}[30mhi${ESC}[39m`);
+		// and the same by way of the 256-color grayscale ramp
+		expect(ansi.ansi256(244)('hi')).toBe(`${ESC}[90mhi${ESC}[39m`);
+	});
+
 	it('should reject a malformed hex color', () => {
 		expect(() => ansi.hex('#ff00')).toThrow('Invalid hex color "#ff00"');
 		expect(() => ansi.hex('nope')).toThrow(/Invalid hex color/);
@@ -169,19 +207,19 @@ describe('level', () => {
 
 	it('should reject a level outside 0 to 3', () => {
 		expect(() => {
-			ansi.level = 4 as never;
+			ansi.level = 4 as ColorLevel;
 		}).toThrow('Invalid color level "4"; expected 0, 1, 2, or 3');
 		expect(() => {
-			ansi.level = -1 as never;
+			ansi.level = -1 as ColorLevel;
 		}).toThrow(/Invalid color level/);
 		expect(() => {
-			ansi.level = 1.5 as never;
+			ansi.level = 1.5 as ColorLevel;
 		}).toThrow(/Invalid color level/);
 	});
 
 	it('should detect the level again when cleared', () => {
 		ansi.level = 0;
-		ansi.level = undefined as never;
+		ansi.level = undefined;
 		// vitest's stdout is not a TTY, so detection lands on 0 either way; what
 		// matters is that the override is gone rather than sticking at 0
 		expect(ansi.level).toBe(ansi.supportsColor());

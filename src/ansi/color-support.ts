@@ -128,7 +128,12 @@ function ttyColorLevel(env: Record<string, string | undefined>, platform: string
 		return env.WT_SESSION !== undefined ? 3 : 2;
 	}
 
-	if (/-(?:256|256color|direct)$/i.test(TERM)) {
+	// the `-direct` terminfo entries are the direct-color ones
+	if (/-direct\d*$/i.test(TERM)) {
+		return 3;
+	}
+
+	if (/-256(?:color)?$/i.test(TERM)) {
 		return 2;
 	}
 

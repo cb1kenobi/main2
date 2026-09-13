@@ -1,4 +1,4 @@
-import { codes, sgr, type StyleName } from './codes.js';
+import { codes, ESC, sgr, type StyleName } from './codes.js';
 import { type ColorLevel, getColorLevel } from './color-support.js';
 
 /**
@@ -47,7 +47,7 @@ export interface Styler extends Styles {}
 
 interface InternalStyler extends Styler {
 	[Parts]: Part[];
-	[Cache]: Map<string, Styler>;
+	[Cache]: Map<StyleName, Styler>;
 }
 
 /**
@@ -71,15 +71,15 @@ for (const name of Object.keys(codes) as StyleName[]) {
 Object.defineProperties(proto, {
 	ansi256: method(function (this: InternalStyler, code: number) {
 		const n = assertByte(code, 'color code');
-		return chain(this, `ansi256:${n}`, {
-			open: (level) => (level >= 2 ? sgr(`38;5;${n}`) : sgr(ansi256ToBasic(n, false))),
+		return extend(this, {
+			open: (level) => (level >= 2 ? sgr(`38;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), false))),
 			close: sgr(39),
 		});
 	}),
 	bgAnsi256: method(function (this: InternalStyler, code: number) {
 		const n = assertByte(code, 'color code');
-		return chain(this, `bgAnsi256:${n}`, {
-			open: (level) => (level >= 2 ? sgr(`48;5;${n}`) : sgr(ansi256ToBasic(n, true))),
+		return extend(this, {
+			open: (level) => (level >= 2 ? sgr(`48;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), true))),
 			close: sgr(49),
 		});
 	}),
@@ -135,23 +135,40 @@ function build(parts: Part[]): Styler {
 }
 
 /**
- * Extends a styler with one more part, reusing the styler already built for
- * that key. Chains are read repeatedly -- a help screen asks for
+ * Extends a styler with one named style, reusing the styler already built for
+ * that name. Chains are read repeatedly -- a help screen asks for
  * `ansi.bold.cyan` once per command -- and without the cache every read walks
  * a getter and allocates.
  *
+ * Only the named styles are cached. There are fifty of them and a chain of
+ * them can only be as deep as the source that spells it out, so the cache is
+ * bounded by the calling code. A cache keyed on a color instead would be
+ * bounded by that color's input, and a process cycling through a gradient
+ * would grow one entry per frame forever; `extend()` builds those fresh.
+ *
  * @param parent - The styler being extended.
- * @param key - What identifies the added part within the parent.
+ * @param name - The style being added.
  * @param part - The style to add.
  * @returns The extended styler.
  */
-function chain(parent: InternalStyler, key: string, part: Part): Styler {
-	let styler = parent[Cache].get(key);
+function chain(parent: InternalStyler, name: StyleName, part: Part): Styler {
+	let styler = parent[Cache].get(name);
 	if (!styler) {
-		styler = build([...parent[Parts], part]);
-		parent[Cache].set(key, styler);
+		styler = extend(parent, part);
+		parent[Cache].set(name, styler);
 	}
 	return styler;
+}
+
+/**
+ * Extends a styler with one part, without caching it.
+ *
+ * @param parent - The styler being extended.
+ * @param part - The style to add.
+ * @returns The extended styler.
+ */
+function extend(parent: InternalStyler, part: Part): Styler {
+	return build([...parent[Parts], part]);
 }
 
 /**
@@ -176,7 +193,7 @@ function rgbChain(
 	const b = assertByte(blue, 'blue');
 	const prefix = background ? 48 : 38;
 
-	return chain(parent, `${prefix}:${r},${g},${b}`, {
+	return extend(parent, {
 		open: (level) => {
 			if (level >= 3) {
 				return sgr(`${prefix};2;${r};${g};${b}`);
@@ -184,7 +201,7 @@ function rgbChain(
 			if (level === 2) {
 				return sgr(`${prefix};5;${rgbToAnsi256(r, g, b)}`);
 			}
-			return sgr(ansi256ToBasic(rgbToAnsi256(r, g, b), background));
+			return sgr(rgbToBasic(r, g, b, background));
 		},
 		close: sgr(background ? 49 : 39),
 	});
@@ -193,12 +210,14 @@ function rgbChain(
 /**
  * Wraps text in a chain's sequences.
  *
- * Two details beyond the obvious concatenation, both of which only show up in
+ * Three details beyond the obvious concatenation, all of which only show up in
  * composed output:
  *
  * - Close codes are shared, so text that already closed bold would leave the
  *   outer bold off for the rest of the line. Every close this chain owns is
  *   followed by its own open again.
+ * - A reset closes everything, not just one style, so the whole chain is
+ *   reopened after one rather than one part of it.
  * - A style left open across a newline bleeds into whatever the terminal draws
  *   at the start of the next line, which for a background color means the
  *   margin. Each line closes and reopens instead.
@@ -217,14 +236,29 @@ function render(parts: Part[], args: unknown[]): string {
 
 	let openAll = '';
 	let closeAll = '';
+	const opened: [close: string, open: string][] = [];
 
 	for (const part of parts) {
 		const open = typeof part.open === 'string' ? part.open : part.open(level);
 		openAll += open;
 		closeAll = part.close + closeAll;
+		opened.push([part.close, open]);
+	}
 
-		if (text.includes(part.close)) {
-			text = text.replaceAll(part.close, part.close + open);
+	if (text.includes(ESC)) {
+		// a reset turns every attribute off, so what follows one has to be the
+		// whole chain again; `ESC[m` with no parameters means the same as `ESC[0m`
+		for (const reset of resets) {
+			if (text.includes(reset)) {
+				text = text.replaceAll(reset, reset + openAll);
+			}
+		}
+
+		for (const [close, open] of opened) {
+			// a `reset` part closes with a reset, which the loop above handled
+			if (!resets.includes(close) && text.includes(close)) {
+				text = text.replaceAll(close, close + open);
+			}
 		}
 	}
 
@@ -234,6 +268,9 @@ function render(parts: Part[], args: unknown[]): string {
 
 	return `${openAll}${text}${closeAll}`;
 }
+
+/** The two spellings of a reset, which closes every attribute at once. */
+const resets = [sgr(0), sgr('')];
 
 /**
  * Parses `#rgb`, `#rrggbb`, and the same two without the `#`.
@@ -287,53 +324,95 @@ function rgbToAnsi256(red: number, green: number, blue: number): number {
 }
 
 /**
+ * The standard 16 colors, as the values nearly every terminal ships. Picking
+ * the nearest of them needs actual colors to compare against.
+ */
+const basic16 = [
+	[0, 0, 0], // black
+	[128, 0, 0], // red
+	[0, 128, 0], // green
+	[128, 128, 0], // yellow
+	[0, 0, 128], // blue
+	[128, 0, 128], // magenta
+	[0, 128, 128], // cyan
+	[192, 192, 192], // white
+	[128, 128, 128], // bright black
+	[255, 0, 0], // bright red
+	[0, 255, 0], // bright green
+	[255, 255, 0], // bright yellow
+	[0, 0, 255], // bright blue
+	[255, 0, 255], // bright magenta
+	[0, 255, 255], // bright cyan
+	[255, 255, 255], // bright white
+] as const;
+
+/** The six levels each channel of the 256-color cube steps through. */
+const cubeSteps = [0, 95, 135, 175, 215, 255] as const;
+
+/**
  * The nearest of the basic 16, as an SGR parameter.
  *
- * Going through the 256-color index rather than straight from RGB keeps one
- * implementation of the cube math. The brightness of the strongest channel
- * decides between the normal and the bright range.
+ * Nearest by distance against the palette above, rather than by rounding each
+ * channel to a bit and reading the result as a color index. Rounding to bits
+ * cannot express a gray at all -- every channel rounds the same way, so the
+ * only grays it can reach are black and white -- which put mid-gray on 37
+ * when 37 is `#c0c0c0` and 90 is exactly `#808080`.
  *
- * @param code - The palette index, 0-255.
+ * The metric is the "redmean" weighting, which is a closer match to what the
+ * eye does than plain squared distance for about the same arithmetic. A tie
+ * goes to the lower index, which is the darker or less saturated of the two.
+ *
+ * @param red - The red channel, 0-255.
+ * @param green - The green channel, 0-255.
+ * @param blue - The blue channel, 0-255.
  * @param background - Whether the color is a background.
  * @returns The SGR parameter.
  */
-function ansi256ToBasic(code: number, background: boolean): number {
+function rgbToBasic(red: number, green: number, blue: number, background: boolean): number {
+	let nearest = 0;
+	let shortest = Infinity;
+
+	for (let i = 0; i < basic16.length; i++) {
+		const [r, g, b] = basic16[i]!;
+		const mean = (red + r) / 2;
+		const dr = red - r;
+		const dg = green - g;
+		const db = blue - b;
+		const distance = (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db;
+
+		if (distance < shortest) {
+			shortest = distance;
+			nearest = i;
+		}
+	}
+
 	const offset = background ? 10 : 0;
+	return nearest < 8 ? 30 + nearest + offset : 90 + (nearest - 8) + offset;
+}
 
-	if (code < 8) {
-		return 30 + code + offset;
-	}
-
+/**
+ * The color a 256-color palette index stands for: the basic 16, then a 6x6x6
+ * cube whose channels step through `cubeSteps`, then a 24-step gray ramp.
+ *
+ * @param code - The palette index, 0-255.
+ * @returns The channel values.
+ */
+function ansi256ToRgb(code: number): readonly [number, number, number] {
 	if (code < 16) {
-		return 90 + (code - 8) + offset;
+		return basic16[code]!;
 	}
-
-	let red: number;
-	let green: number;
-	let blue: number;
 
 	if (code >= 232) {
-		// the grayscale ramp, as a 0-1 fraction per channel
-		red = green = blue = ((code - 232) * 10 + 8) / 255;
-	} else {
-		const index = code - 16;
-		const remainder = index % 36;
-		red = Math.floor(index / 36) / 5;
-		green = Math.floor(remainder / 6) / 5;
-		blue = (remainder % 6) / 5;
+		const value = (code - 232) * 10 + 8;
+		return [value, value, value];
 	}
 
-	// 0 is black, 1 is a normal color, 2 is a bright one
-	const brightness = Math.max(red, green, blue) * 2;
-
-	if (brightness === 0) {
-		return 30 + offset;
-	}
-
-	const color =
-		30 + ((Math.round(blue) << 2) | (Math.round(green) << 1) | Math.round(red)) + offset;
-
-	return brightness === 2 ? color + 60 : color;
+	const index = code - 16;
+	return [
+		cubeSteps[Math.floor(index / 36)]!,
+		cubeSteps[Math.floor((index % 36) / 6)]!,
+		cubeSteps[index % 6]!,
+	];
 }
 
 /**

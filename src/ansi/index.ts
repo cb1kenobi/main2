@@ -27,8 +27,13 @@ export interface Ansi extends Styler {
 	 * The level is read when text is rendered, so lowering it downsamples
 	 * chains that were built before the change rather than leaving them to
 	 * write sequences the terminal cannot render.
+	 *
+	 * Reading it always answers with a level; only the assignment accepts
+	 * `undefined`, so a caller never has to guard a read for a value it cannot
+	 * return.
 	 */
-	level: ColorLevel;
+	get level(): ColorLevel;
+	set level(level: ColorLevel | undefined);
 	/** Whether a string contains an escape sequence. */
 	hasAnsi(str: string): boolean;
 	/** Removes every escape sequence from a string. */
@@ -54,14 +59,7 @@ export interface Ansi extends Styler {
  */
 export const ansi: Ansi = Object.defineProperties(createStyler() as Ansi, {
 	hasAnsi: { configurable: true, value: hasAnsi, writable: true },
-	level: {
-		configurable: true,
-		get: getColorLevel,
-		// the declared type is `ColorLevel`, but `undefined` is accepted at
-		// runtime as "detect it again" -- typing it as optional would make every
-		// read of `ansi.level` need a guard for a value it never returns
-		set: setColorLevel as (level: ColorLevel) => void,
-	},
+	level: { configurable: true, get: getColorLevel, set: setColorLevel },
 	strip: { configurable: true, value: strip, writable: true },
 	supportsColor: { configurable: true, value: supportsColor, writable: true },
 });

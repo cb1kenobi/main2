@@ -40,6 +40,14 @@ describe('strip()', () => {
 		expect(strip(`${ESC}X${ST}x`)).toBe('x');
 	});
 
+	it('should remove a CSI with colon sub-parameters or an intermediate byte', () => {
+		// curly underline, a device status query, and a private mode report
+		expect(strip(`${ESC}[4:3mx${ESC}[4:0m`)).toBe('x');
+		expect(strip(`${ESC}[58;2;0;255;0mx${ESC}[59m`)).toBe('x');
+		expect(strip(`${ESC}[1$qx`)).toBe('x');
+		expect(strip(`${ESC}[>"px`)).toBe('x');
+	});
+
 	it('should remove two and three character escapes', () => {
 		expect(strip(`${ESC}(Bx`)).toBe('x');
 		expect(strip(`${ESC}7x${ESC}8`)).toBe('x');

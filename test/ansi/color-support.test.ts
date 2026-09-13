@@ -82,13 +82,19 @@ describe('terminal detection', () => {
 	it('should read TERM', () => {
 		expect(detect({ TERM: 'xterm-256color' })).toBe(2);
 		expect(detect({ TERM: 'screen-256color' })).toBe(2);
-		expect(detect({ TERM: 'xterm-direct' })).toBe(2);
 		expect(detect({ TERM: 'xterm' })).toBe(2);
 		expect(detect({ TERM: 'alacritty' })).toBe(2);
 		expect(detect({ TERM: 'rxvt-unicode' })).toBe(2);
 		expect(detect({ TERM: 'ansi' })).toBe(1);
 		expect(detect({ TERM: 'linux' })).toBe(1);
 		expect(detect({ TERM: 'sun-color' })).toBe(1);
+	});
+
+	// the `-direct` terminfo entries are the direct-color ones
+	it('should give a -direct terminal truecolor', () => {
+		expect(detect({ TERM: 'xterm-direct' })).toBe(3);
+		expect(detect({ TERM: 'xterm-direct2' })).toBe(3);
+		expect(detect({ TERM: 'konsole-direct' })).toBe(3);
 	});
 
 	it('should give up on a terminal it does not recognize', () => {
