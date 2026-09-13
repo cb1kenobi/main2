@@ -4,6 +4,7 @@ const config: UserConfig = defineConfig({
 	// Every entry here must have a matching subpath in the package's `exports`
 	// map, and vice versa; `test/exports.test.ts` asserts they stay in sync.
 	entry: {
+		ansi: './src/ansi/index.ts',
 		'error-handler': './src/error-handler.ts',
 		index: './src/index.ts',
 		paths: './src/paths.ts',
