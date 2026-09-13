@@ -51,7 +51,11 @@ export function transformValue(
 		return date;
 	}
 
-	if (type === 'int') {
+	// a counter is an int that argv increments rather than writes, so a value that
+	// reaches it from anywhere else -- the environment, a string `default` -- is
+	// coerced and rejected the same way: without this it stayed a string, and
+	// `VERBOSE=lots` put the word "lots" on a destination the types call a number
+	if (type === 'int' || type === 'count') {
 		let num;
 		if ((!hexRE.test(value) && !intRE.test(value)) || isNaN((num = Number(value)))) {
 			throw new Error(`Invalid integer: ${value}`);

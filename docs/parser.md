@@ -540,7 +540,9 @@ retried once more contexts are known.
 it turns `007` into `7` — and because it makes static types unusable.
 
 Flags accept only `bool`, `count`, `yesno`, and `auto`; the last two are
-normalized to `bool`. `count` is rejected on non-flags, and with `multiple`. Normalizing `yesno`
+normalized to `bool`. `count` is rejected on non-flags, and with `multiple`. A
+value that reaches a counter from the environment or from a string `default` is
+coerced like an `int`, because a counter is a number however it was filled. Normalizing `yesno`
 to `bool` loses nothing, since `bool` accepts `yes` and `no` too.
 
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
