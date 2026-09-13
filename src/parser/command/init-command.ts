@@ -9,7 +9,7 @@ import {
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { lockDerived } from '../../util/lock-derived.js';
-import { initArg } from '../argument/init-arg.js';
+import { initArgs } from '../argument/init-args.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -117,29 +117,7 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			throw new TypeError('Expected arguments to be an array');
 		}
 
-		for (let i = 0; i < argDecls.length; i++) {
-			args[i] = initArg(argDecls[i]);
-		}
-
-		// a variadic argument takes every remaining value, so anything declared
-		// after it could never be given a value. this runs before the promotion
-		// below so a rejected schema is not left half promoted.
-		for (let i = 0; i < args.length - 1; i++) {
-			if (args[i].multiple) {
-				throw new Error(
-					`Only the last argument can be variadic: ${argLabel(args[i])} is followed by ${argLabel(args[i + 1])} in the "${parsed.name}" command`
-				);
-			}
-		}
-
-		// an optional argument before a required one is promoted to required
-		// since there is no way to skip it. `args` holds copies, so this never
-		// reaches the caller's argument objects.
-		for (let i = args.length - 2; i >= 0; i--) {
-			if (!args[i].required) {
-				args[i].required = args[i + 1].required;
-			}
-		}
+		args.push(...initArgs(argDecls, `the "${parsed.name}" command`));
 	}
 
 	if (parsed.name !== decl.name) {
@@ -328,14 +306,6 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
 	}
 
 	return cmd;
-}
-
-/**
- * Renders an argument the way it would be declared so an error can point at it.
- */
-function argLabel(arg: InternalArgument): string {
-	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
-	return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 function parseName(unparsedName: string): ParsedName {

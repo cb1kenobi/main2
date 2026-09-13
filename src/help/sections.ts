@@ -1,4 +1,4 @@
-import { initArg } from '../parser/argument/init-arg.js';
+import { initArgs } from '../parser/argument/init-args.js';
 import { OptionRegistry } from '../parser/option/option-registry.js';
 import {
 	type HelpSection,
@@ -7,6 +7,7 @@ import {
 	type InternalArgument,
 	type InternalOption,
 } from '../types.js';
+import { assertLabel } from '../util/assert-label.js';
 
 /**
  * A section of a help screen, with its declarations built.
@@ -43,19 +44,25 @@ export function createSections(): HelpSections & { list: BuiltSection[] } {
 				throw new TypeError('Expected a help section object');
 			}
 
-			const { args, options, title } = section;
+			const { args, options } = section;
+			const title = assertLabel(section.title, 'help section title');
 
-			if (!title || typeof title !== 'string') {
-				throw new TypeError('Expected help section title to be a non-empty string');
-			}
-
-			const built: BuiltSection = { args: [], options: new OptionRegistry(), title };
+			// a title used twice is one section, not two headings saying the same
+			// thing: two platforms that share a title, or a hook run twice, add to
+			// what is there rather than repeating it
+			const built: BuiltSection = list.find((it) => it.title === title) ?? {
+				args: [],
+				options: new OptionRegistry(),
+				title,
+			};
 
 			if (args !== undefined) {
 				if (!Array.isArray(args)) {
 					throw new TypeError(`Expected help section "${title}" arguments to be an array`);
 				}
-				built.args = args.map((arg) => initArg(arg));
+				// the same two list-wide rules a command's arguments get, so a section
+				// never describes a signature the parser would have refused
+				built.args.push(...initArgs(args, `the "${title}" help section`));
 			}
 
 			if (options !== undefined) {
@@ -78,7 +85,9 @@ export function createSections(): HelpSections & { list: BuiltSection[] } {
 				}
 			}
 
-			list.push(built);
+			if (!list.includes(built)) {
+				list.push(built);
+			}
 		},
 	};
 }

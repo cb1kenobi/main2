@@ -3,6 +3,7 @@ import { createSections, renderHelp, resolveHelp } from '../../src/help/index.js
 import { initCommand } from '../../src/parser/command/init-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Internal, type HelpSection, type Schema } from '../../src/types.js';
+import { stringWidth } from '../../src/width/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** The help screen for a parse, hooks fired, at a fixed width. */
@@ -101,15 +102,28 @@ describe('Option.group', () => {
 		expect(headings(await help(only))).toEqual(['Advanced options']);
 	});
 
-	it('should treat an empty or non-string group as no group', async () => {
-		const odd: Schema = {
-			name: 'mycli',
-			options: {
-				'--a': { desc: 'A', group: '' },
-				'--b': { desc: 'B', group: 7 as never },
-			},
-		};
-		expect(sectionOf(await help(odd), 'Options')).toEqual(['  --a  A', '  --b  B']);
+	// a group becomes a heading, so a bad one is rejected while the schema is being
+	// built rather than when somebody asks for help
+	it('should reject a group that is not a name', async () => {
+		for (const group of ['', '   ', 7, null] as never[]) {
+			await expect(
+				parse({ argv: [], schema: { name: 'mycli', options: { '--a': { group } } } })
+			).rejects.toThrow('Expected option "a" group to be a non-empty string');
+		}
+	});
+
+	it('should reject a group that would not stay on its own line', async () => {
+		await expect(
+			parse({
+				argv: [],
+				schema: { name: 'mycli', options: { '--a': { group: 'Android\nGlobal options' } } },
+			})
+		).rejects.toThrow('Expected option "a" group to be a single line with no control characters');
+	});
+
+	it('should trim a group rather than reject it', async () => {
+		const padded: Schema = { name: 'mycli', options: { '--a': { desc: 'A', group: '  Extra  ' } } };
+		expect(sectionOf(await help(padded), 'Extra options')).toEqual(['  --a  A']);
 	});
 
 	// a group is still the command's own option, so it still claims the spelling
@@ -393,9 +407,124 @@ describe('the help hook', () => {
 	it('should keep every line within the width', async () => {
 		for (const width of [30, 40, 72]) {
 			for (const line of (await help(schema, ['build'], width)).split('\n')) {
-				expect(line.length, `width ${width}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(width);
+				// columns, not code units, which is the only measurement that survives
+				// a title or a description with anything wide in it
+				expect(stringWidth(line), `width ${width}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(
+					width
+				);
 			}
 		}
+	});
+
+	// a title long enough to need it breaks at a space, unlike an option's label
+	it('should wrap a heading too long for the width', async () => {
+		const long: Schema = {
+			name: 'mycli',
+			commands: {
+				build: {
+					desc: 'Build',
+					hooks: {
+						help: [
+							async ({ sections }) => {
+								await sections.add({
+									options: { '--x': 'X' },
+									title: 'An exceptionally long platform configuration',
+								});
+							},
+						],
+					},
+				},
+			},
+		};
+		const text = await help(long, ['build'], 30);
+		expect(text.split('\n')).toContain('An exceptionally long platform');
+		expect(text.split('\n')).toContain('configuration options:');
+		for (const line of text.split('\n')) {
+			expect(stringWidth(line)).toBeLessThanOrEqual(30);
+		}
+	});
+
+	// two platforms that share a title, or a hook run twice, add to what is there
+	it('should merge sections that share a title', async () => {
+		const merging: Schema = {
+			name: 'mycli',
+			commands: {
+				build: {
+					desc: 'Build',
+					hooks: {
+						help: [
+							async ({ sections }) => {
+								await sections.add({ args: ['[one]'], options: { '--a': 'A' }, title: 'Extra' });
+								await sections.add({ args: ['[two]'], options: { '--b': 'B' }, title: 'Extra' });
+							},
+						],
+					},
+				},
+			},
+		};
+		const text = await help(merging, ['build']);
+		expect(headings(text).filter((h) => h === 'Extra options')).toHaveLength(1);
+		expect(sectionOf(text, 'Extra options')).toEqual(['  --a  A', '  --b  B']);
+		expect(sectionOf(text, 'Extra arguments')).toEqual(['  [one]', '  [two]']);
+	});
+
+	it('should not promise options for a section that contributes only arguments', async () => {
+		const argsOnly: Schema = {
+			help: false,
+			name: 'mycli',
+			commands: {
+				build: {
+					desc: 'Build',
+					hooks: {
+						help: [
+							async ({ sections }) => {
+								await sections.add({ args: ['[avd]'], title: 'Android' });
+							},
+						],
+					},
+				},
+			},
+		};
+		const text = await help(argsOnly, ['build']);
+		expect(text.split('\n')[0]).toBe('Usage: mycli build');
+		expect(headings(text)).toEqual(['Android arguments']);
+	});
+
+	// the same two list-wide rules a command's arguments get
+	it('should hold a section argument list to the rules a command own list follows', async () => {
+		const sections = createSections();
+		await expect(sections.add({ args: ['[files...]', '<out>'], title: 'Extra' })).rejects.toThrow(
+			'Only the last argument can be variadic: [files...] is followed by <out> in the "Extra" help section'
+		);
+
+		// an optional argument before a required one is promoted, so the section
+		// describes what would actually be required
+		const promoted = createSections();
+		await promoted.add({ args: ['[a]', '<b>'], title: 'Extra' });
+		expect(promoted.list[0]?.args.map((arg) => arg.required)).toEqual([true, true]);
+	});
+
+	// a hook that adds to the list it is being read from would extend the run it
+	// is already in
+	it('should fire the hooks the command had when help was asked for', async () => {
+		const late = vi.fn();
+		const growing: Schema = {
+			name: 'mycli',
+			commands: {
+				build: {
+					desc: 'Build',
+					hooks: {
+						help: [
+							({ cmd }) => {
+								(cmd.hooks?.help as unknown[])?.push(late);
+							},
+						],
+					},
+				},
+			},
+		};
+		await help(growing, ['build']);
+		expect(late).not.toHaveBeenCalled();
 	});
 });
 
@@ -416,6 +545,9 @@ describe('bad sections', () => {
 		);
 		await expect(sections.add({} as HelpSection)).rejects.toThrow(/section title/);
 		await expect(sections.add(null as never)).rejects.toThrow('Expected a help section object');
+		await expect(sections.add({ title: 'Android\nGlobal options' })).rejects.toThrow(
+			'Expected help section title to be a single line with no control characters'
+		);
 	});
 
 	it('should reject arguments that are not a list and options that are not an object', async () => {
@@ -426,6 +558,42 @@ describe('bad sections', () => {
 		await expect(sections.add({ options: 'nope' as never, title: 'Extra' })).rejects.toThrow(
 			'Expected help section "Extra" options to be an object'
 		);
+	});
+
+	// a command that writes its own help should not be able to fail on the way to
+	// not using the generated one
+	it('should not fire a hook for a command whose help is a string', async () => {
+		const fired = vi.fn();
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				notes: { desc: 'Notes', help: 'Read the manual.', hooks: { help: [fired] } },
+			},
+		};
+		const state = await parse({ argv: ['notes', '--help'], schema });
+		expect(await resolveHelp(state)).toBe('Read the manual.');
+		expect(fired).not.toHaveBeenCalled();
+	});
+
+	it('should still fire a hook for a command whose help is a function', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				notes: {
+					desc: 'Notes',
+					help: ({ generated }) => generated,
+					hooks: {
+						help: [
+							async ({ sections }) => {
+								await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
+							},
+						],
+					},
+				},
+			},
+		};
+		const state = await parse({ argv: ['notes', '--help'], schema });
+		expect(await resolveHelp(state, { width: 72 })).toContain('Extra options:');
 	});
 
 	// it leaves through the one error path like anything else a command does

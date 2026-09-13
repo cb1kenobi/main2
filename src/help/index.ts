@@ -94,7 +94,13 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 		width,
 	};
 
-	const contributed = opts.sections ?? [];
+	// the visible options of each contributed section, read once: both the usage
+	// line and the sections themselves need to know what is actually in them
+	const contributed = (opts.sections ?? []).map((section_) => ({
+		args: section_.args,
+		options: optionsOf(section_.options),
+		title: section_.title,
+	}));
 	const cmd = contexts[0]!;
 	const internal = cmd[Internal];
 	const commands = shown(internal.commands.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -139,7 +145,12 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 				name: programName(target, opts),
 				// a contributed section counts: options can follow, whether or not this
 				// command's own registry is what ends up resolving them
-				options: options.length > 0 || inherited.length > 0 || contributed.length > 0,
+				// a contributed section counts, but only when it has options in it: one
+				// that contributes arguments alone is not a reason to promise options
+				options:
+					options.length > 0 ||
+					inherited.length > 0 ||
+					contributed.some((section_) => section_.options.length > 0),
 				path: contexts
 					.slice(0, -1)
 					.reverse()
@@ -270,10 +281,13 @@ function optionsOf(registry: OptionRegistry): InternalOption[] {
  * @param ansi - The styler.
  * @returns The blocks.
  */
-function contributedBlocks(section_: BuiltSection, layout: LayoutOptions, ansi: Ansi): string[][] {
+function contributedBlocks(
+	section_: { args: InternalArgument[]; options: InternalOption[]; title: string },
+	layout: LayoutOptions,
+	ansi: Ansi
+): string[][] {
 	const blocks: string[][] = [];
-	const args = section_.args;
-	const options = optionsOf(section_.options);
+	const { args, options } = section_;
 
 	if (args.length > 0) {
 		blocks.push(
@@ -592,7 +606,10 @@ function exampleSection(
  * @returns The lines.
  */
 function section(title: string, items: Definition[], layout: LayoutOptions, ansi: Ansi): string[] {
-	return [ansi.bold(`${title}:`), ...definitions(items, layout)];
+	// a heading is wrapped like anything else. A title long enough to need it is
+	// one somebody wrote, so it breaks at a space, unlike an option's label
+	const heading = wrap(ansi.bold(`${title}:`), { width: layout.width }).split('\n');
+	return [...heading, ...definitions(items, layout)];
 }
 
 /**
@@ -626,16 +643,19 @@ export async function resolveHelp(state: ParseState, opts: HelpOptions = {}): Pr
 		? { contexts: state.help.contexts, schema: state.schema }
 		: state;
 	const cmd = target.contexts[0]!;
-	const generated = renderHelp(target, {
-		...opts,
-		sections: opts.sections ?? (await contributedSections(cmd, state)),
-	});
 	const custom = cmd.help as string | HelpRenderer | undefined;
 
+	// a string replaces the screen outright, so there is no screen to build and no
+	// hook to fire: a command that writes its own help should not be able to fail
+	// on the way to not using the generated one
 	if (typeof custom === 'string') {
 		return custom;
 	}
 
+	const generated = renderHelp(target, {
+		...opts,
+		sections: opts.sections ?? (await contributedSections(cmd, state)),
+	});
 	if (typeof custom === 'function') {
 		const replacement = await custom({ cmd, generated, state });
 		return typeof replacement === 'string' ? replacement : generated;
@@ -668,7 +688,9 @@ async function contributedSections(
 	const internal = cmd[Internal];
 	const sections = createSections();
 
-	for (const hook of hooks) {
+	// a copy: a hook that adds to the list it is being read from would otherwise
+	// extend the run it is already in
+	for (const hook of hooks.slice()) {
 		await hook({
 			args: internal.args,
 			cmd,
