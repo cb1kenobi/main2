@@ -267,6 +267,15 @@ export interface Option {
 	type?: OptionDataType | string;
 }
 
+/**
+ * A set of options, keyed by format string.
+ *
+ * `null` and `undefined` declare a format and nothing else; a string is the
+ * description. The same shape wherever options are declared -- a schema, a
+ * command, a help section, and an `options()` group.
+ */
+export type OptionDeclarations = Record<string, string | Option | undefined | null>;
+
 export interface InternalOption extends Option {
 	[Internal]: InternalOptionBase;
 	name: string;

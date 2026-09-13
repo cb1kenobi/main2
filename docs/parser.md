@@ -576,6 +576,43 @@ values — see [Undeclared options](#undeclared-options).
 | `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself |
 | `helpExitCode`             | `0`     | Exit code `main2()` sets after printing help                |
 
+## Sharing options between commands
+
+Options resolve across the whole context chain, so a child command already sees
+everything its parents declared — nothing has to say so, and nothing has to be
+copied. A `--verbose` on the schema is the `--verbose` every subcommand reaches.
+
+`options()` hoists a set of options out into a value, for the cases where the same
+set belongs in more than one place:
+
+```js
+import main2, { options } from 'main2';
+
+const global = options({
+	'-v, --verbose': 'Say more',
+	'--port [n]': { type: 'int', default: 8080 },
+});
+
+await main2({
+	schema: {
+		options: global,
+		commands: {
+			build: {
+				options: { '-w, --watch': 'Rebuild on change' },
+				run({ argv }) {
+					// argv.watch, and argv.verbose and argv.port from the schema above
+				},
+			},
+		},
+	},
+});
+```
+
+`options()` hands back exactly what it was given. It exists for one type-level
+reason: a `const` type parameter keeps `type: 'int'` from widening to `string`,
+which is what makes `--port` a number rather than a string wherever the group ends
+up.
+
 ## Help
 
 A schema gets `--help` and a `help` command for free. Both go on the root
