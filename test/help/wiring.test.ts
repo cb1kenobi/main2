@@ -109,6 +109,24 @@ describe('the --help flag', () => {
 		expect(state.argv.help).toBe(true);
 	});
 
+	// typed and true: `--help=false` is somebody typing it and saying no
+	it('should not answer a flag that was turned off', async () => {
+		const run1 = vi.fn();
+		const schema: Schema = { name: 'mycli', commands: { build: { desc: 'Build', run: run1 } } };
+		expect((await run(schema, ['build', '--help=false'])).out).toBe('');
+		expect(run1).toHaveBeenCalled();
+		expect((await run(schema, ['build', '--help=true'])).out).toContain('Usage: mycli build');
+	});
+
+	// a declaration of any spelling that resolves to `--help` is a declaration:
+	// a negated flag answers to the positive spelling too
+	it('should treat a declared --no-help as the app own', async () => {
+		const schema: Schema = { name: 'mycli', options: { '--no-help': 'The app own' } };
+		const state = await parse({ argv: ['--help'], schema });
+		expect(state.help).toBeUndefined();
+		expect(state.argv.help).toBe(true);
+	});
+
 	it('should add nothing when help is turned off', async () => {
 		const state = await parse({ argv: [], schema: { help: false, name: 'mycli' } });
 		const { commands, options } = state.contexts[0][Internal];
@@ -144,6 +162,21 @@ describe('short-circuiting', () => {
 
 	it('should still throw when help was not asked for', async () => {
 		await expect(parse({ argv: ['build'], schema })).rejects.toThrow(/Missing required/);
+	});
+
+	// everything that throws while argv is being read throws: only the validation
+	// that runs after the walk defers to help
+	it('should not rescue a missing option value', async () => {
+		const required: Schema = { name: 'mycli', options: { '--name <value>': 'A name' } };
+		await expect(parse({ argv: ['--name', '--help'], schema: required })).rejects.toThrow(
+			/Missing value for required option/
+		);
+	});
+
+	it('should not answer a --help that argv put past the terminator', async () => {
+		await expect(parse({ argv: ['build', '--', '--help'], schema })).rejects.toThrow(
+			/Extra arguments are not allowed/
+		);
 	});
 
 	// an invalid value is not a missing one: the parse died on the way in, before
@@ -195,6 +228,33 @@ describe('the help command', () => {
 		await expect(parse({ argv: ['help', 'nope'], schema })).rejects.toThrow(
 			'Unknown command "nope"'
 		);
+	});
+
+	// the path after itself, not every positional there is
+	it('should read the path after itself', async () => {
+		const { out } = await run({ ...schema, settings: undefined } as Schema, [
+			'help',
+			'build',
+			'targets',
+		]);
+		expect(out).toContain('Usage: mycli build targets');
+	});
+
+	// the command form is the more specific of the two: somebody who typed
+	// `help build` named the command they meant
+	it('should win over the flag when both are present', async () => {
+		expect((await run(schema, ['help', 'build', '--help'])).out).toContain('Usage: mycli build');
+	});
+
+	// `commands.find()` answers to aliases, and an alias is a declaration
+	it('should leave an app that aliases something else to help alone', async () => {
+		const run1 = vi.fn();
+		const aliased: Schema = {
+			name: 'mycli',
+			commands: { deploy: { alias: 'help', desc: 'Deploy', run: run1 } },
+		};
+		expect((await run(aliased, ['help'])).out).toBe('');
+		expect(run1).toHaveBeenCalled();
 	});
 
 	it('should leave an app that declares its own help command alone', async () => {
@@ -281,6 +341,29 @@ describe('Command.help', () => {
 	});
 
 	// which is how a function that only wants to look declines to replace it
+	// it leaves through `main2()`'s one error path like anything else
+	it('should let a function that throws become the error', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				notes: {
+					desc: 'Notes',
+					help: () => {
+						throw new Error('help is broken');
+					},
+				},
+			},
+		};
+		const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+		try {
+			const { out } = await run(schema, ['notes', '--help']);
+			expect(out).toBe('');
+			expect(String(stderr.mock.calls[0]?.[0])).toContain('help is broken');
+		} finally {
+			stderr.mockRestore();
+		}
+	});
+
 	it('should keep the generated screen when the function returns nothing', async () => {
 		const schema: Schema = {
 			name: 'mycli',

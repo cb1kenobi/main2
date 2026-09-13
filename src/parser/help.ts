@@ -3,6 +3,7 @@ import {
 	Internal,
 	type InternalCommand,
 	type InternalOption,
+	type ParsedCommand,
 	type ParseState,
 	type Schema,
 } from '../types.js';
@@ -88,12 +89,15 @@ export async function detectHelp(
 	state: ParseState,
 	handles: HelpHandles
 ): Promise<HelpRequest | undefined> {
-	if (handles.option && used(state, handles.option)) {
-		return { contexts: asked(state), via: 'option' };
+	// the command form is asked first, because it is the more specific of the two
+	// when both are present: somebody who typed `help build` named the command
+	// they meant, and the `--help` after it adds nothing
+	if (handles.command && state.cmd === handles.command) {
+		return { contexts: await resolve(state, path(state, handles.command)), via: 'command' };
 	}
 
-	if (handles.command && state.cmd === handles.command) {
-		return { contexts: await resolve(state, path(state)), via: 'command' };
+	if (handles.option && used(state, handles.option)) {
+		return { contexts: asked(state), via: 'option' };
 	}
 
 	return undefined;
@@ -117,31 +121,46 @@ function asked(state: ParseState): InternalCommand[] {
 }
 
 /**
- * Whether an option was typed, rather than merely having a value. A default or
- * an environment variable can give `--help` a value; only typing it is a
- * question.
+ * Whether argv asked for help with the flag.
+ *
+ * Typed and true: a default or an environment variable can give `--help` a value
+ * without anybody asking a question, and `--help=false` is somebody typing it and
+ * saying no.
  *
  * @param state - The parse state.
  * @param option - The option to look for.
- * @returns `true` when argv named it.
+ * @returns `true` when argv turned it on.
  */
 function used(state: ParseState, option: InternalOption): boolean {
-	return state.$.some((parsed) => parsed.type === 'Option' && parsed.option === option);
+	return state.$.some(
+		(parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
+	);
 }
 
 /**
  * The command path `help` was given, which is every positional after it.
  *
+ * After it, and not simply every positional there is: `mycli nope help build`
+ * would otherwise start the walk at `nope` and report that as the unknown
+ * command, when the question was about `build`.
+ *
  * Read off `state.$` rather than `state.argv`, because nothing has processed the
  * arguments yet: help is detected before validation, which is the point of it.
  *
  * @param state - The parse state.
+ * @param command - The help command, to find where its arguments start.
  * @returns The names, in order.
  */
-function path(state: ParseState): string[] {
+function path(state: ParseState, command: InternalCommand): string[] {
 	const names: string[] = [];
+	let reached = false;
 
 	for (const parsed of state.$) {
+		if (!reached) {
+			reached = parsed.type === 'Command' && (parsed as ParsedCommand).cmd === command;
+			continue;
+		}
+
 		if (parsed.type === 'Unknown') {
 			for (const input of parsed.inputs) {
 				if (typeof input === 'string' && input) {
