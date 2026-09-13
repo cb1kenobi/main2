@@ -1,4 +1,5 @@
 import { parse } from '../../src/parser/parse.js';
+import { Internal } from '../../src/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -481,6 +482,175 @@ describe('regressions', () => {
 				schema: { commands: { foo: {} } },
 			});
 			expect(contexts[0].hidden).to.equal(false);
+		});
+	});
+
+	describe('command name labels', () => {
+		it('should treat a second bare label as an alias, not a rename', async () => {
+			const schema = { commands: { 'build, b': {} } };
+
+			let { contexts } = await parse({ argv: ['build'], schema });
+			expect(contexts[0].name).to.equal('build');
+
+			({ contexts } = await parse({ argv: ['b'], schema }));
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0][Internal].label).to.equal('build, b');
+		});
+
+		it('should treat a space separated label as an alias', async () => {
+			const schema = { commands: { 'build b': {} } };
+
+			let { contexts } = await parse({ argv: ['build'], schema });
+			expect(contexts[0].name).to.equal('build');
+
+			({ contexts } = await parse({ argv: ['b'], schema }));
+			expect(contexts[0].name).to.equal('build');
+		});
+
+		it('should alias every bare label after the first', async () => {
+			const schema = { commands: { 'build, b, compile': {} } };
+
+			for (const name of ['build', 'b', 'compile']) {
+				const { contexts } = await parse({ argv: [name], schema });
+				expect(contexts[0].name).to.equal('build');
+			}
+
+			const { contexts } = await parse({ argv: ['build'], schema });
+			expect(contexts[0][Internal].label).to.equal('build, b, compile');
+		});
+
+		it('should mix bare and "@" prefixed labels', async () => {
+			const schema = { commands: { 'build, @b, compile': {} } };
+
+			for (const name of ['build', 'b', 'compile']) {
+				const { contexts } = await parse({ argv: [name], schema });
+				expect(contexts[0].name).to.equal('build');
+			}
+		});
+
+		it('should let a bare label name a command declared after a "@" label', async () => {
+			const schema = { commands: { '@ls, list': {} } };
+
+			let { contexts } = await parse({ argv: ['ls'], schema });
+			expect(contexts[0].name).to.equal('list');
+
+			({ contexts } = await parse({ argv: ['list'], schema }));
+			expect(contexts[0].name).to.equal('list');
+			expect(contexts[0][Internal].label).to.equal('ls, list');
+		});
+
+		it('should name the command after a prefixed label when there is no bare label', async () => {
+			const { contexts } = await parse({
+				argv: ['b'],
+				schema: { commands: { '@b, @build': {} } },
+			});
+			expect(contexts[0].name).to.equal('b');
+		});
+
+		it('should alias a bare label on a "!" prefixed command', async () => {
+			const schema = { commands: { '!build, b': {} } };
+
+			const { contexts } = await parse({ argv: ['b'], schema });
+			expect(contexts[0].name).to.equal('b');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should hide the whole command when any label is "!" prefixed', async () => {
+			const schema = { commands: { 'build, !b': {} } };
+
+			let { contexts } = await parse({ argv: ['build'], schema });
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].hidden).to.equal(true);
+			expect(contexts[0][Internal].label).to.equal('build');
+
+			({ contexts } = await parse({ argv: ['b'], schema }));
+			expect(contexts[0].name).to.equal('build');
+		});
+
+		it('should keep inline arguments out of the aliases', async () => {
+			const schema = { commands: { 'build, b <path>': {} } };
+
+			const { argv, contexts } = await parse({ argv: ['b', 'src'], schema });
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0][Internal].label).to.equal('build, b');
+			expect(argv.path).to.equal('src');
+		});
+
+		it('should combine bare labels with the alias property', async () => {
+			const schema = { commands: { 'build, b': { alias: 'compile' } } };
+
+			for (const name of ['build', 'b', 'compile']) {
+				const { contexts } = await parse({ argv: [name], schema });
+				expect(contexts[0].name).to.equal('build');
+			}
+
+			const { contexts } = await parse({ argv: ['build'], schema });
+			expect(contexts[0][Internal].label).to.equal('build, b');
+		});
+
+		it('should ignore leading, trailing, and doubled separators', async () => {
+			for (const name of [' build, b', 'build, b, ', 'build,,b']) {
+				const { contexts } = await parse({ argv: ['b'], schema: { commands: { [name]: {} } } });
+				expect(contexts[0].name).to.equal('build');
+				expect(contexts[0][Internal].label).to.equal('build, b');
+			}
+		});
+
+		it('should hide the command on a stray "!" label', async () => {
+			const { contexts } = await parse({
+				argv: ['build'],
+				schema: { commands: { 'build, !': {} } },
+			});
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].hidden).to.equal(true);
+			expect(contexts[0][Internal].label).to.equal('build');
+		});
+
+		it('should ignore a stray "@" label', async () => {
+			const { contexts } = await parse({
+				argv: ['build'],
+				schema: { commands: { 'build, @': {} } },
+			});
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].hidden).to.equal(false);
+			expect(contexts[0][Internal].label).to.equal('build');
+		});
+
+		it('should carry inline aliases onto a lazy loaded command', async () => {
+			const { contexts } = await parse({
+				argv: ['b'],
+				schema: {
+					commands: {
+						'build, b': { path: path.join(__dirname, 'fixtures/aliases/build.js') },
+					},
+				},
+			});
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].desc).to.equal('build it');
+			expect([...contexts[0][Internal].aliases]).to.deep.equal(['b']);
+			expect(contexts[0][Internal].label).to.equal('build, b');
+		});
+
+		it("should merge inline aliases with a lazy loaded command's own alias", async () => {
+			const schema = {
+				commands: {
+					'build, b': { path: path.join(__dirname, 'fixtures/aliases/compile.js') },
+				},
+			};
+
+			// `compile` comes from the module, so it cannot resolve a command the
+			// parser has not loaded yet, but it must survive the merge
+			for (const name of ['build', 'b']) {
+				const { contexts } = await parse({ argv: [name], schema: structuredClone(schema) });
+				expect(contexts[0].name).to.equal('build');
+				expect([...contexts[0][Internal].aliases].sort()).to.deep.equal(['b', 'compile']);
+			}
+		});
+
+		it('should throw when a name has no label', async () => {
+			await expect(parse({ argv: [], schema: { commands: { ' , ': {} } } })).rejects.toThrow(
+				'Unable to determine command name from " , "'
+			);
 		});
 	});
 });

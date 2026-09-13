@@ -61,10 +61,13 @@ The name string carries more than a name:
 Labels are separated by commas or spaces, so `'build, @b <entry>'` declares a
 command named `build`, aliased `b`, taking one required argument.
 
-> [!WARNING]
-> A bare comma list such as `'build, b'` does **not** create an alias. Each
-> unprefixed label overwrites the name in turn, so the command ends up named
-> `b` and `build` is never registered. Use `@b`. This is a known bug.
+The first bare label names the command and every bare label after it becomes an
+alias, so `'build, b'`, `'build b'`, and `'build, @b'` all declare a command
+named `build` answering to `b`. A `@` or `!` prefixed label is always an alias;
+it names the command only when the string has no bare label at all, which is
+what makes `'@b'` and `'!internal'` on their own work, and why `'@ls, list'` is
+named `list`. Empty labels — a leading, trailing, or doubled separator — are
+ignored, and a name string with no label at all throws.
 
 Aliases can also be given as a property, which is clearer for more than one:
 
@@ -103,7 +106,11 @@ back `hidden: false`, never `undefined`. A non-boolean `hidden` throws.
 
 Note that a `!` prefixed label is still registered as an alias — it is only
 left out of the help label — and it hides the whole command, not just that one
-alias, so `'build, !internal'` hides `build` too.
+alias, so `'build, !internal'` hides `build` too. `!` marks the command, not
+the label it happens to sit on: making it positional would mean `'!build, b'`
+silently published a visible command. An alias that should stay out of help
+without hiding the command goes in the `alias` property, which never reaches
+the label.
 
 ### Lazy loading
 
@@ -118,6 +125,13 @@ alias, so `'build, !internal'` hides `build` too.
 
 The module must default-export a command object. Loading is deferred until the
 command is actually matched, so a large CLI only pays for the branch it takes.
+
+Only the placeholder sees the name string, so the aliases and help label parsed
+from it are carried onto the loaded command; a module that declares its own
+`name` string brings its own label instead. An `alias` the module declares is
+merged in, but it cannot resolve the command — the parser has to match the
+command before it can load the module that declares the alias, so a name a user
+is expected to type belongs on the placeholder.
 
 ## Arguments
 

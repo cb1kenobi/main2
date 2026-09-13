@@ -243,29 +243,50 @@ function parseName(unparsedName: string): {
 	const args: string[] = [];
 	const labels: string[] = [];
 	let hidden = false;
-	let name;
+	let name: string | undefined;
+	let fallbackName: string | undefined;
 
 	for (let label of unparsedName.split(nameSplitRegExp)) {
+		if (!label) {
+			// a leading, trailing, or doubled separator
+			continue;
+		}
+
 		const c = label[0];
 		if ('<['.includes(c)) {
 			args.push(label);
 			continue;
 		}
 
-		if ('!@'.includes(c)) {
-			label = label.slice(1);
-			aliases.push(label);
-			name ??= label;
-		} else {
-			name = label;
+		if (c === '!') {
+			// "!" hides the command, not just the label it sits on, so a stray
+			// "!" still hides rather than quietly doing nothing
+			hidden = true;
 		}
 
-		if (c === '!') {
-			hidden = true;
+		if ('!@'.includes(c)) {
+			label = label.slice(1);
+			if (!label) {
+				// a stray "!" or "@" declares no name
+				continue;
+			}
+			aliases.push(label);
+			// a prefixed label names the command only if no bare label does
+			fallbackName ??= label;
+		} else if (name === undefined) {
+			// the first bare label is the name...
+			name = label;
 		} else {
+			// ...and every bare label after it is an alias
+			aliases.push(label);
+		}
+
+		if (c !== '!') {
 			labels.push(label);
 		}
 	}
+
+	name ??= fallbackName;
 
 	if (!name) {
 		throw new Error(`Unable to determine command name from "${unparsedName}"`);
