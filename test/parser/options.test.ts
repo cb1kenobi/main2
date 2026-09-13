@@ -1548,6 +1548,40 @@ describe('options', () => {
 			).rejects.toThrow('Unknown option "--foo"');
 		});
 
+		// an undeclared option's value was guessed with `auto` and reached argv without
+		// the declared type, `choices`, `multiple`, or `transform`, so it does not get
+		// to overwrite a destination something declared
+		it('should not let an undeclared option overwrite a declared destination', async () => {
+			const result = await parse({
+				argv: ['--verbose'],
+				schema: { help: false, options: { '-v': { name: 'verbose', type: 'count' } } },
+			});
+
+			// `-v` is declared short-only with an explicit name, so `--verbose` is not one
+			// of its spellings -- but `verbose` is the destination it owns
+			expect(result.argv.verbose).to.equal(0);
+			// and what was typed is still there for anything that wants it
+			expect(result.$.some((parsed) => parsed.type === 'UnknownOption')).to.equal(true);
+		});
+
+		it('should not let an undeclared option overwrite an argument destination', async () => {
+			const result = await parse({
+				argv: ['--mode', 'fast'],
+				schema: { help: false, args: [{ name: 'mode', choices: ['slow'] }] },
+			});
+
+			expect(Object.hasOwn(result.argv, 'mode')).to.equal(false);
+		});
+
+		it('should still produce a value for an undeclared option that collides with nothing', async () => {
+			const result = await parse({
+				argv: ['--other', 'x'],
+				schema: { help: false, options: { '--real': {} } },
+			});
+
+			expect(result.argv).to.deep.equal({ other: 'x', real: false });
+		});
+
 		it('should parse a flag using long name', async () => {
 			const result = await parse({
 				argv: ['--foo'],

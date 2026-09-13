@@ -720,6 +720,19 @@ export async function processArgs(state: ParseState): Promise<void> {
 	const ctx = state.contexts[0];
 	const internal = ctx[Internal];
 
+	// every destination the schema describes, from every context in the chain: an
+	// undeclared option that lands on one of these would be writing over a value
+	// something declared
+	const declared = new Set<string>();
+	for (const context of state.contexts) {
+		for (const opt of context[Internal].options.values()) {
+			declared.add(opt[Internal].dest);
+		}
+		for (const arg of context[Internal].args) {
+			declared.add(arg[Internal].dest);
+		}
+	}
+
 	let argIdx = 0;
 
 	// loop through all parsed args and populate argv
@@ -801,7 +814,14 @@ export async function processArgs(state: ParseState): Promise<void> {
 		} else if (parsedType === 'UnknownOption') {
 			const { dest, value } = parsed as ParsedUnknownOption;
 
-			state.argv[dest] = value;
+			// an undeclared option never overwrites a destination a declared one owns.
+			// Its value was guessed with `auto`, and it reached here without the
+			// declared data type, `choices`, `multiple`, or `transform` -- so writing it
+			// would replace a value the schema described with one nothing described.
+			// What was typed is still on `state.$` for anything that wants it.
+			if (!declared.has(dest)) {
+				state.argv[dest] = value;
+			}
 		}
 	}
 
