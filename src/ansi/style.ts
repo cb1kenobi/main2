@@ -1,23 +1,28 @@
-import { codes, ESC, sgr, type StyleName } from './codes.js';
-import { type ColorLevel, getColorLevel } from './color-support.js';
+import { codes, CSI, ESC, sgr, type StyleName } from './codes.js';
+import { type ColorLevel } from './color-support.js';
 
 /**
- * One style in a chain: the sequence that turns it on and the one that turns
- * it off.
+ * One style in a chain: the sequence that turns it on, and the SGR parameter
+ * that turns it off.
  *
  * `open` is a function for the colors whose rendering depends on the level --
  * a truecolor request has to come out as a 256-color or a 16-color sequence on
  * a terminal that cannot do better -- and the level is read when the text is
- * rendered, not when the chain was built, so setting the level after building
- * a styler still changes what that styler writes.
+ * rendered, not when the chain was built, so setting the level after building a
+ * styler still changes what that styler writes.
+ *
+ * `close` is the parameter rather than the whole sequence because the text
+ * being styled is searched for it: a style has to be reopened after a sequence
+ * that turned it off, and one sequence may carry several parameters at once.
  */
 interface Part {
+	close: number;
 	open: string | ((level: ColorLevel) => string);
-	close: string;
 }
 
 const Parts: unique symbol = Symbol('main2.ansi.parts');
 const Cache: unique symbol = Symbol('main2.ansi.cache');
+const Level: unique symbol = Symbol('main2.ansi.level');
 
 /**
  * A callable style. Every style name is also a property that returns another
@@ -46,19 +51,20 @@ export type Styles = { readonly [K in StyleName]: Styler };
 export interface Styler extends Styles {}
 
 interface InternalStyler extends Styler {
-	[Parts]: Part[];
 	[Cache]: Map<StyleName, Styler>;
+	[Level]: () => ColorLevel;
+	[Parts]: Part[];
 }
 
 /**
- * The shared prototype every styler inherits, so the forty-odd style getters
+ * The shared prototype every styler inherits, so the fifty-odd style getters
  * are defined once rather than on each link of every chain.
  */
 const proto = Object.create(Function.prototype) as InternalStyler;
 
 for (const name of Object.keys(codes) as StyleName[]) {
 	const [open, close] = codes[name];
-	const part: Part = { open: sgr(open), close: sgr(close) };
+	const part: Part = { close, open: sgr(open) };
 
 	Object.defineProperty(proto, name, {
 		configurable: true,
@@ -72,15 +78,15 @@ Object.defineProperties(proto, {
 	ansi256: method(function (this: InternalStyler, code: number) {
 		const n = assertByte(code, 'color code');
 		return extend(this, {
+			close: 39,
 			open: (level) => (level >= 2 ? sgr(`38;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), false))),
-			close: sgr(39),
 		});
 	}),
 	bgAnsi256: method(function (this: InternalStyler, code: number) {
 		const n = assertByte(code, 'color code');
 		return extend(this, {
+			close: 49,
 			open: (level) => (level >= 2 ? sgr(`48;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), true))),
-			close: sgr(49),
 		});
 	}),
 	bgHex: method(function (this: InternalStyler, hex: string) {
@@ -111,40 +117,46 @@ function method(value: (...args: never[]) => unknown): PropertyDescriptor {
 }
 
 /**
- * Builds the root styler, which adds no styles of its own -- `ansi('x')` is
- * `'x'` -- and is the head of every chain.
+ * Builds a root styler, which adds no styles of its own -- `ansi('x')` is
+ * `'x'` -- and is the head of every chain built from it.
  *
+ * @param level - Reads the level to render at. Called per render, so changing a
+ * root's level also changes the chains already built from it.
  * @returns The styler.
  */
-export function createStyler(): Styler {
-	return build([]);
+export function createStyler(level: () => ColorLevel): Styler {
+	return build(level, []);
 }
 
 /**
  * Builds a styler from a list of parts.
  *
+ * @param level - Reads the level to render at.
  * @param parts - The styles to apply, outermost first.
  * @returns The styler.
  */
-function build(parts: Part[]): Styler {
-	const styler = ((...text: unknown[]) => render(parts, text)) as InternalStyler;
+function build(level: () => ColorLevel, parts: Part[]): Styler {
+	const styler = ((...text: unknown[]) => render(level(), parts, text)) as InternalStyler;
 	Object.setPrototypeOf(styler, proto);
-	styler[Parts] = parts;
 	styler[Cache] = new Map();
+	styler[Level] = level;
+	styler[Parts] = parts;
 	return styler;
 }
 
 /**
  * Extends a styler with one named style, reusing the styler already built for
  * that name. Chains are read repeatedly -- a help screen asks for
- * `ansi.bold.cyan` once per command -- and without the cache every read walks
- * a getter and allocates.
+ * `ansi.bold.cyan` once per command -- and without the cache every read walks a
+ * getter and allocates.
  *
- * Only the named styles are cached. There are fifty of them and a chain of
- * them can only be as deep as the source that spells it out, so the cache is
- * bounded by the calling code. A cache keyed on a color instead would be
- * bounded by that color's input, and a process cycling through a gradient
- * would grow one entry per frame forever; `extend()` builds those fresh.
+ * Only the named styles are cached, and only once each per chain: a style
+ * already in the chain is already in effect, so `ansi.bold.bold` is `ansi.bold`
+ * rather than a second entry. What is retained is one styler per distinct chain
+ * the program spells out, which is bounded by the program. A cache keyed on a
+ * color would be bounded by that color's input instead, and a process cycling
+ * through a gradient would grow an entry per frame forever; `extend()` builds
+ * those fresh.
  *
  * @param parent - The styler being extended.
  * @param name - The style being added.
@@ -152,6 +164,10 @@ function build(parts: Part[]): Styler {
  * @returns The extended styler.
  */
 function chain(parent: InternalStyler, name: StyleName, part: Part): Styler {
+	if (parent[Parts].includes(part)) {
+		return parent;
+	}
+
 	let styler = parent[Cache].get(name);
 	if (!styler) {
 		styler = extend(parent, part);
@@ -168,7 +184,7 @@ function chain(parent: InternalStyler, name: StyleName, part: Part): Styler {
  * @returns The extended styler.
  */
 function extend(parent: InternalStyler, part: Part): Styler {
-	return build([...parent[Parts], part]);
+	return build(parent[Level], [...parent[Parts], part]);
 }
 
 /**
@@ -194,6 +210,7 @@ function rgbChain(
 	const prefix = background ? 48 : 38;
 
 	return extend(parent, {
+		close: background ? 49 : 39,
 		open: (level) => {
 			if (level >= 3) {
 				return sgr(`${prefix};2;${r};${g};${b}`);
@@ -203,63 +220,57 @@ function rgbChain(
 			}
 			return sgr(rgbToBasic(r, g, b, background));
 		},
-		close: sgr(background ? 49 : 39),
 	});
 }
+
+/** Matches one SGR sequence, in either the ESC or the single-byte C1 form. */
+const sgrPattern = new RegExp(`(?:${ESC}\\[|${CSI})([\\d;:]*)m`, 'g');
 
 /**
  * Wraps text in a chain's sequences.
  *
- * Three details beyond the obvious concatenation, all of which only show up in
+ * Two details beyond the obvious concatenation, both of which only show up in
  * composed output:
  *
- * - Close codes are shared, so text that already closed bold would leave the
- *   outer bold off for the rest of the line. Every close this chain owns is
- *   followed by its own open again.
- * - A reset closes everything, not just one style, so the whole chain is
- *   reopened after one rather than one part of it.
+ * - The text may already carry sequences that turn this chain's own styles back
+ *   off. Close codes are shared -- bold and dim both close with 22, every
+ *   foreground with 39 -- and a reset closes everything, so an inner style that
+ *   ended would leave the outer one off for the rest of the line. Every
+ *   sequence in the text is read for what it turns off, and whatever it turned
+ *   off is opened again after it.
  * - A style left open across a newline bleeds into whatever the terminal draws
  *   at the start of the next line, which for a background color means the
- *   margin. Each line closes and reopens instead.
+ *   margin. Each line closes and reopens instead. This runs after the pass
+ *   above, so the closes it inserts are not themselves read as the inner text
+ *   ending a style.
  *
+ * @param level - The level to render at.
  * @param parts - The styles to apply.
  * @param args - What to style; joined with spaces, as `console.log` does.
  * @returns The styled text.
  */
-function render(parts: Part[], args: unknown[]): string {
+function render(level: ColorLevel, parts: Part[], args: unknown[]): string {
 	let text = args.length === 1 ? String(args[0]) : args.map(String).join(' ');
 
-	const level = getColorLevel();
 	if (level === 0 || parts.length === 0 || text === '') {
 		return text;
 	}
 
 	let openAll = '';
 	let closeAll = '';
-	const opened: [close: string, open: string][] = [];
+	const opened: [close: number, open: string][] = [];
 
 	for (const part of parts) {
 		const open = typeof part.open === 'string' ? part.open : part.open(level);
 		openAll += open;
-		closeAll = part.close + closeAll;
+		closeAll = sgr(part.close) + closeAll;
 		opened.push([part.close, open]);
 	}
 
-	if (text.includes(ESC)) {
-		// a reset turns every attribute off, so what follows one has to be the
-		// whole chain again; `ESC[m` with no parameters means the same as `ESC[0m`
-		for (const reset of resets) {
-			if (text.includes(reset)) {
-				text = text.replaceAll(reset, reset + openAll);
-			}
-		}
-
-		for (const [close, open] of opened) {
-			// a `reset` part closes with a reset, which the loop above handled
-			if (!resets.includes(close) && text.includes(close)) {
-				text = text.replaceAll(close, close + open);
-			}
-		}
+	if (text.includes(ESC) || text.includes(CSI)) {
+		text = text.replace(sgrPattern, (seq: string, params: string) =>
+			reopen(seq, params, opened, openAll)
+		);
 	}
 
 	if (text.includes('\n')) {
@@ -269,8 +280,46 @@ function render(parts: Part[], args: unknown[]): string {
 	return `${openAll}${text}${closeAll}`;
 }
 
-/** The two spellings of a reset, which closes every attribute at once. */
-const resets = [sgr(0), sgr('')];
+/**
+ * Reopens whatever one SGR sequence in the styled text turned off.
+ *
+ * The parameters are read rather than the whole sequence compared, because
+ * everything that matters here has more than one spelling: `ESC[0m`, `ESC[m`,
+ * `ESC[00m`, and `ESC[0;31m` are all resets, and `ESC[39;1m` turns a foreground
+ * off in passing. A sub-parameter -- the `3` of `ESC[4:3m` -- is not a
+ * parameter of its own, so only the part before the colon is read.
+ *
+ * @param seq - The sequence, as it appeared.
+ * @param params - Its parameters, unparsed.
+ * @param opened - This chain's close codes and what reopens each, outermost
+ * first.
+ * @param openAll - The whole chain, for a reset.
+ * @returns The sequence, followed by whatever has to come back after it.
+ */
+function reopen(
+	seq: string,
+	params: string,
+	opened: [close: number, open: string][],
+	openAll: string
+): string {
+	// an SGR carrying no parameters means the same as `0`
+	const values = params === '' ? [0] : params.split(';').map((p) => Number.parseInt(p, 10) || 0);
+
+	if (values.includes(0)) {
+		return seq + openAll;
+	}
+
+	// outermost first, so the innermost style is opened last and is the one left
+	// in effect
+	let reopened = '';
+	for (const [close, open] of opened) {
+		if (values.includes(close)) {
+			reopened += open;
+		}
+	}
+
+	return seq + reopened;
+}
 
 /**
  * Parses `#rgb`, `#rrggbb`, and the same two without the `#`.
@@ -293,39 +342,12 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 /**
- * The nearest index in the 256-color palette.
+ * The standard 16 colors, as the values most terminals ship.
  *
- * The palette is 16 system colors, a 6x6x6 RGB cube, and a 24-step grayscale
- * ramp. A gray goes to the ramp, which is finer than the cube's four gray
- * steps; everything else goes to the cube.
- *
- * @param red - The red channel, 0-255.
- * @param green - The green channel, 0-255.
- * @param blue - The blue channel, 0-255.
- * @returns The palette index.
- */
-function rgbToAnsi256(red: number, green: number, blue: number): number {
-	if (red === green && green === blue) {
-		if (red < 8) {
-			return 16;
-		}
-		if (red > 248) {
-			return 231;
-		}
-		return Math.round(((red - 8) / 247) * 24) + 232;
-	}
-
-	return (
-		16 +
-		36 * Math.round((red / 255) * 5) +
-		6 * Math.round((green / 255) * 5) +
-		Math.round((blue / 255) * 5)
-	);
-}
-
-/**
- * The standard 16 colors, as the values nearly every terminal ships. Picking
- * the nearest of them needs actual colors to compare against.
+ * All sixteen are a theme the user can change, so this is an approximation and
+ * cannot be anything else: what 31 draws is whatever the terminal was told to
+ * draw. These are the conventional values, and they are what picking a nearest
+ * color has to be measured against.
  */
 const basic16 = [
 	[0, 0, 0], // black
@@ -346,8 +368,35 @@ const basic16 = [
 	[255, 255, 255], // bright white
 ] as const;
 
-/** The six levels each channel of the 256-color cube steps through. */
+/**
+ * The six levels each channel of the 256-color cube steps through. They are
+ * neither evenly spaced nor multiples of 51: the first step up is 95, and the
+ * rest are 40 apart.
+ */
 const cubeSteps = [0, 95, 135, 175, 215, 255] as const;
+
+/**
+ * How far apart two colors are, by the "redmean" weighting -- a closer match to
+ * what the eye does than plain squared distance, for about the same arithmetic.
+ *
+ * @param red - The red channel of the first color.
+ * @param green - The green channel of the first color.
+ * @param blue - The blue channel of the first color.
+ * @param to - The second color.
+ * @returns The weighted square of the distance between them.
+ */
+function distance(
+	red: number,
+	green: number,
+	blue: number,
+	to: readonly [number, number, number]
+): number {
+	const mean = (red + to[0]) / 2;
+	const dr = red - to[0];
+	const dg = green - to[1];
+	const db = blue - to[2];
+	return (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db;
+}
 
 /**
  * The nearest of the basic 16, as an SGR parameter.
@@ -355,12 +404,9 @@ const cubeSteps = [0, 95, 135, 175, 215, 255] as const;
  * Nearest by distance against the palette above, rather than by rounding each
  * channel to a bit and reading the result as a color index. Rounding to bits
  * cannot express a gray at all -- every channel rounds the same way, so the
- * only grays it can reach are black and white -- which put mid-gray on 37
- * when 37 is `#c0c0c0` and 90 is exactly `#808080`.
- *
- * The metric is the "redmean" weighting, which is a closer match to what the
- * eye does than plain squared distance for about the same arithmetic. A tie
- * goes to the lower index, which is the darker or less saturated of the two.
+ * only grays it reaches are black and white -- which puts mid-gray on 37 when
+ * 37 is `#c0c0c0` and 90 is exactly `#808080`. A tie goes to the lower index,
+ * which is the darker or the less saturated of the two.
  *
  * @param red - The red channel, 0-255.
  * @param green - The green channel, 0-255.
@@ -373,15 +419,9 @@ function rgbToBasic(red: number, green: number, blue: number, background: boolea
 	let shortest = Infinity;
 
 	for (let i = 0; i < basic16.length; i++) {
-		const [r, g, b] = basic16[i]!;
-		const mean = (red + r) / 2;
-		const dr = red - r;
-		const dg = green - g;
-		const db = blue - b;
-		const distance = (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db;
-
-		if (distance < shortest) {
-			shortest = distance;
+		const d = distance(red, green, blue, basic16[i]!);
+		if (d < shortest) {
+			shortest = d;
 			nearest = i;
 		}
 	}
@@ -391,8 +431,59 @@ function rgbToBasic(red: number, green: number, blue: number, background: boolea
 }
 
 /**
- * The color a 256-color palette index stands for: the basic 16, then a 6x6x6
- * cube whose channels step through `cubeSteps`, then a 24-step gray ramp.
+ * The nearest index in the 256-color palette.
+ *
+ * Above 15 the palette is a 6x6x6 cube and a 24-step gray ramp, and a color is
+ * measured against both: the ramp is far finer than the cube's six gray steps,
+ * but only the cube reaches pure black and white, so neither alone is right.
+ *
+ * The first sixteen entries are skipped on purpose. They are the theme the user
+ * can change, so quantizing into them would make a fixed color follow it.
+ *
+ * @param red - The red channel, 0-255.
+ * @param green - The green channel, 0-255.
+ * @param blue - The blue channel, 0-255.
+ * @returns The palette index.
+ */
+function rgbToAnsi256(red: number, green: number, blue: number): number {
+	const r = nearestCubeStep(red);
+	const g = nearestCubeStep(green);
+	const b = nearestCubeStep(blue);
+	const cube = 16 + 36 * r + 6 * g + b;
+	const cubeDistance = distance(red, green, blue, [cubeSteps[r]!, cubeSteps[g]!, cubeSteps[b]!]);
+
+	// the ramp runs 8 to 238 in steps of 10, as indices 232 to 255
+	const mean = (red + green + blue) / 3;
+	const step = Math.min(Math.max(Math.round((mean - 8) / 10), 0), 23);
+	const value = step * 10 + 8;
+	const rampDistance = distance(red, green, blue, [value, value, value]);
+
+	return rampDistance < cubeDistance ? 232 + step : cube;
+}
+
+/**
+ * The index of the cube step nearest a channel value.
+ *
+ * @param value - The channel value, 0-255.
+ * @returns The step index, 0-5.
+ */
+function nearestCubeStep(value: number): number {
+	let nearest = 0;
+	let shortest = Infinity;
+
+	for (let i = 0; i < cubeSteps.length; i++) {
+		const d = Math.abs(value - cubeSteps[i]!);
+		if (d < shortest) {
+			shortest = d;
+			nearest = i;
+		}
+	}
+
+	return nearest;
+}
+
+/**
+ * The color a 256-color palette index stands for.
  *
  * @param code - The palette index, 0-255.
  * @returns The channel values.

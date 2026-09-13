@@ -1,9 +1,11 @@
 import { codes } from '../../src/ansi/codes.js';
 import type { ColorLevel } from '../../src/ansi/color-support.js';
-import { ansi } from '../../src/ansi/index.js';
+import { ansi, createAnsi } from '../../src/ansi/index.js';
+import type { Styler } from '../../src/ansi/style.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
+const CSI = String.fromCharCode(0x9b);
 
 beforeEach(() => {
 	ansi.level = 3;
@@ -36,6 +38,20 @@ describe('styling', () => {
 	it('should return the same styler for the same named chain', () => {
 		expect(ansi.bold.red).toBe(ansi.bold.red);
 		expect(ansi.bold.red).not.toBe(ansi.red.bold);
+	});
+
+	// which is also what keeps the cache bounded: a chain built in a loop stops
+	// growing instead of retaining a styler per iteration
+	it('should treat a style already in the chain as a no-op', () => {
+		expect(ansi.bold.bold).toBe(ansi.bold);
+		expect(ansi.bold.red.bold).toBe(ansi.bold.red);
+
+		let style: Styler = ansi;
+		for (let i = 0; i < 1000; i++) {
+			style = style.bold.red;
+		}
+		expect(style).toBe(ansi.bold.red);
+		expect(style('hi')).toBe(ansi.bold.red('hi'));
 	});
 
 	// a cache keyed on a color would be bounded by that color's input instead,
@@ -89,9 +105,38 @@ describe('nesting', () => {
 		expect(ansi.red(`a${ansi.reset('x')}b`)).toBe(
 			`${ESC}[31ma${ESC}[0m${ESC}[31mx${ESC}[0m${ESC}[31mb${ESC}[39m`
 		);
-		expect(ansi.bold.red(`a${ESC}[mb`)).toBe(
-			`${ESC}[1m${ESC}[31ma${ESC}[m${ESC}[1m${ESC}[31mb${ESC}[39m${ESC}[22m`
+	});
+
+	// the parameters are read rather than the sequence compared, because every
+	// one of these means the same thing to a terminal
+	it('should recognize every spelling of a reset', () => {
+		const open = `${ESC}[1m${ESC}[31m`;
+		const close = `${ESC}[39m${ESC}[22m`;
+		for (const reset of [`${ESC}[0m`, `${ESC}[m`, `${ESC}[00m`, `${ESC}[0;0m`, `${CSI}0m`]) {
+			expect(ansi.bold.red(`a${reset}b`), reset).toBe(`${open}a${reset}${open}b${close}`);
+		}
+		// a reset does not have to be the only parameter
+		expect(ansi.bold.red(`a${ESC}[0;32mb`)).toBe(`${open}a${ESC}[0;32m${open}b${close}`);
+	});
+
+	it('should reopen a style a multi-parameter sequence turned off in passing', () => {
+		expect(ansi.red(`a${ESC}[39;4mb`)).toBe(`${ESC}[31ma${ESC}[39;4m${ESC}[31mb${ESC}[39m`);
+	});
+
+	// two foregrounds share close code 39, so both reopen after it -- and the
+	// innermost has to be the one left in effect
+	it('should leave the innermost style in effect when two share a close code', () => {
+		expect(ansi.red.green(`a${ansi.blue('b')}c`)).toBe(
+			`${ESC}[31m${ESC}[32ma${ESC}[34mb${ESC}[39m${ESC}[31m${ESC}[32mc${ESC}[39m${ESC}[39m`
 		);
+		expect(ansi.bgRed.bgGreen(`a${ansi.bgBlue('b')}c`)).toBe(
+			`${ESC}[41m${ESC}[42ma${ESC}[44mb${ESC}[49m${ESC}[41m${ESC}[42mc${ESC}[49m${ESC}[49m`
+		);
+	});
+
+	it('should leave a sub-parameter alone', () => {
+		// the `3` of a curly underline is not a parameter of its own
+		expect(ansi.red(`a${ESC}[4:3mb`)).toBe(`${ESC}[31ma${ESC}[4:3mb${ESC}[39m`);
 	});
 
 	it('should close and reopen around a newline', () => {
@@ -150,10 +195,32 @@ describe('truecolor', () => {
 	it('should downsample to the 256 palette at level 2', () => {
 		ansi.level = 2;
 		expect(ansi.hex('#ff0000')('hi')).toBe(`${ESC}[38;5;196mhi${ESC}[39m`);
-		// a gray goes to the 24 step ramp, which is finer than the cube
+		// a gray goes to the 24 step ramp, which is far finer than the cube
 		expect(ansi.hex('#808080')('hi')).toBe(`${ESC}[38;5;244mhi${ESC}[39m`);
+		// but only the cube reaches pure black and white
 		expect(ansi.hex('#000000')('hi')).toBe(`${ESC}[38;5;16mhi${ESC}[39m`);
 		expect(ansi.hex('#ffffff')('hi')).toBe(`${ESC}[38;5;231mhi${ESC}[39m`);
+	});
+
+	// the cube's channels step 0, 95, 135, 175, 215, 255 -- neither evenly
+	// spaced nor multiples of 51, so quantizing as if they were misses entries
+	// that are an exact match
+	it('should quantize to the cube steps the palette actually uses', () => {
+		ansi.level = 2;
+		// #5f87af is index 67 exactly
+		expect(ansi.rgb(95, 135, 175)('hi')).toBe(`${ESC}[38;5;67mhi${ESC}[39m`);
+		expect(ansi.hex('#005fd7')('hi')).toBe(`${ESC}[38;5;26mhi${ESC}[39m`);
+		expect(ansi.hex('#d7ffaf')('hi')).toBe(`${ESC}[38;5;193mhi${ESC}[39m`);
+	});
+
+	it('should reach both ends of the grayscale ramp', () => {
+		ansi.level = 2;
+		// the ramp runs 8 to 238 as indices 232 to 255
+		expect(ansi.rgb(8, 8, 8)('hi')).toBe(`${ESC}[38;5;232mhi${ESC}[39m`);
+		expect(ansi.rgb(5, 5, 5)('hi')).toBe(`${ESC}[38;5;232mhi${ESC}[39m`);
+		expect(ansi.rgb(238, 238, 238)('hi')).toBe(`${ESC}[38;5;255mhi${ESC}[39m`);
+		// a near-gray still finds the ramp, even though the channels differ
+		expect(ansi.rgb(128, 128, 129)('hi')).toBe(`${ESC}[38;5;244mhi${ESC}[39m`);
 	});
 
 	it('should downsample to the basic 16 at level 1', () => {
@@ -244,5 +311,46 @@ describe('codes', () => {
 		for (const name of Object.keys(codes)) {
 			expect(typeof ansi[name as keyof typeof codes], name).toBe('function');
 		}
+	});
+});
+
+describe('createAnsi()', () => {
+	// stdout being redirected says nothing about stderr, so one level cannot
+	// speak for both destinations
+	it('should keep a level of its own', () => {
+		const other = createAnsi({ level: 3 });
+		ansi.level = 0;
+		expect(other.red('hi')).toBe(`${ESC}[31mhi${ESC}[39m`);
+		expect(ansi.red('hi')).toBe('hi');
+
+		other.level = 0;
+		ansi.level = 3;
+		expect(other.red('hi')).toBe('hi');
+		expect(ansi.red('hi')).toBe(`${ESC}[31mhi${ESC}[39m`);
+	});
+
+	it('should detect from the stream and environment it was given', () => {
+		const tty = createAnsi({
+			env: { TERM: 'xterm-256color' },
+			isTTY: true,
+			platform: 'linux',
+		});
+		expect(tty.level).toBe(2);
+		expect(createAnsi({ env: {}, isTTY: false }).level).toBe(0);
+	});
+
+	it('should detect again after an override is cleared', () => {
+		const style = createAnsi({ env: { TERM: 'xterm-256color' }, isTTY: true, platform: 'linux' });
+		style.level = 0;
+		expect(style.level).toBe(0);
+		style.level = undefined;
+		expect(style.level).toBe(2);
+	});
+
+	it('should reject an invalid level from either direction', () => {
+		expect(() => createAnsi({ level: 7 as ColorLevel })).toThrow(/Invalid color level/);
+		expect(() => {
+			createAnsi().level = 7 as ColorLevel;
+		}).toThrow(/Invalid color level/);
 	});
 });

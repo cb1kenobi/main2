@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
+const CAN = String.fromCharCode(0x18);
+const SUB = String.fromCharCode(0x1a);
 const ST = `${ESC}\\`;
 
 describe('strip()', () => {
@@ -67,6 +69,16 @@ describe('strip()', () => {
 		expect(strip(`red${ESC}`)).toBe('red');
 		expect(strip(`red${ESC}]8;;https://example.com`)).toBe('red');
 		expect(strip(`red${ESC}Ppayload`)).toBe('red');
+	});
+
+	// a terminal leaves the string state on a cancel or on an ESC, so an
+	// unterminated one must not swallow everything printable after it
+	it('should end a string sequence where a terminal ends it', () => {
+		expect(strip(`${ESC}]0;title${CAN}visible`)).toBe('visible');
+		expect(strip(`${ESC}]0;title${SUB}visible`)).toBe('visible');
+		expect(strip(`${ESC}]0;title${ESC}[31mred`)).toBe('red');
+		expect(strip(`${ESC}Ppayload${CAN}visible`)).toBe('visible');
+		expect(strip(`${ESC}_apc${ESC}[0mvisible`)).toBe('visible');
 	});
 
 	it('should not eat text that only looks like a sequence', () => {

@@ -6,18 +6,28 @@ import { ESC } from './codes.js';
  *
  * The generic two-character form at the end would otherwise swallow the `[` of
  * a CSI sequence or the `]` of an OSC and leave the parameters behind as text,
- * so the framed sequences come first. Each framed form also accepts running to
- * the end of the string: a truncated sequence is still not printable text, and
- * leaving half of one behind would corrupt whatever is measured or wrapped
- * next.
+ * so the framed sequences come first.
+ *
+ * The string sequences -- OSC, DCS, and the rest -- run to their terminator,
+ * but they also stop at everything a terminal stops them at: `CAN` and `SUB`
+ * cancel one, and an `ESC` that is not the `ESC \` of a string terminator ends
+ * one and begins something else. A sequence that just runs off the end of the
+ * string ends there. Without that, one unterminated OSC would swallow every
+ * printable character after it.
+ *
+ * What this does not model is a sequence interrupted mid-parameter by a control
+ * character -- `ESC [ 3 1 LF m` is, to a terminal, a line feed performed in the
+ * middle of `ESC[31m`. Matching that needs the state machine rather than a
+ * regular expression, and the failure is in the safe direction: the parameter
+ * bytes survive as text rather than real text being eaten.
  */
 const sequences = [
-	// OSC -- ESC ] ... terminated by BEL, ST, or the end of the string. Used for
-	// hyperlinks and window titles, and the payload may contain `;` and spaces.
-	'(?:\\u001B\\]|\\u009D)[\\s\\S]*?(?:\\u0007|\\u001B\\\\|\\u009C|$)',
+	// OSC -- ESC ] ... terminated by BEL or ST. Used for hyperlinks and window
+	// titles, and the payload may contain `;` and spaces.
+	string('\\u001B\\]|\\u009D'),
 
 	// DCS, SOS, PM, and APC -- ESC P/X/^/_ ... terminated by ST
-	'(?:\\u001B[P^_X]|[\\u0090\\u0098\\u009E\\u009F])[\\s\\S]*?(?:\\u001B\\\\|\\u009C|$)',
+	string('\\u001B[P^_X]|[\\u0090\\u0098\\u009E\\u009F]'),
 
 	// CSI -- ESC [ parameters intermediates final. SGR is the one that matters
 	// here, but cursor movement and erase share the shape.
@@ -28,9 +38,23 @@ const sequences = [
 ].join('|');
 
 /**
- * Matches one escape sequence. Built fresh per call rather than shared,
- * because a `g` flagged regex carries `lastIndex` and sharing one across calls
- * makes `test()` and `exec()` answer differently depending on what ran before.
+ * One of the sequences that frames a string payload.
+ *
+ * @param introducer - The alternation that opens it, both the `ESC` form and
+ * the single-byte C1 one.
+ * @returns The pattern source.
+ */
+function string(introducer: string): string {
+	// the payload runs until something ends it, and the empty alternative at the
+	// end of the terminator group is what lets an ESC that is not `ESC \` end the
+	// payload without being consumed by it
+	return `(?:${introducer})[^\\u0007\\u0018\\u001A\\u001B\\u009C]*(?:\\u0007|\\u001B\\\\|\\u009C|\\u0018|\\u001A|)`;
+}
+
+/**
+ * Matches one escape sequence. Built fresh per call rather than shared, because
+ * a `g` flagged regex carries `lastIndex` and sharing one across calls makes
+ * `test()` and `exec()` answer differently depending on what ran before.
  *
  * @returns The matcher.
  */
@@ -41,8 +65,12 @@ function matcher(): RegExp {
 /**
  * Removes every escape sequence from a string.
  *
- * This is what makes a measured width honest: a styled string is longer than
- * it looks, and every sequence in it occupies zero columns.
+ * This is the first half of measuring a styled string honestly -- a sequence
+ * occupies no columns at all, so nothing can be measured until they are gone.
+ * It is only the first half: what is left is still text whose width is not its
+ * length, since a lone control character prints nothing, a combining mark
+ * prints on top of what came before, and an East Asian character takes two
+ * columns. That is the display-width module's job, not this one's.
  *
  * @param str - The string to strip.
  * @returns The string with no escape sequences left in it.
@@ -62,10 +90,10 @@ export function hasAnsi(str: string): boolean {
 }
 
 /**
- * The single-byte C1 introducers, which start a sequence without an ESC in
+ * The single-byte C1 introducers, which start a sequence without an `ESC` in
  * front of them. Rare, but `strip()` would otherwise have to run the full
  * matcher over every string to find out, and the common case is a string with
- * no escapes at all.
+ * no sequences in it at all.
  *
  * @param str - The string to test.
  * @returns `true` when the string contains a C1 introducer.

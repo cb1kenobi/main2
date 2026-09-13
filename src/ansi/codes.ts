@@ -77,6 +77,12 @@ export const codes = {
  */
 export const ESC: string = String.fromCharCode(0x1b);
 
+/**
+ * The single-byte C1 form of `ESC [`. Rare, but a sequence written with it is
+ * still a sequence, so measuring and stripping have to see it.
+ */
+export const CSI: string = String.fromCharCode(0x9b);
+
 /** Every style name the styler chain accepts. */
 export type StyleName = keyof typeof codes;
 

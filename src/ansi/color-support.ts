@@ -200,8 +200,17 @@ export function getColorLevel(): ColorLevel {
  * @param level - The level to use, or `undefined` to detect it again.
  */
 export function setColorLevel(level: ColorLevel | undefined): void {
+	assertColorLevel(level);
+	current = level;
+}
+
+/**
+ * Validates a color level.
+ *
+ * @param level - The level to check, or `undefined` for "detect it".
+ */
+export function assertColorLevel(level: ColorLevel | undefined): void {
 	if (level !== undefined && (!Number.isInteger(level) || level < 0 || level > 3)) {
 		throw new Error(`Invalid color level "${level}"; expected 0, 1, 2, or 3`);
 	}
-	current = level;
 }
