@@ -19,8 +19,13 @@ function optionKey(opt: InternalOption): string {
 }
 
 export class OptionRegistry extends Map<string, InternalOption> {
-	#chars: Record<string, string> = {};
-	#lookup: Record<string, string> = {};
+	// null-prototype, for the same reason as `CommandRegistry`: an option named
+	// `__proto__` cannot register its bare name on a plain object, and a lookup of
+	// `constructor` or `toString` finds `Object.prototype`'s and short-circuits
+	// the `#chars[name] || #lookup[name]` fall-through with something that is
+	// truthy and is not a key
+	#chars: Record<string, string> = Object.create(null);
+	#lookup: Record<string, string> = Object.create(null);
 
 	async add(it: Option | InternalOption): Promise<void> {
 		const opt = (Internal in it ? it : await initOption(it)) as InternalOption;

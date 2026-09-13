@@ -172,6 +172,42 @@ describe('paths', () => {
 		});
 	});
 
+	// only the win32 array fallbacks were expanded, so every macOS and Linux entry
+	// came back as a literal `'~/...'` -- not a path anything can open, and one
+	// `mkdirSync` turns into a directory named `~` in the working directory
+	describe('~ expansion', () => {
+		it.each([
+			['cache', cache],
+			['config', config],
+			['data', data],
+			['state', state],
+		])('should return an expanded path from %s()', (_name, fn) => {
+			const dir = fn();
+			expect(dir).toBeTruthy();
+			expect(dir).not.toContain('~');
+			expect(dir!.startsWith(homedir()) || !dir!.includes(homedir())).to.equal(true);
+		});
+
+		it('should not put a literal ~ in a search path', () => {
+			for (const dir of [...(configDirs() ?? []), ...(dataDirs() ?? [])]) {
+				expect(dir).not.toContain('~');
+			}
+		});
+	});
+
+	// `dataDirs()` was copied from `configDirs()` and kept its `config()` call, so
+	// the data search path was headed by the config home
+	describe('dataDirs() head', () => {
+		it('should start at the data directory, not the config directory', () => {
+			const dirs = dataDirs();
+			expect(dirs).toBeTruthy();
+			expect(dirs![0]).to.equal(data());
+			if (data() !== config()) {
+				expect(dirs![0]).to.not.equal(config());
+			}
+		});
+	});
+
 	describe('tmp()', () => {
 		it('should get the tmp directory', () => {
 			expect(tmp()).toBeTruthy();

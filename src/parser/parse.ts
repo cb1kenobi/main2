@@ -137,8 +137,14 @@ async function initArgv(state: ParseState): Promise<void> {
 			// check if we have --option=value
 			const p = arg.indexOf('=');
 			if (p > 0) {
+				// only the name is trimmed. The value is taken exactly as it was
+				// typed, because whitespace in a value is the caller's: `--name=`
+				// with a single space said a space, and trimming made it `''` --
+				// which for a `<value>` option then failed as a missing value. A
+				// value in the following token was never trimmed, so the two
+				// spellings of the same thing disagreed
 				inputs[0] = arg.slice(0, p).trim();
-				inputs.push(arg.slice(p + 1).trim());
+				inputs.push(arg.slice(p + 1));
 			} else {
 				// check if we have --option"value"
 				const m = arg.match(optionNoSpaceRE);
@@ -597,7 +603,12 @@ async function parseArgv(state: ParseState): Promise<void> {
 				$[j] = {
 					inputs: $.splice(j, $.length)
 						.slice(1)
-						.flatMap((a) => a.inputs),
+						// what follows the terminator is not argv's to read, so each
+						// token goes through whole. `inputs` is the split form --
+						// `--foo=bar` was taken apart into a name and a value before
+						// anything knew a terminator preceded it -- and flattening that
+						// turned one extra argument into two
+						.flatMap((a) => (a.orig === undefined ? a.inputs : [a.orig])),
 					type: 'Extra',
 				};
 				break;
@@ -659,7 +670,15 @@ async function parseArgv(state: ParseState): Promise<void> {
 
 			log(`Found ${label}`);
 
-			if (isFlag) {
+			if (isFlag && type === 'count' && inputs.length > 1) {
+				// a counter reached with a value takes that value, the same way an
+				// explicit `--foo=false` beats the name a bool flag was reached by.
+				// Read as a `bool` it was either rejected for saying a number --
+				// `-v=2` threw `Invalid boolean: "2"` -- or accepted and then thrown
+				// away, because the counting path increments and never looks at the
+				// value, so `-v=false` counted up to 1
+				value = transformValue(`${inputs[1]}`, 'count');
+			} else if (isFlag) {
 				// `--foo` is true and `--no-foo` is false, but an explicit
 				// `--foo=false` beats the name it was reached by
 				const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
@@ -873,8 +892,14 @@ export async function processArgs(state: ParseState): Promise<void> {
 			const mine = wrote(state, option);
 
 			if (isFlag && option.type === 'count') {
-				const count = mine ? resolved(state, dest) : undefined;
-				state.argv[dest] = typeof count !== 'number' ? 1 : count + 1;
+				// a counter reached with an explicit value was set by it rather than
+				// incremented, so `-v -v=5 -v` is 6 and not 3
+				if (typeof value === 'number') {
+					state.argv[dest] = value;
+				} else {
+					const count = mine ? resolved(state, dest) : undefined;
+					state.argv[dest] = typeof count !== 'number' ? 1 : count + 1;
+				}
 			} else if (option.multiple) {
 				if (mine && Array.isArray(resolved(state, dest))) {
 					(state.argv[dest] as unknown[]).push(value);

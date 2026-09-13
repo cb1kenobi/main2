@@ -445,6 +445,61 @@ async function registerCommandPath({
 	commands.add(await initCommand({ name }, file));
 }
 
+/**
+ * Resolves a package's `exports` to the relative paths worth trying, best first.
+ *
+ * An `exports` map nests: `"."` holds a conditions object, a condition holds
+ * another, and an array is a fallback list. Unwrapping exactly one level --
+ * `exports['.'] || exports.default` -- left a plain object for the ordinary
+ * `{ ".": { "import": "./index.js" } }`, which then reached `join()` as
+ * `[object Object]` and reported the package as having no valid export.
+ *
+ * Every candidate is returned rather than the first one, because a fallback list
+ * means "the first of these that works" and whether one works is a question about
+ * the file system: the caller already walks the list looking for a file, so
+ * picking here would pick a path that may not exist and call the package broken.
+ *
+ * Only what this loader can actually import is considered: `import` and `node`
+ * before `default`, and `require` last, since a CommonJS entry still loads. The
+ * conditions it cannot honor -- `browser`, `types`, a user condition -- are
+ * skipped rather than guessed at.
+ *
+ * @param exports - The `exports` field, whatever shape it is in.
+ * @param subpath - Whether a `"."` subpath is still to be taken.
+ * @returns The relative paths, in the order they should be tried.
+ */
+function resolveEntries(exports: unknown, subpath = true): string[] {
+	if (typeof exports === 'string') {
+		return [exports];
+	}
+
+	if (Array.isArray(exports)) {
+		return exports.flatMap((candidate) => resolveEntries(candidate, subpath));
+	}
+
+	if (!exports || typeof exports !== 'object') {
+		return [];
+	}
+
+	const map = exports as Record<string, unknown>;
+
+	// a map whose keys are subpaths is a different thing from one whose keys are
+	// conditions, and `"."` is only a subpath at the top
+	if (subpath && Object.hasOwn(map, '.')) {
+		return resolveEntries(map['.'], false);
+	}
+
+	const entries: string[] = [];
+	for (const condition of ['import', 'node', 'default', 'require']) {
+		if (Object.hasOwn(map, condition)) {
+			entries.push(...resolveEntries(map[condition], false));
+		}
+	}
+
+	// one file reached through two conditions is still one file to try
+	return [...new Set(entries)];
+}
+
 async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
 	const pkgFile = join(dir, 'package.json');
 
@@ -465,12 +520,12 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 
 	const { description, exports, main, name, type } = pkgJson;
 
-	let entry = exports || main;
-	if (entry && typeof entry === 'object') {
-		entry = entry['.'] || entry.default;
+	const entries = resolveEntries(exports);
+	if (!entries.length && typeof main === 'string') {
+		entries.push(main);
 	}
 
-	const filePaths = entry ? [entry] : ['index.js', 'index.mjs', 'index.cjs'];
+	const filePaths = entries.length ? entries : ['index.js', 'index.mjs', 'index.cjs'];
 	let entryFile;
 
 	for (const filepath of filePaths) {

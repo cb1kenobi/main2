@@ -67,7 +67,9 @@ export function data(...paths: string[]): string | undefined {
 export function dataDirs(): string[] | undefined {
 	if (!_dataDirs) {
 		_dataDirs = combinePaths(
-			config(),
+			// `data()`, not `config()`: copied from `configDirs()` above, this put
+			// the config home at the head of the data search path
+			data(),
 			process.env.XDG_DATA_DIRS?.split(delimiter).map((p) => expand(p))
 		);
 	}
@@ -148,7 +150,12 @@ function resolvePath(env: string, type?: string) {
 }
 
 function resolveTypePath(type: string) {
-	const dirs = paths[process.platform][type];
+	// every platform that is not Windows or macOS follows the XDG spec this file
+	// is written from, so Linux is what they get rather than a crash: the table
+	// has three keys and `process.platform` has nine values, and `paths.freebsd`
+	// is `undefined`, so indexing it threw
+	const dirs = (paths[process.platform] ?? paths.linux)[type];
+
 	if (Array.isArray(dirs)) {
 		for (let dir of dirs) {
 			dir = expand(dir);
@@ -156,6 +163,12 @@ function resolveTypePath(type: string) {
 				return dir;
 			}
 		}
+		return;
 	}
-	return dirs;
+
+	// the string entries are `~`-relative too. Only the win32 array fallbacks
+	// were expanded, so `cache()` on macOS and Linux answered with a literal
+	// `'~/Library/Caches'` -- not a path anything can open, and one that
+	// `mkdirSync` turns into a directory named `~` in the working directory
+	return dirs && expand(dirs);
 }

@@ -139,6 +139,63 @@ describe('nesting', () => {
 		expect(ansi.red(`a${ESC}[4:3mb`)).toBe(`${ESC}[31ma${ESC}[4:3mb${ESC}[39m`);
 	});
 
+	// an extended color spreads over the parameters after it in the semicolon
+	// form, and reading those as attributes of their own meant a color could turn
+	// the outer style back on over itself: `38;2;255;0;0` carries a `0` and was
+	// taken for a reset, so blue reopened on top of the red and the text rendered
+	// blue, and `38;5;39` carries the foreground's own close code
+	it('should not read an extended color as attributes of its own', () => {
+		expect(ansi.blue(`a${ansi.rgb(255, 0, 0)('b')}c`)).toBe(
+			`${ESC}[34ma${ESC}[38;2;255;0;0mb${ESC}[39m${ESC}[34mc${ESC}[39m`
+		);
+		expect(ansi.red(`a${ansi.ansi256(39)('b')}c`)).toBe(
+			`${ESC}[31ma${ESC}[38;5;39mb${ESC}[39m${ESC}[31mc${ESC}[39m`
+		);
+		expect(ansi.bgBlue(`a${ansi.bgRgb(0, 0, 0)('b')}c`)).toBe(
+			`${ESC}[44ma${ESC}[48;2;0;0;0mb${ESC}[49m${ESC}[44mc${ESC}[49m`
+		);
+	});
+
+	// a control: 196 is not a close code and never had the problem, so it pins
+	// that the fix did not stop reopening where reopening is right
+	it('should still reopen after an extended color that closes nothing', () => {
+		expect(ansi.red(`a${ansi.ansi256(196)('b')}c`)).toBe(
+			`${ESC}[31ma${ESC}[38;5;196mb${ESC}[39m${ESC}[31mc${ESC}[39m`
+		);
+	});
+
+	// the color's own parameters are skipped, but real attributes sharing the
+	// sequence with it are still read
+	it('should read attributes that share a sequence with an extended color', () => {
+		expect(ansi.red(`a${ESC}[38;2;0;0;0;39mb`)).toBe(
+			`${ESC}[31ma${ESC}[38;2;0;0;0;39m${ESC}[31mb${ESC}[39m`
+		);
+		expect(ansi.bold(`a${ESC}[38;5;22;22mb`)).toBe(
+			`${ESC}[1ma${ESC}[38;5;22;22m${ESC}[1mb${ESC}[22m`
+		);
+		// and a reset that shares one is still a reset
+		expect(ansi.red(`a${ESC}[38;5;1;0mb`)).toBe(`${ESC}[31ma${ESC}[38;5;1;0m${ESC}[31mb${ESC}[39m`);
+	});
+
+	// the colon form carries the color inside one parameter, so there is nothing
+	// to skip -- and a malformed run has no length, so the rest of the sequence
+	// belongs to it rather than being read as attributes
+	it('should handle the colon form and a malformed extended color', () => {
+		expect(ansi.red(`a${ESC}[38:2:255:0:0mb`)).toBe(`${ESC}[31ma${ESC}[38:2:255:0:0mb${ESC}[39m`);
+
+		// and because it is one parameter, what follows it is an attribute of its
+		// own -- skipping as though it were the semicolon form swallowed the `39`
+		// and left the outer style closed for the rest of the text
+		expect(ansi.red(`a${ESC}[38:2:255:0:0;39mb`)).toBe(
+			`${ESC}[31ma${ESC}[38:2:255:0:0;39m${ESC}[31mb${ESC}[39m`
+		);
+		expect(ansi.bold(`a${ESC}[38:5:1;22mb`)).toBe(
+			`${ESC}[1ma${ESC}[38:5:1;22m${ESC}[1mb${ESC}[22m`
+		);
+		expect(ansi.red(`a${ESC}[38;9;39mb`)).toBe(`${ESC}[31ma${ESC}[38;9;39mb${ESC}[39m`);
+		expect(ansi.red(`a${ESC}[38mb`)).toBe(`${ESC}[31ma${ESC}[38mb${ESC}[39m`);
+	});
+
 	it('should close and reopen around a newline', () => {
 		expect(ansi.bgRed('a\nb')).toBe(`${ESC}[41ma${ESC}[49m\n${ESC}[41mb${ESC}[49m`);
 		expect(ansi.bgRed('a\r\nb')).toBe(`${ESC}[41ma${ESC}[49m\r\n${ESC}[41mb${ESC}[49m`);

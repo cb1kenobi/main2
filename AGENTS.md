@@ -100,13 +100,67 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `VERBOSE=lots` put the word on a destination the types call a number; an empty
   value is `0`, matching `bool`, and whitespace throws, also matching `bool`.
   Either property alone is consistent, which is what said the combination was the
-  bug. Two things a counter does not escape, because no type escapes them: a
-  non-string `default` passes through untouched, and a negated twin sharing the
+  bug. A counter reached with an explicit value is **set** to it rather than
+  incremented, so `-v -v=5 -v` is `6`: every flag read an attached value as a
+  `bool`, which a counter is not, so `-v=2` threw `Invalid boolean: "2"` and
+  `-v=false` was accepted and then discarded -- the counting path increments and
+  never looks at the value, so it counted up to 1. An explicit value beating the
+  name it was reached by is the rule `--flag=false` already follows. Two things
+  a counter does not escape, because no type escapes them: a non-string
+  `default` passes through untouched, and a negated twin sharing the
   destination writes `false` -- which is why inference types that pair as
   `number | boolean`. See `test/parser/options.test.ts`.
 - **A required option rejects a missing or empty value; an optional one gets
   an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
-  (or `0`, per the data type) for `[value]`.
+  (or `0`, per the data type) for `[value]`. Per the data type includes `int`,
+  which used to throw: `number` returns `0` because `Number('')` is `0`, and a
+  counter returns `0` outright, so `int` was the one integer type that failed a
+  parse over the value this rule calls zero -- and `PORT=` in the environment,
+  the same "set and saying nothing" reading a counter already accepts, failed
+  with it. Whitespace still throws for both, matching `bool`.
+- **An attached value is taken exactly as typed; only the name is trimmed.**
+  `--name=value` splits one token, and trimming both halves made the two
+  spellings of one thing disagree: a value in the following token was never
+  trimmed, so `--sep=' '` was `''` while `--sep ' '` was `' '` -- and `''` on a
+  `<value>` option then failed as a value never given. Whitespace in a value is
+  the caller's.
+- **What follows `--` goes through whole.** Extra arguments are documented as
+  verbatim, and they were flattened from `inputs`, which is the split form:
+  `--foo=bar` had been taken apart into a name and a value in the very first
+  pass, before anything knew a terminator preceded it, so one extra argument
+  arrived as two. Each token is put back as it was typed.
+- **A data type rejects what it cannot represent, and whitespace is not
+  empty.** An `int` past 2^53-1 used to come back as a different integer --
+  `Number('9007199254740993')` is `...992` -- which is the one failure a caller
+  cannot detect, so it throws. `number` used to read a whitespace-only value as
+  `0`, because `Number(' ')` is `0`, while `int`, `count`, and `bool` all threw
+  on it; an _empty_ value is deliberately `0` for all of them, but a space is
+  not empty and space around a real number is still that number. A `date` has
+  its calendar checked before the `Date` is built, because `Date` overflows
+  instead of refusing and `2024-02-30` arrived as March 1st -- the wrong day
+  rather than the error `9999-99-99` already got. Checked arithmetically and not
+  by reading the parts back off the `Date`: those getters are local while the
+  value may be UTC, so `2024-06-15T00:00:00Z` is the 14th in Chicago and the
+  15th in Auckland, and a round trip rejected real instants depending on where
+  it ran.
+- **A data type name is matched anchored.** `optionTypesRE` and `argTypesRE`
+  were written `/^auto|bool|...|yesno$/`, where the alternation binds looser
+  than the anchors -- so the pattern read as `^auto` OR `bool` OR ... OR
+  `yesno$` and any string merely containing one of the middle names passed.
+  `integer` and `boolean` are the two somebody actually types, and past the
+  guard `transformValue()` does not know either name, so it handed back the raw
+  string and a `type: 'integer'` option quietly produced `'8080'`.
+- **The styler skips an extended color's own parameters.** In the semicolon
+  form `38`, `48`, and `58` spread one color over the parameters after them, and
+  `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken
+  for a reset, and reopened the whole outer chain on top of the inner color, so
+  `ansi.blue(ansi.rgb(255, 0, 0)('x'))` rendered blue. `38;5;39` carries the
+  foreground's own close code and did the same. Only the semicolon form skips:
+  the colon form carries the whole color inside one parameter, so there is
+  nothing after it to skip and skipping anyway swallowed whatever followed.
+  `src/wrap/sgr-state.ts` already
+  modeled this for the wrapper; the two say it separately rather than sharing a
+  module across the styler and the wrapper.
 - **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
   true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
   and anything else throws. It does not follow minimist's
@@ -208,6 +262,20 @@ false` rethrows instead; a function replaces the handler.
   the command belongs in the `alias` property, which never reaches the help
   label. Covered by `test/parser/regressions.test.ts`.
 
+- **A command module's default export must be a plain object.** `typeof null` is
+  `'object'` and so is an array, so a bare `typeof` check let both past: `null`
+  fell through the merge and marked the placeholder loaded, an array merged into
+  an empty command, and either way the parse succeeded with a command that has
+  no `run` and a load recorded as done -- so `main2()` did nothing at all, which
+  is a worse answer than the error a string export already got.
+- **A package's `exports` is resolved recursively.** The map nests -- `"."`
+  holds conditions, a condition holds more, an array is a fallback list -- and
+  unwrapping exactly one level left the ordinary
+  `{ ".": { "import": "./index.js" } }` as an object, which reached `join()` as
+  `[object Object]` and reported the package as having no valid export. Only the
+  conditions this loader can honor are read: `import`, `node`, `default`, then
+  `require`, since a CommonJS entry still loads. `browser`, `types`, and user
+  conditions are skipped rather than guessed at.
 - **A command is fixed once it is initialized, and its declaration containers
   are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
   declaration; the parser reads the normalized arguments and the registries at
@@ -411,6 +479,15 @@ false` rethrows instead; a function replaces the handler.
 - **No Proxies.** Internal commands, arguments, and options are plain objects.
   Anything that has to stay in sync is built once by `init*()`; anything a
   consumer may change afterwards is a property nothing is derived from.
+- **A registry's lookup table is null-prototype.** A command really can be named
+  `__proto__`, and on a plain object `lookup['__proto__'] = name` goes through
+  `Object.prototype`'s accessor and is dropped -- the command registered and
+  could never be matched. `OptionRegistry` had the same hole from the other
+  side: argv reaches an option by its dashed spelling, which registers fine, but
+  the bare name is a key too, so `options.get('__proto__')` could not find an
+  option the registry holds -- and the registries are what a hook is handed. The
+  inherited members are the other half of it, since `constructor` and `toString`
+  read back truthy and answer a lookup nothing declared.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.

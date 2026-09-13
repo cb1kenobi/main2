@@ -1,0 +1,12 @@
+{
+  "name": "good-pkg-export-fallback",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": ["./not-built-yet.js", "./index.js"],
+      "require": "./index.cjs"
+    }
+  }
+}
