@@ -270,6 +270,31 @@ describe('regressions', () => {
 			expect(fromEnv.argv.items).to.deep.equal(fromArgv.argv.items);
 		});
 
+		// a string default is one value even when it parses to an array, the same way
+		// the same text on the command line is one value
+		it('should wrap a string default that coerces to an array', async () => {
+			const options = { '--items [i]': { default: '[]', multiple: true, type: 'json' } };
+
+			const fromDefault = await parse({ argv: [], schema: { help: false, options } });
+			const fromArgv = await parse({ argv: ['--items', '[]'], schema: { help: false, options } });
+
+			expect(fromDefault.argv.items).to.deep.equal([[]]);
+			expect(fromDefault.argv.items).to.deep.equal(fromArgv.argv.items);
+		});
+
+		it('should wrap an auto environment value that coerces to an array', async () => {
+			const result = await parse({
+				argv: [],
+				env: { ITEMS: '[1,2]' },
+				schema: {
+					help: false,
+					options: { '--items [i]': { env: 'ITEMS', multiple: true, type: 'auto' } },
+				},
+			});
+
+			expect(result.argv.items).to.deep.equal([[1, 2]]);
+		});
+
 		// an array `default` is the list itself, which is the existing rule
 		it('should leave an array default as the list', async () => {
 			const result = await parse({
