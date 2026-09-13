@@ -378,6 +378,30 @@ function liveDeclarations(state: ParseState): Set<InternalOption | InternalArgum
 }
 
 /**
+ * Whether anything active describes a destination, which is what an undeclared
+ * option may not write.
+ *
+ * Asked of the registries every time rather than answered from a set built up
+ * front: a declaration can arrive in the middle of a parse -- an argument's
+ * `transform` adding an option is the case that bit -- and a snapshot taken before
+ * the walk would not have it. Unknown options are rare enough that walking the
+ * chain for each one costs nothing worth measuring.
+ *
+ * @param state - The parse state.
+ * @param dest - The destination in question.
+ * @returns `true` when an option in the chain or an argument of this context owns it.
+ */
+function declares(state: ParseState, dest: string): boolean {
+	for (const it of liveDeclarations(state)) {
+		if (it[Internal].dest === dest) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
  * Whether a value is this declaration's to validate.
  *
  * Its own, or nobody's -- where nobody covers two things. Nothing recorded means
@@ -775,11 +799,6 @@ export async function processArgs(state: ParseState): Promise<void> {
 	const ctx = state.contexts[0];
 	const internal = ctx[Internal];
 
-	// an undeclared option may not write a destination the schema describes, and
-	// what describes one is what could validate it
-	const live = liveDeclarations(state);
-	const declared = new Set([...live].map((it) => it[Internal].dest));
-
 	let argIdx = 0;
 
 	// loop through all parsed args and populate argv
@@ -875,7 +894,11 @@ export async function processArgs(state: ParseState): Promise<void> {
 			// declared data type, `choices`, `multiple`, or `transform` -- so writing it
 			// would replace a value the schema described with one nothing described.
 			// What was typed is still on `state.$` for anything that wants it.
-			if (!declared.has(dest)) {
+			// asked here rather than once before the loop: an argument's `transform`
+			// runs inside it and may add an option, which the registries allow, and a
+			// set built up front would not know about it -- so the destination it now
+			// owns would take an undeclared write after all
+			if (!declares(state, dest)) {
 				state.argv[dest] = value;
 			}
 		}
@@ -903,6 +926,8 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 	// only what this argument produced: an option can share the destination, and its
 	// value answers to its own `choices` rather than to these
+	const live = liveDeclarations(state);
+
 	for (const arg of internal.args) {
 		if (validates(state, arg, live)) {
 			assertChoices(arg.choices, resolved(state, arg[Internal].dest), `argument <${arg.name}>`);
