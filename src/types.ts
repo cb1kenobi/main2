@@ -50,6 +50,8 @@ export interface Argument {
 	[key: string]: unknown; // custom data
 	choices?: unknown[];
 	default?: unknown;
+	/** What the argument is for, as help prints it. */
+	desc?: string;
 	env?: string | string[];
 	multiple?: boolean;
 	name: string;
@@ -83,7 +85,7 @@ export interface Command {
 	commands?: Record<string, Command>;
 	default?: boolean;
 	desc?: string;
-	examples?: CommandExample;
+	examples?: CommandExample | CommandExample[];
 	file?: string;
 	help?: string | Callback;
 	hidden?: boolean;

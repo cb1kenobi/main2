@@ -32,6 +32,10 @@
       "types": "./dist/error-handler.d.mts",
       "default": "./dist/error-handler.mjs"
     },
+    "./help": {
+      "types": "./dist/help.d.mts",
+      "default": "./dist/help.mjs"
+    },
     "./paths": {
       "types": "./dist/paths.d.mts",
       "default": "./dist/paths.mjs"
