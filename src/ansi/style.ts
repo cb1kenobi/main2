@@ -281,6 +281,19 @@ function render(level: ColorLevel, parts: Part[], args: unknown[]): string {
 }
 
 /**
+ * The attributes that take a color rather than being one, and how many
+ * parameters each spends on it in the semicolon form, counting itself and the
+ * mode: `38;5;n` is a palette index and takes three, `38;2;r;g;b` is a color and
+ * takes five. Keyed on the mode, which is the parameter right after the 38.
+ *
+ * `src/wrap/sgr-state.ts` models the same thing for the same reason; the two are
+ * small enough, and far enough apart, to say it twice rather than share a module
+ * across the styler and the wrapper.
+ */
+const extendable = new Set([38, 48, 58]);
+const extendedLengths: Record<number, number> = { 2: 5, 5: 3 };
+
+/**
  * Reopens whatever one SGR sequence in the styled text turned off.
  *
  * The parameters are read rather than the whole sequence compared, because
@@ -305,7 +318,28 @@ function reopen(
 	// an SGR carrying no parameters means the same as `0`
 	const values = params === '' ? [0] : params.split(';').map((p) => Number.parseInt(p, 10) || 0);
 
-	if (values.includes(0)) {
+	// only the parameters that are attributes, with the channels of an extended
+	// color dropped. In the semicolon form `38`, `48`, and `58` spread one color
+	// over the parameters that follow, and reading those as attributes of their
+	// own is what made a color turn a style back on over itself: `38;2;255;0;0`
+	// carries a `0` and was taken for a reset, so the whole outer chain reopened
+	// on top of the red and the text came out blue, and `38;5;39` carries the
+	// foreground's own close code and reopened the outer foreground the same way.
+	// The colon form -- `38:2:255:0:0` -- is one parameter already
+	const attrs: number[] = [];
+	for (let i = 0; i < values.length; i++) {
+		attrs.push(values[i]);
+
+		if (extendable.has(values[i])) {
+			// `38;5;n` is three parameters counting the 38, `38;2;r;g;b` is five. A
+			// mode that is neither is malformed, and the rest of the sequence is the
+			// only safe reading -- the alternative leaves its tail to be read as
+			// attributes, which is the bug this is fixing
+			i += (extendedLengths[values[i + 1]] ?? values.length - i) - 1;
+		}
+	}
+
+	if (attrs.includes(0)) {
 		return seq + openAll;
 	}
 
@@ -313,7 +347,7 @@ function reopen(
 	// in effect
 	let reopened = '';
 	for (const [close, open] of opened) {
-		if (values.includes(close)) {
+		if (attrs.includes(close)) {
 			reopened += open;
 		}
 	}

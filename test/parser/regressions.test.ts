@@ -1069,4 +1069,88 @@ describe('regressions', () => {
 			).rejects.toThrow('Command module default export is not a valid command object');
 		});
 	});
+	describe('cross-model review round 2', () => {
+		// `dateRE` checks the shape and `Date` does the rest, and `Date` overflows
+		// rather than refusing, so a day that does not exist produced the wrong day
+		// instead of the error `9999-99-99` already got
+		it.each([
+			['2024-02-30', '2024-03-01'],
+			['2023-02-29', '2023-03-01'],
+			['2024-04-31', '2024-05-01'],
+			['2024-13-01', 'the next year'],
+		])('should reject the impossible date %s', async (value) => {
+			await expect(
+				parse({ argv: ['--when', value], schema: { options: { '--when <d>': { type: 'date' } } } })
+			).rejects.toThrow(`Invalid date: "${value}"`);
+		});
+
+		// the control: the round trip must not reject dates that are real, including
+		// a leap day, a month end, and the forms that carry a time
+		it.each([
+			'2024-02-29',
+			'2024-01-31',
+			'2024-12-31',
+			'2024-06-15T12:30:00',
+			'2024-06-15T12:30:00Z',
+			'2024-06-15T12:30:00.123Z',
+		])('should still accept the valid date %s', async (value) => {
+			const result = await parse({
+				argv: ['--when', value],
+				schema: { options: { '--when <d>': { type: 'date' } } },
+			});
+			expect(result.argv.when).to.be.instanceOf(Date);
+		});
+
+		it('should still accept a 13-digit epoch', async () => {
+			const result = await parse({
+				argv: ['--when', '1718454600000'],
+				schema: { options: { '--when <d>': { type: 'date' } } },
+			});
+			expect((result.argv.when as Date).getTime()).to.equal(1718454600000);
+		});
+
+		// `Number(' ')` is 0, so a value that is only whitespace parsed as zero while
+		// `int`, `count`, and `bool` all threw on it. An empty value is 0 for all of
+		// them, deliberately -- a space is not empty
+		it('should reject whitespace as a number', async () => {
+			const schema = { options: { '--port [n]': { type: 'number' } } };
+
+			await expect(parse({ argv: ['--port= '], schema })).rejects.toThrow('Invalid number:');
+			await expect(parse({ argv: ['--port=\t'], schema })).rejects.toThrow('Invalid number:');
+
+			// an empty value is still 0, and a real number surrounded by space is
+			// still that number -- `Number()` trims, and only a value with nothing
+			// else in it is the ambiguous one
+			expect((await parse({ argv: ['--port='], schema })).argv.port).to.equal(0);
+			expect((await parse({ argv: ['--port= 42 '], schema })).argv.port).to.equal(42);
+		});
+
+		// past 2^53-1 a `number` is not the integer that was written, so an id given
+		// to an `int` option came back as a different id and nothing said so
+		it('should reject an int too large to be exact', async () => {
+			await expect(
+				parse({
+					argv: ['--id', '9007199254740993'],
+					schema: { options: { '--id <n>': { type: 'int' } } },
+				})
+			).rejects.toThrow('Integer is too large to be exact: 9007199254740993');
+		});
+
+		// the control: everything inside the safe range still parses, hex and
+		// negatives included
+		it.each([
+			['9007199254740991', 9007199254740991],
+			['-9007199254740991', -9007199254740991],
+			['0', 0],
+			['-15', -15],
+			['0xff', 255],
+			['007', 7],
+		])('should still accept the int %s', async (value, expected) => {
+			const result = await parse({
+				argv: ['--id', value],
+				schema: { options: { '--id <n>': { type: 'int' } } },
+			});
+			expect(result.argv.id).to.equal(expected);
+		});
+	});
 });

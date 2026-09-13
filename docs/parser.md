@@ -336,8 +336,9 @@ build` reads as `name: '--target'` and leaves `x` stranded. Putting the
 > command name as a plain value.
 
 An option that reaches step 3 gets an empty string, which its data type then
-coerces — `''` for `string`, `0` for `number`. A **required** option that
-reaches step 3, or that is handed an explicitly empty value, throws instead:
+coerces — `''` for `string`, `0` for `number` and `int`. A **required** option
+that reaches step 3, or that is handed an explicitly empty value, throws
+instead:
 
 | Input                 | `--name <v>` (required) | `--name [v]` (optional) |
 | --------------------- | ----------------------- | ----------------------- |
@@ -347,6 +348,11 @@ reaches step 3, or that is handed an explicitly empty value, throws instead:
 | `--name=`             | throws                  | `''`                    |
 | `--name --declared`   | throws                  | `''`                    |
 | `--name --undeclared` | `'--undeclared'`        | `'--undeclared'`        |
+
+An attached value is taken exactly as it was typed. Only the name is trimmed,
+so `--sep=` followed by a space is the one-space value `' '` and not `''` —
+the same value `--sep ' '` gives, which is the point: the two spellings of one
+thing must not disagree about whitespace the caller meant.
 
 ### Repeatable options
 
@@ -556,8 +562,8 @@ retried once more contexts are known.
 | `string` | anything                                     | `string`  |
 | `bool`   | `true`/`t`/`yes`/`y`/`on`/`1` and negations  | `boolean` |
 | `yesno`  | `y`, `yes`, `n`, `no` (case-insensitive)     | `boolean` |
-| `int`    | `-?\d+` or `0x…`                             | `number`  |
-| `number` | anything `Number()` accepts                  | `number`  |
+| `int`    | `-?\d+` or `0x…`, within the safe range      | `number`  |
+| `number` | anything `Number()` accepts but whitespace   | `number`  |
 | `date`   | `YYYY-MM-DD`, ISO 8601, or 13-digit epoch ms | `Date`    |
 | `json`   | valid JSON                                   | `unknown` |
 | `count`  | flags only; counts occurrences               | `number`  |
@@ -570,10 +576,28 @@ Flags accept only `bool`, `count`, `yesno`, and `auto`; the last two are
 normalized to `bool`. `count` is rejected on non-flags, and with `multiple`. A
 string value that reaches a counter — from the environment, or from a string
 `default` — is coerced like an `int`, and an empty one is `0`, the same way `bool`
-reads an empty value as false. A counter is never wrapped in an array. What a
-counter does not escape is what no type escapes: a non-string `default` passes
-through untouched, and a negated twin sharing the destination writes `false`. Normalizing `yesno`
-to `bool` loses nothing, since `bool` accepts `yes` and `no` too.
+reads an empty value as false. `int` reads an empty value as `0` too, since
+`number` already does and one integer type failing a parse where the other
+returns zero is not a distinction worth having; whitespace still throws for
+both. A counter reached with an explicit value — `-v=3` — is **set** to it
+rather than incremented, the way an explicit `--flag=false` beats the name a
+bool flag was reached by, so `-v -v=5 -v` is `6`. A counter is never wrapped in
+an array. What a counter does not escape is what no type escapes: a non-string
+`default` passes through untouched, and a negated twin sharing the destination
+writes `false`. Normalizing `yesno` to `bool` loses nothing, since `bool`
+accepts `yes` and `no` too.
+
+An `int` outside the safe integer range throws rather than returning a value
+that is not the one written: `Number('9007199254740993')` is `...992`, and an
+id that comes back as a different id is the one failure a caller cannot see.
+`number` throws on a value that is only whitespace, since `Number(' ')` is `0`
+and `int`, `count`, and `bool` all reject it — an _empty_ value is `0` for all
+of them, but a space is not empty, and space around a real number is still that
+number.
+
+A `date` is checked against the date it produces, because `Date` overflows
+rather than refusing: `2024-02-30` used to come back as March 1st. A day that
+does not exist now throws `Invalid date`, the same as `9999-99-99` always did.
 
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
 `f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.
@@ -602,6 +626,8 @@ A user `transform` runs before type coercion, and only on values parsed from
 
 `--` ends parsing. Everything after it is collected verbatim as _extra_
 arguments and requires `settings.allowExtraArguments`, or parsing throws.
+Verbatim means each token whole: `-- --foo=bar` is the one extra argument
+`--foo=bar`, never the two the parser would have split it into.
 
 Positional values with no matching argument definition throw unless
 `settings.allowUnexpectedArguments` is set. All positional values, matched or

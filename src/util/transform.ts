@@ -48,6 +48,18 @@ export function transformValue(
 			throw new Error(`Invalid date: "${value}"`);
 		}
 
+		// `dateRE` checks the shape and `Date` does the rest, and `Date` overflows
+		// rather than refusing: `2024-02-30` came back as March 1st, so a day that
+		// does not exist produced the wrong day instead of the error `9999-99-99`
+		// already got. Reading the parts back is what catches it -- a date that
+		// overflowed is not the date that was written
+		if (m) {
+			const [year, month, day] = m[0].split(/\D/, 3).map(Number);
+			if (date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day) {
+				throw new Error(`Invalid date: "${value}"`);
+			}
+		}
+
 		return date;
 	}
 
@@ -76,6 +88,18 @@ export function transformValue(
 		if ((!hexRE.test(value) && !intRE.test(value)) || isNaN((num = Number(value)))) {
 			throw new Error(`Invalid ${type === 'count' ? 'count' : 'integer'}: ${value}`);
 		}
+
+		// past 2^53-1 a `number` is not the integer that was written -- `Number` maps
+		// `9007199254740993` to `...992` -- so an id given to an `int` option came back
+		// as a different id and nothing said so. Every other data type rejects input it
+		// cannot represent, and silently returning the wrong integer is the one failure
+		// a caller cannot detect
+		if (!Number.isSafeInteger(num)) {
+			throw new Error(
+				`${type === 'count' ? 'Count' : 'Integer'} is too large to be exact: ${value}`
+			);
+		}
+
 		return num;
 	}
 
@@ -89,6 +113,13 @@ export function transformValue(
 	}
 
 	if (type === 'number') {
+		// `Number(' ')` is 0, so a value that is only whitespace parsed as zero while
+		// `int`, `count`, and `bool` all threw on it. An empty value is 0 for all of
+		// them, deliberately -- a space is not empty
+		if (value && !value.trim()) {
+			throw new Error(`Invalid number: ${value}`);
+		}
+
 		const num = Number(value);
 		if (isNaN(num)) {
 			throw new Error(`Invalid number: ${value}`);

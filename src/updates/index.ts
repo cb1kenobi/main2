@@ -110,6 +110,14 @@ export async function check(
 					worker.kill();
 					reject(new Error('Update worker timed out'));
 				}, timeout);
+
+				// nothing waits on the worker unless `wait` is set, and a referenced
+				// timer would hold the process open for the whole timeout after the
+				// CLI has finished -- the point of the default path is that it costs
+				// the run nothing
+				if (!wait) {
+					timer.unref();
+				}
 			}
 
 			worker.on('close', (code) => {
@@ -137,7 +145,26 @@ export async function check(
 				cache.version = stdout.trim();
 			}
 		} else {
-			worker.disconnect();
+			// fire and forget. The worker writes the cache file itself, so the next
+			// run reads what this one found and this one returns what it already had.
+			//
+			// `disconnect()` was never right: it closes an IPC channel, the worker is
+			// spawned with three pipes and no `ipc`, and `ChildProcess.disconnect` is
+			// not defined without one -- so every call on the default path threw
+			// `worker.disconnect is not a function` and an ordinary update check
+			// could not complete at all. What the path actually needs is to stop
+			// holding the process open and to stop the unawaited promise from
+			// surfacing as an unhandled rejection when the worker fails
+			prom.catch((err: Error) => log(`Update worker failed: ${err.message}`));
+			worker.unref();
+
+			// the child's pipes are their own handles and hold the loop open on their
+			// own, so unreffing the child is not enough. They are sockets and do have
+			// `unref`, which the `Readable` they are typed as does not declare; the
+			// optional call is what keeps this honest if that ever stops being true
+			for (const stream of [worker.stdout, worker.stderr]) {
+				(stream as unknown as { unref?: () => void }).unref?.();
+			}
 		}
 	}
 
