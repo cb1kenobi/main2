@@ -1,5 +1,9 @@
 import { parse } from '../../src/parser/parse.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Regression tests for parser correctness fixes. Each block names the defect
@@ -384,6 +388,99 @@ describe('regressions', () => {
 				schema: { options: { '--v <x>': { type: 'int' } } },
 			});
 			expect(result.argv.v).to.equal(7);
+		});
+	});
+
+	describe('command hidden', () => {
+		it('should not let name parsing overwrite an explicit hidden', async () => {
+			const { contexts } = await parse({
+				argv: ['visible'],
+				schema: { commands: { visible: { hidden: true } } },
+			});
+			expect(contexts[0].name).to.equal('visible');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should keep an explicit hidden on a command with inline args', async () => {
+			const { contexts } = await parse({
+				argv: ['build', 'src'],
+				schema: { commands: { 'build, @b <path>': { hidden: true } } },
+			});
+			expect(contexts[0].name).to.equal('build');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should keep an explicit hidden on a nested subcommand', async () => {
+			const { contexts } = await parse({
+				argv: ['outer', 'inner'],
+				schema: { commands: { outer: { commands: { inner: { hidden: true } } } } },
+			});
+			expect(contexts[0].name).to.equal('inner');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should keep an explicit hidden on a lazy loaded command', async () => {
+			const { contexts } = await parse({
+				argv: ['secret'],
+				schema: {
+					commands: {
+						secret: { path: path.join(__dirname, 'fixtures/hidden/secret.js') },
+					},
+				},
+			});
+			expect(contexts[0].name).to.equal('secret');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should keep an explicit hidden on the placeholder of a lazy loaded command', async () => {
+			const { contexts } = await parse({
+				argv: ['plain'],
+				schema: {
+					commands: {
+						plain: { hidden: true, path: path.join(__dirname, 'fixtures/hidden/plain.js') },
+					},
+				},
+			});
+			expect(contexts[0].name).to.equal('plain');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should not let a lazy loaded command un-hide a "!" prefixed name', async () => {
+			const { contexts } = await parse({
+				argv: ['visible'],
+				schema: {
+					commands: {
+						'!visible': { path: path.join(__dirname, 'fixtures/hidden/visible.js') },
+					},
+				},
+			});
+			expect(contexts[0].name).to.equal('visible');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should still hide a command with a "!" prefixed name', async () => {
+			const { contexts } = await parse({
+				argv: ['foo'],
+				schema: { commands: { '!foo': {} } },
+			});
+			expect(contexts[0].name).to.equal('foo');
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should not let an explicit false un-hide a "!" prefixed name', async () => {
+			const { contexts } = await parse({
+				argv: ['foo'],
+				schema: { commands: { '!foo': { hidden: false } } },
+			});
+			expect(contexts[0].hidden).to.equal(true);
+		});
+
+		it('should default hidden to false', async () => {
+			const { contexts } = await parse({
+				argv: ['foo'],
+				schema: { commands: { foo: {} } },
+			});
+			expect(contexts[0].hidden).to.equal(false);
 		});
 	});
 });

@@ -96,14 +96,29 @@ describe('commander: option formats', () => {
 				expect(result.argv.both).to.equal('v');
 			}
 		);
+	});
 
-		it('should accept a variadic-looking hint without making the option variadic', async () => {
+	describe('variadic hints', () => {
+		it('should reject a variadic hint', async () => {
 			// Commander reads `<files...>` as a variadic option that consumes
-			// consecutive values; here it is just a hint, and repetition with
-			// `multiple` is how a list is collected
+			// consecutive values; an option here never does, so the hint is
+			// refused rather than silently kept as decoration
+			await expect(
+				parse({
+					argv: ['-v', 'a', '-v', 'b'],
+					schema: { options: { '-v, --variadic <files...>': { multiple: true } } },
+				})
+			).rejects.toThrow(
+				new TypeError(
+					'Option "variadic" hint cannot be variadic; use `multiple: true` to collect repeated uses into an array'
+				)
+			);
+		});
+
+		it('should collect a list by repetition instead', async () => {
 			const result = await parse({
 				argv: ['-v', 'a', '-v', 'b'],
-				schema: { options: { '-v, --variadic <files...>': { multiple: true } } },
+				schema: { options: { '-v, --variadic <files>': { multiple: true } } },
 			});
 			expect(result.argv.variadic).to.deep.equal(['a', 'b']);
 		});

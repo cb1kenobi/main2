@@ -18,7 +18,7 @@ necessary, raise it rather than adding it.
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
 | `src/paths.ts`           | XDG base directories                                 |
 | `src/updates/`           | npm update check, run in a spawned worker            |
-| `src/terminal.ts`        | Terminal wrapper — currently EPIPE handling only     |
+| `src/error-handler.ts`   | Renders an error and sets the exit code              |
 | `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
 | `test/parser/commander/` | Ported Commander test cases                          |
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
@@ -66,9 +66,22 @@ These look like bugs and are not. Each is intentional and covered by tests.
   takes `--undeclared` as the value. Commander errors on any dash-leading
   value, but values legitimately start with a dash and a schema only knows its
   own options. See `test/parser/option-values.test.ts` and `docs/parser.md`.
+- **An option takes one value per use; only arguments are variadic.**
+  `multiple` collects repeated uses (`--tag a --tag b`) into an array. An
+  option never eats consecutive values, so `--tag a b` leaves `b` positional;
+  `<files...>` on an _argument_ is how a list of loose values is collected. A
+  `...` hint on an option is therefore rejected by `initOption` rather than
+  accepted as decoration. Both Commander and yargs diverge here.
 - **A required option rejects a missing or empty value; an optional one gets
   an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
   (or `0`, per the data type) for `[value]`.
+- **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
+  true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
+  and anything else throws. It does not follow minimist's
+  "anything but `'false'`" rule, which made `--flag=0` true, nor
+  yargs-parser's "only `'true'`", which makes `--flag=1` false. Every other
+  data type already rejects input it cannot parse, and `0`/`1` is the usual
+  convention for boolean environment variables.
 - **Flags default to `false`, or `true` when negated — never `undefined`.**
   Commander leaves an unspecified flag undefined. A declared flag here always
   has a value, so `argv.verbose` is safe to read without a guard.
@@ -76,8 +89,10 @@ These look like bugs and are not. Each is intentional and covered by tests.
   treats a bare name as required. Brackets are the only thing that decides it
   here, which keeps `args` readable at a glance.
 - **String `default`s and environment values are coerced to the declared
-  type.** So `default: 'black'` on a flag is `true`, not `'black'`. Non-string
-  defaults pass through untouched.
+  type.** So `default: 'yes'` on a flag is `true`, not `'yes'`, and a value
+  the type rejects throws — `default: 'black'` on a flag is an error, the
+  same way a default of `'nope'` on an `int` is. Non-string defaults pass
+  through untouched.
 - **The option format string is loose on purpose.** Extra short or long names
   become aliases rather than errors, and a bare word declares `--word`.
   Commander rejects all of those. Genuinely malformed parts — `-ws`,
@@ -89,17 +104,28 @@ These look like bugs and are not. Each is intentional and covered by tests.
   default, so the pair is `undefined` until something sets it rather than
   silently `true`. A `default` declared on the flag is still honored, and
   `negate: false` opts out of the pairing. See `test/parser/options.test.ts`.
+- **`main2()` handles errors instead of rejecting.** A thrown value from
+  `parse()` or from the command's `run()` is rendered by `errorHandler()` —
+  the message, never a stack — `process.exitCode` is set, and `main2()`
+  resolves with `undefined`. Its caller is a bin script, so an unhandled
+  rejection dumping a stack is the wrong default. `settings.errorHandler:
+false` rethrows instead; a function replaces the handler.
 - **Undeclared options produce values rather than erroring.** `--foo` is
   `foo: true`, `--foo bar` is `foo: 'bar'`. They resolve after every command
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
   not reach `state._`. `settings.allowUnknownOptions: false` restores the
   `Unknown option` error.
+- **A `!` name prefix and an explicit `hidden` are additive.** Either one
+  hides a command; an explicit `hidden: false` does not un-hide a `!` prefixed
+  name — drop the `!` instead. That holds for a lazily loaded command too: the
+  placeholder carries the `!`, the module never sees it. A command that
+  declares neither always reads back `hidden: false`, never `undefined`, and a
+  non-boolean `hidden` throws. Covered by `test/parser/regressions.test.ts`.
 
 ## Known bugs
 
 - `'build, b'` as a command name silently renames the command to `b` instead
   of aliasing it. Only `@`-prefixed labels become aliases.
-- An explicit `hidden: true` on a command is overwritten by name parsing.
 - `beforeError` hooks are declared and validated but never fired.
 - `command.default: true` is never dispatched.
 - `parse()` mutates the schema object it is given.
@@ -115,7 +141,9 @@ These look like bugs and are not. Each is intentional and covered by tests.
 
 - ESM only. Imports use `.js` extensions even for `.ts` sources.
 - Internal state hangs off the exported `Internal` symbol, not enumerable
-  properties, so schema objects stay clean for consumers.
+  properties, so schema objects stay clean for consumers. `parse()` stashes the
+  state it died with on the error it throws the same way, under `ErrorState`,
+  so the error path can still reach the matched command.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.
