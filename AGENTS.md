@@ -166,6 +166,15 @@ false` rethrows instead; a function replaces the handler.
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
   not reach `state._`. `settings.allowUnknownOptions: false` restores the
   `Unknown option` error.
+- **An undeclared option never writes a destination the schema describes.** An
+  undeclared spelling can land on one -- `--verbose` where `-v` is declared
+  `{ name: 'verbose' }`, `--logLevel` where `--log-level` is declared -- and it
+  arrives with none of what the declaration says: `auto` guessed its value, and the
+  declared type, `choices`, `multiple`, and `transform` were all skipped. So the
+  declared value stands and the undeclared one is dropped from `argv` rather than
+  overwriting it. Dropped rather than an error because pass-through is what
+  `allowUnknownOptions` is for, and an unlucky spelling should not fail the parse;
+  what was typed is still on `state.$`.
 - **A value is validated by whoever wrote it.** More than one declaration can reach
   one destination -- a valued option and its negated twin, an option and a
   positional argument of the same name, a nearer context's option of the same

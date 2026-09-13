@@ -426,6 +426,12 @@ nothing said what they are:
   `--age 20` is the number `20`, not `'20'`.
 - `no-` is not read as negation. `--no-color` is `noColor: true`, not
   `color: false`.
+- They never write a destination the schema describes. An undeclared spelling can
+  land on a declared destination — `--verbose` where `-v` is declared as
+  `{ name: 'verbose' }`, or `--logLevel` where `--log-level` is declared — and
+  writing it would replace a value the schema described, with its type, `choices`,
+  `multiple`, and `transform` all skipped. The declared value stands and the
+  undeclared one is dropped from `argv`; what was typed is still on `state.$`.
 
 Only the `--long-name` and `-x` forms are recognized. An unresolved short group
 such as `-abc` stays a positional value. Repeating an undeclared option
