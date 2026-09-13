@@ -194,7 +194,20 @@ export function createSgrState(): SgrState {
 				// the part a number would throw away
 				if (extendable.has(code) && !text.includes(':')) {
 					// the semicolon form spreads one color over several parameters
-					const length = extendedLengths[params[i + 1]?.code ?? -1] ?? params.length - i;
+					const length = extendedLengths[params[i + 1]?.code ?? -1];
+
+					if (length === undefined || i + length > params.length) {
+						// a color naming no mode, or one whose parameters run out before it
+						// does. Storing it would be worse than losing it: the parameters of
+						// whatever comes next would be written after it on the way back and
+						// read as the rest of the color, so `ESC[38;5m` followed by `ESC[1m`
+						// would reopen as `ESC[38;5;1m` -- a valid color, and not the one
+						// anybody wrote. The rest of the sequence belongs to this color, so
+						// it goes with it.
+						i = params.length;
+						continue;
+					}
+
 					state.set(
 						slot,
 						params

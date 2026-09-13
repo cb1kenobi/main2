@@ -81,6 +81,20 @@ describe('what stays in effect', () => {
 		expect(after(`${ESC}[38;5;214m`, `${ESC}[31m`).open()).toBe(`${ESC}[31m`);
 	});
 
+	// storing it would be worse than losing it: the parameters of whatever came
+	// next would be written after it on the way back and read as the rest of the
+	// color, turning malformed input into a valid color nobody asked for
+	it('should drop a color whose parameters do not add up', () => {
+		expect(after(`${ESC}[38;5m`).active).toBe(false);
+		expect(after(`${ESC}[38;2;1;2m`).active).toBe(false);
+		expect(after(`${ESC}[38m`).active).toBe(false);
+		// and a mode it does not know is the same case
+		expect(after(`${ESC}[38;9;1m`).active).toBe(false);
+		// nothing of the malformed color leaks into what follows it
+		expect(after(`${ESC}[38;5m`, `${ESC}[1m`).open()).toBe(`${ESC}[1m`);
+		expect(after(`${ESC}[38;2;1;2m`, `${ESC}[1m`).open()).toBe(`${ESC}[1m`);
+	});
+
 	it('should read the single byte C1 form', () => {
 		expect(after(`${CSI}1m`).open()).toBe(`${ESC}[1m`);
 	});

@@ -51,7 +51,9 @@ describe('terminalWidth()', () => {
 	});
 
 	it('should ignore a COLUMNS that is not a width', () => {
-		for (const COLUMNS of ['', 'wide', '0', '-10', 'NaN']) {
+		// the whole string, not as much of it as parses: `12junk` is not somebody
+		// saying twelve
+		for (const COLUMNS of ['', 'wide', '0', '-10', 'NaN', '12junk', '1.5', '0x20']) {
 			expect(terminalWidth({ env: { COLUMNS }, stream: { columns: 60 } }), COLUMNS).toBe(60);
 		}
 	});
@@ -60,6 +62,15 @@ describe('terminalWidth()', () => {
 		expect(terminalWidth({ env: {}, stream: { columns: 0 } })).toBe(DEFAULT_WIDTH);
 		expect(terminalWidth({ env: {}, stream: { columns: Number.NaN } })).toBe(DEFAULT_WIDTH);
 		expect(terminalWidth({ env: {}, stream: { columns: Infinity } })).toBe(DEFAULT_WIDTH);
+	});
+
+	// a cap or a fallback that is not a width is no instruction at all, and
+	// carrying it through would come back out as the answer
+	it('should ignore a cap or a fallback that is not a width', () => {
+		expect(terminalWidth({ env: {}, max: Number.NaN, stream: { columns: 20 } })).toBe(20);
+		expect(terminalWidth({ env: {}, max: 0, stream: { columns: 400 } })).toBe(MAX_WIDTH);
+		expect(terminalWidth({ env: {}, fallback: Number.NaN, stream: undefined })).toBe(DEFAULT_WIDTH);
+		expect(terminalWidth({ env: {}, fallback: -5, stream: undefined })).toBe(DEFAULT_WIDTH);
 	});
 });
 
@@ -115,6 +126,13 @@ describe('wrap()', () => {
 	it('should keep a run of spaces inside a line', () => {
 		expect(wrap('a   b', 20)).toBe('a   b');
 	});
+
+	// the spaces in front of the first word are the text's own indentation; the
+	// same spaces after a break are what the break left behind
+	it('should keep leading whitespace even when the first word does not fit', () => {
+		expect(lines(wrap('  abcde', 5))).toEqual(['  abc', 'de']);
+		expect(lines(wrap('  aaa bbb', 5))).toEqual(['  aaa', 'bbb']);
+	});
 });
 
 describe('indenting', () => {
@@ -138,6 +156,16 @@ describe('indenting', () => {
 			'      lazy dog',
 		]);
 		expectWithin(wrapped, 24);
+	});
+
+	// the term a hanging indent hangs from is printed once, so everything under
+	// it lines up, including what follows a newline already in the text
+	it('should hang from the first line of the output, not of each paragraph', () => {
+		expect(lines(wrap('A\nbbbbbbbb', { hangingIndent: 4, width: 8 }))).toEqual([
+			'A',
+			'    bbbb',
+			'    bbbb',
+		]);
 	});
 
 	it('should add a hanging indent on top of an indent', () => {
@@ -281,6 +309,15 @@ describe('styled text', () => {
 			expect(wrap(`${ESC}[31m`, 10)).toBe(`${ESC}[31m`);
 			expect(wrap(`foo ${ESC}[31m`, 10)).toBe(`foo${ESC}[31m`);
 		});
+	});
+
+	// the close is only for what the text's own trailing sequences do not turn
+	// off, so a text that ends by closing does not get a second close
+	it('should not write a close the text already wrote', () => {
+		expect(wrap(`${ESC}[31mfoo ${ESC}[39m`, 10)).toBe(`${ESC}[31mfoo${ESC}[39m`);
+		expect(wrap(`${ESC}[31mfoo ${ESC}[0m`, 10)).toBe(`${ESC}[31mfoo${ESC}[0m`);
+		// but one that leaves a style open still gets closed
+		expect(wrap(`${ESC}[31mfoo `, 10)).toBe(`${ESC}[31mfoo${ESC}[39m`);
 	});
 
 	it('should not open a style on a line with no content', () => {

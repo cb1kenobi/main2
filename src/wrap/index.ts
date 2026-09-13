@@ -85,6 +85,10 @@ export interface WrapOptions {
 	 * Added to every line after the first, on top of `indent`. This is the
 	 * hanging indent a two-column list is made of: the first line carries the
 	 * term, and what wraps under it lines up with the definition.
+	 *
+	 * The first line means the first line of the output, not the first line of
+	 * each paragraph. The term it hangs from is printed once, so everything
+	 * under it lines up -- including what follows a newline already in the text.
 	 */
 	hangingIndent?: number | string;
 	/** Added to the front of every line. Counts against the width. */
@@ -182,6 +186,10 @@ function wrapLine(
 	let room = first;
 	let used = 0;
 	let content = '';
+	// whether the output line being built is also the start of the input line.
+	// Leading spaces there are the text's own indentation and are kept; the same
+	// spaces after a break are what the break left behind, and are dropped.
+	let atLineStart = true;
 	// captured when the line takes its first token, because that is when the
 	// styling it has to reopen is known. A line with no content opens nothing and
 	// closes nothing.
@@ -223,6 +231,7 @@ function wrapLine(
 		started = false;
 		used = 0;
 		room = rest;
+		atLineStart = false;
 	};
 
 	/**
@@ -262,6 +271,18 @@ function wrapLine(
 			endLine();
 			dropPending();
 			if (hard && wordWidth > room) {
+				emitBroken();
+			} else {
+				emit(word);
+			}
+		} else if (atLineStart && pendingWidth > 0) {
+			// the spaces in front of the first word of the input line are the text's
+			// own indentation, so they are kept even though the word does not fit
+			// beside them
+			emit(pending);
+			pending = [];
+			pendingWidth = 0;
+			if (hard && used + wordWidth > room) {
 				emitBroken();
 			} else {
 				emit(word);
@@ -318,12 +339,15 @@ function wrapLine(
 		.map((token) => token.text)
 		.join('');
 
-	endLine();
+	// read before the trailing sequences take effect, because they are written
+	// after it: the close is only for what they do not turn off themselves, and a
+	// text ending in its own close does not need a second one
+	const closing = state.close();
 	dropPending();
 
-	if (trailing !== '') {
-		lines[lines.length - 1] += trailing;
-	}
+	lines.push(
+		started || trailing !== '' ? opened + content + (state.active ? closing : '') + trailing : ''
+	);
 }
 
 /**
