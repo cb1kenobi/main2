@@ -1209,6 +1209,52 @@ describe('options', () => {
 			});
 			expect(result.argv.verbose).to.equal(5);
 		});
+
+		// a counter already collects repeated uses, and the two properties were read
+		// by code paths that disagreed: `-v -v` counted to 2 while an unused `-v`
+		// came back as `[0]`, so the value changed shape depending on argv
+		it("should error if a counter also declares 'multiple'", async () => {
+			const err = new TypeError(
+				'Option "verbose" cannot be a counter and collect; `type: \'count\'` already counts repeated uses'
+			);
+
+			await expect(
+				parse({
+					argv: ['-vv'],
+					schema: {
+						options: {
+							'-v, --verbose': { multiple: true, type: 'count' },
+						},
+					},
+				})
+			).rejects.toThrow(err);
+		});
+
+		it('should error before argv is read, so an unused counter is rejected too', async () => {
+			await expect(
+				parse({
+					argv: [],
+					schema: {
+						options: {
+							'-v, --verbose': { multiple: true, type: 'count' },
+						},
+					},
+				})
+			).rejects.toThrow('cannot be a counter and collect');
+		});
+
+		// `multiple: false` is not asking for anything, so there is nothing to reject
+		it("should allow a counter that declares 'multiple' false", async () => {
+			const result = await parse({
+				argv: ['-vv'],
+				schema: {
+					options: {
+						'-v, --verbose': { multiple: false, type: 'count' },
+					},
+				},
+			});
+			expect(result.argv.verbose).to.equal(2);
+		});
 	});
 
 	describe('aliases', () => {
