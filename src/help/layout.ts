@@ -65,10 +65,6 @@ export function definitions(items: Definition[], opts: LayoutOptions): string[] 
 	// indented under it. Wrapping to a handful of columns is a word per line, and
 	// running past the terminal's edge is worse still -- the terminal wraps it at
 	// the margin and the indent is lost.
-	//
-	// A label wider than the whole width is the one thing here that does run past
-	// the edge. It cannot be wrapped: a flag name broken across two lines is a
-	// flag nobody can type, which is worse than a line the terminal wraps for us.
 	if (width - column < MIN_DESC) {
 		return stacked(items, indent, width);
 	}
@@ -85,7 +81,7 @@ export function definitions(items: Definition[], opts: LayoutOptions): string[] 
 
 		if (stringWidth(label) > labelWidth) {
 			// the label does not fit its column, so it takes the line
-			lines.push(prefix + label);
+			lines.push(...labelLines(label, width, indent));
 		} else {
 			lines.push(prefix + pad(label, labelWidth) + ' '.repeat(gap) + wrapped.shift());
 		}
@@ -111,10 +107,58 @@ function stacked(items: Definition[], indent: number, width: number): string[] {
 	const under = indent + 2;
 
 	for (const { desc, label } of items) {
-		lines.push(' '.repeat(indent) + label);
+		lines.push(...labelLines(label, width, indent));
 		if (desc) {
 			lines.push(...wrap(desc, { indent: under, width }).split('\n'));
 		}
+	}
+
+	return lines;
+}
+
+/**
+ * A label on lines of its own, broken after its commas when it does not fit.
+ *
+ * After commas and nowhere else, because a label is one of two things: a list of
+ * names, which breaks between them, or a name and its hint, which does not.
+ * Breaking `--target [name]` at the space would read as two separate things, and
+ * breaking inside `--target` would give a flag nobody can type.
+ *
+ * So a single name wider than the width is printed whole and runs past the edge.
+ * That is the better of the two failures: the terminal wraps it and the name
+ * survives.
+ *
+ * @param label - The label.
+ * @param width - The column to wrap at.
+ * @param indent - How far to indent every line.
+ * @returns The lines.
+ */
+function labelLines(label: string, width: number, indent: number): string[] {
+	const prefix = ' '.repeat(indent);
+	const room = Math.max(width - indent, 1);
+
+	if (stringWidth(label) <= room) {
+		return [prefix + label];
+	}
+
+	const parts = label.split(', ');
+	const lines: string[] = [];
+	let line = '';
+
+	for (const [index, part] of parts.entries()) {
+		const piece = index < parts.length - 1 ? `${part},` : part;
+		const candidate = line === '' ? piece : `${line} ${piece}`;
+
+		if (line !== '' && stringWidth(candidate) > room) {
+			lines.push(prefix + line);
+			line = piece;
+		} else {
+			line = candidate;
+		}
+	}
+
+	if (line !== '') {
+		lines.push(prefix + line);
 	}
 
 	return lines;

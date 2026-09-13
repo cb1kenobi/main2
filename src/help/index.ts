@@ -58,6 +58,12 @@ export interface HelpOptions {
  *
  * Nothing marked `hidden` appears, on either a command or an option.
  *
+ * A command that has not been loaded yet appears by name alone, because its
+ * description and its `hidden` live in a module nothing has read: hiding a lazily
+ * loaded command is what the `!` name prefix is for, since the placeholder
+ * carries it and the module never sees it. Loading every command module to render
+ * one screen is a decision for whatever wires help up, not for the renderer.
+ *
  * @param target - The parse state, or anything carrying a context chain.
  * @param opts - Where the columns are and what to write with.
  * @returns The help screen, with no trailing newline.
@@ -86,19 +92,30 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	// an option the command declares itself shadows the one above it -- the parser
 	// resolves options across the chain innermost first -- so listing the outer one
 	// under "Global options" would describe something that cannot be reached from
-	// here
-	const claimed = new Set(options.map((opt) => opt.name));
+	// here.
+	//
+	// Shadowing is by spelling and not by name, because a spelling is what gets
+	// typed: a command declaring a short-only `-x` does not shadow a root `--x`,
+	// and `mycli build --x` still reaches the root's. An outer option is left out
+	// only when every one of its spellings has been claimed by a nearer one.
+	const claimed = new Set(options.flatMap(resolvable));
 	const inherited: InternalOption[] = [];
 	for (const ctx of contexts.slice(1)) {
 		for (const opt of optionsOf(ctx[Internal].options)) {
-			if (!claimed.has(opt.name)) {
-				claimed.add(opt.name);
-				inherited.push(opt);
+			const spellings = resolvable(opt);
+			if (spellings.every((spelling) => claimed.has(spelling))) {
+				continue;
 			}
+			for (const spelling of spellings) {
+				claimed.add(spelling);
+			}
+			inherited.push(opt);
 		}
 	}
 	const args = internal.args;
-	const aliases = [...internal.aliases];
+	// a name that is nothing but an alias -- `'@b'` -- is its own alias, and the
+	// command is already named on the usage line
+	const aliases = [...internal.aliases].filter((alias) => alias !== cmd.name);
 
 	const sections: string[][] = [
 		usageLine(
@@ -126,7 +143,12 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	// would be aliased is the program, and the program is not what it declares
 	if (aliases.length > 0 && contexts.length > 1) {
 		const title = aliases.length === 1 ? 'Alias:' : 'Aliases:';
-		sections.push([`${ansi.bold(title)} ${aliases.join(', ')}`]);
+		sections.push(
+			wrap(`${ansi.bold(title)} ${aliases.join(', ')}`, {
+				hangingIndent: title.length + 1,
+				width,
+			}).split('\n')
+		);
 	}
 
 	if (commands.length > 0) {
@@ -344,6 +366,26 @@ function optionRow(opt: InternalOption, ansi: Ansi): Definition {
 }
 
 /**
+ * Every spelling an option answers to, which is what shadowing is decided on.
+ *
+ * Unlike the spellings help prints, this includes the positive form a negated
+ * flag also accepts: it does not belong on the row, but it does get typed, so a
+ * nearer option claiming it does shadow it.
+ *
+ * @param opt - The option.
+ * @returns The spellings.
+ */
+function resolvable(opt: InternalOption): string[] {
+	const internal = opt[Internal];
+	const twin = internal.negatedTwin;
+	return [
+		...internal.short,
+		...internal.long,
+		...(twin ? [...twin[Internal].short, ...twin[Internal].long] : []),
+	];
+}
+
+/**
  * How an option is spelled, shortest first.
  *
  * A negated flag answers to the positive spelling as well -- `--no-color` also
@@ -407,7 +449,15 @@ function format(value: unknown): string {
 		// ends
 		return value === value.trim() && value !== '' ? value : JSON.stringify(value);
 	}
-	return JSON.stringify(value) ?? String(value);
+
+	try {
+		// a default can be anything a schema put there, and a circular object or a
+		// BigInt makes `JSON.stringify` throw. Nothing in help is worth failing the
+		// whole screen over, so what cannot be written as JSON is written as itself.
+		return JSON.stringify(value) ?? String(value);
+	} catch {
+		return String(value);
+	}
 }
 
 /**

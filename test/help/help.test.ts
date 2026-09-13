@@ -308,6 +308,19 @@ describe('the options sections', () => {
 		]);
 	});
 
+	// a spelling is what gets typed, so a short-only option does not shadow a
+	// long one: `mycli build --mode` still reaches the root's
+	it('should still list an inherited option whose spelling is not taken', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			options: { '--mode [name]': 'Root mode' },
+			commands: { build: { options: { '-m [name]': 'Build m' } } },
+		};
+		const text = await help(schema, ['build']);
+		expect(sectionOf(text, 'Options')).toEqual(['  -m [name]  Build m']);
+		expect(sectionOf(text, 'Global options')).toEqual(['  --mode [name]  Root mode']);
+	});
+
 	it('should print a default the schema declared', async () => {
 		const text = await help({
 			name: 'mycli',
@@ -361,6 +374,28 @@ describe('aliases', () => {
 
 	it('should say nothing about the program own aliases', async () => {
 		expect(await help({ name: 'mycli' })).not.toContain('Alias');
+	});
+
+	// the command is already named on the usage line, and `'@b'` is its own alias
+	it('should not name the command as its own alias', async () => {
+		const schema: Schema = { name: 'mycli', commands: { '@b': { desc: 'Build' } } };
+		expect(await help(schema, ['b'])).not.toContain('Alias');
+	});
+
+	it('should wrap a long list of aliases under the label', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				build: { alias: ['compile-everything', 'make-the-thing', 'bundle-it-all'], desc: 'Build' },
+			},
+		};
+		expect(sectionOf(await help(schema, ['build'], 40), 'Aliases')).toEqual([]);
+		const lines = (await help(schema, ['build'], 40)).split('\n');
+		const start = lines.findIndex((line) => line.startsWith('Aliases:'));
+		expect(lines.slice(start, start + 2)).toEqual([
+			'Aliases: compile-everything,',
+			'         make-the-thing, bundle-it-all',
+		]);
 	});
 });
 
@@ -463,12 +498,17 @@ describe('layout', () => {
 				'--target [name]': { choices: ['node', 'browser'], desc: 'What to build for' },
 			},
 			commands: {
-				build: { desc: 'Compile the project into something shippable' },
+				build: {
+					alias: ['compile-everything', 'bundle-it-all'],
+					desc: 'Compile the project into something shippable',
+				},
 				serve: { desc: 'Run a development server on a port nobody is using' },
 			},
 		};
 		for (const width of [24, 30, 40, 60, 80, 100]) {
-			for (const line of (await help(schema, [], width)).split('\n')) {
+			// the root screen and a subcommand's, since the sections differ
+			const screens = [await help(schema, [], width), await help(schema, ['build'], width)];
+			for (const line of screens.join('\n').split('\n')) {
 				// measured in columns, not code units, which is the only measurement
 				// that means anything once a description is styled
 				expect(stringWidth(line), `width ${width}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(
@@ -476,6 +516,25 @@ describe('layout', () => {
 				);
 			}
 		}
+	});
+
+	// a list of names breaks between them; a name and its hint does not
+	it('should break a label that does not fit after its commas', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				build: { alias: ['compile-everything', 'bundle-it-all'], desc: 'Build' },
+				serve: { desc: 'Serve' },
+			},
+		};
+		// `serve` still fits its column, so the list stays in two columns and the
+		// description of the label that did not fit starts under that column
+		expect(sectionOf(await help(schema, [], 30), 'Commands')).toEqual([
+			'  build, compile-everything,',
+			'  bundle-it-all',
+			'         Build',
+			'  serve  Serve',
+		]);
 	});
 
 	// a flag name broken across two lines is a flag nobody can type, which is
@@ -525,6 +584,23 @@ describe('empty and odd declarations', () => {
 	it('should ignore a description of nothing but whitespace', async () => {
 		const schema: Schema = { name: 'mycli', commands: { build: { desc: '   ' } } };
 		expect(await help(schema, ['build'])).toBe('Usage: mycli build');
+	});
+
+	// nothing in help is worth failing the whole screen over
+	it('should render a default that cannot be written as JSON', async () => {
+		const circular: Record<string, unknown> = {};
+		circular.self = circular;
+		const text = await help({
+			name: 'mycli',
+			options: {
+				'--circular [v]': { default: circular, desc: 'Circular' },
+				'--big [v]': { default: 10n, desc: 'BigInt' },
+			},
+		});
+		expect(sectionOf(text, 'Options')).toEqual([
+			'  --circular [v]  Circular (default: [object Object])',
+			'  --big [v]       BigInt (default: 10)',
+		]);
 	});
 
 	it('should ignore an empty choices list', async () => {
