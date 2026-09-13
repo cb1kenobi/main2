@@ -82,7 +82,21 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	const internal = cmd[Internal];
 	const commands = shown(internal.commands.values()).sort((a, b) => a.name.localeCompare(b.name));
 	const options = optionsOf(internal.options);
-	const inherited = contexts.slice(1).flatMap((ctx) => optionsOf(ctx[Internal].options));
+
+	// an option the command declares itself shadows the one above it -- the parser
+	// resolves options across the chain innermost first -- so listing the outer one
+	// under "Global options" would describe something that cannot be reached from
+	// here
+	const claimed = new Set(options.map((opt) => opt.name));
+	const inherited: InternalOption[] = [];
+	for (const ctx of contexts.slice(1)) {
+		for (const opt of optionsOf(ctx[Internal].options)) {
+			if (!claimed.has(opt.name)) {
+				claimed.add(opt.name);
+				inherited.push(opt);
+			}
+		}
+	}
 	const args = internal.args;
 	const aliases = [...internal.aliases];
 
@@ -104,7 +118,7 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 		).split('\n'),
 	];
 
-	if (cmd.desc) {
+	if (cmd.desc?.trim()) {
 		sections.push(lines(cmd.desc, width));
 	}
 
@@ -157,7 +171,10 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 		sections.push(exampleSection(examples, layout, ansi, width));
 	}
 
-	return sections.map((section) => section.join('\n')).join('\n\n');
+	return sections
+		.map((section) => section.join('\n'))
+		.filter((section) => section !== '')
+		.join('\n\n');
 }
 
 /**
@@ -273,7 +290,10 @@ function argSpelling(arg: InternalArgument): string {
  * @returns The row.
  */
 function commandRow(cmd: InternalCommand): Definition {
-	return { desc: cmd.desc, label: [cmd.name, ...cmd[Internal].aliases].join(', ') };
+	// a name that is nothing but an alias -- `'@b'` -- is both the name and an
+	// alias of itself, and printing it twice says nothing twice
+	const names = new Set([cmd.name, ...cmd[Internal].aliases]);
+	return { desc: cmd.desc, label: [...names].join(', ') };
 }
 
 /**
@@ -312,7 +332,7 @@ function optionRow(opt: InternalOption, ansi: Ansi): Definition {
 		label += opt.required ? ` <${opt.hint}>` : ` [${opt.hint}]`;
 	}
 
-	if (internal.negatedTwin) {
+	if (internal.negatedTwin && !internal.negatedTwin.hidden) {
 		label += `, ${spellingsOf(internal.negatedTwin).join(', ')}`;
 	}
 
@@ -382,7 +402,10 @@ function describe(
  */
 function format(value: unknown): string {
 	if (typeof value === 'string') {
-		return value;
+		// a string is printed as it is -- this is prose, not JSON -- unless printing
+		// it as it is would show nothing, or would not show where it begins and
+		// ends
+		return value === value.trim() && value !== '' ? value : JSON.stringify(value);
 	}
 	return JSON.stringify(value) ?? String(value);
 }

@@ -65,6 +65,10 @@ export function definitions(items: Definition[], opts: LayoutOptions): string[] 
 	// indented under it. Wrapping to a handful of columns is a word per line, and
 	// running past the terminal's edge is worse still -- the terminal wraps it at
 	// the margin and the indent is lost.
+	//
+	// A label wider than the whole width is the one thing here that does run past
+	// the edge. It cannot be wrapped: a flag name broken across two lines is a
+	// flag nobody can type, which is worse than a line the terminal wraps for us.
 	if (width - column < MIN_DESC) {
 		return stacked(items, indent, width);
 	}

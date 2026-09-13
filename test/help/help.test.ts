@@ -3,6 +3,7 @@ import { stateFromError } from '../../src/error-hooks.js';
 import { renderHelp } from '../../src/help/index.js';
 import { parse } from '../../src/parser/parse.js';
 import type { Schema } from '../../src/types.js';
+import { stringWidth } from '../../src/width/index.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
@@ -161,6 +162,13 @@ describe('the commands section', () => {
 		]);
 	});
 
+	// `'@b'` is both the name and an alias of itself, and saying it twice says
+	// nothing twice
+	it('should not repeat a name that is its own alias', async () => {
+		const schema: Schema = { name: 'mycli', commands: { '@b': { desc: 'Build' } } };
+		expect(sectionOf(await help(schema), 'Commands')).toEqual(['  b  Build']);
+	});
+
 	it('should leave out a hidden command', async () => {
 		const schema: Schema = {
 			name: 'mycli',
@@ -252,11 +260,52 @@ describe('the options sections', () => {
 		expect(await help(schema, ['build'])).not.toContain('--secret');
 	});
 
+	it('should leave out a hidden negated twin', async () => {
+		const text = await help({
+			name: 'mycli',
+			options: { '--cheese [type]': 'Add cheese', '--no-cheese': { hidden: true } },
+		});
+		expect(sectionOf(text, 'Options')).toEqual(['  --cheese [type]  Add cheese']);
+	});
+
+	// the parser resolves options across the chain innermost first, so the outer
+	// one cannot be reached from here and listing it would describe nothing
+	it('should not list an inherited option the command redeclares', async () => {
+		const shadowing: Schema = {
+			name: 'mycli',
+			options: { '--mode [name]': 'Root mode' },
+			commands: { build: { options: { '--mode [name]': 'Build mode' } } },
+		};
+		const text = await help(shadowing, ['build']);
+		expect(sectionOf(text, 'Options')).toEqual(['  --mode [name]  Build mode']);
+		expect(sectionOf(text, 'Global options')).toEqual([]);
+	});
+
 	// every flag has a default, so printing them is noise rather than information
 	it('should not print a default the parser supplied', async () => {
 		const text = await help({ name: 'mycli', options: { '--watch': 'Watch' } });
 		expect(text).toContain('--watch');
 		expect(text).not.toContain('default: false');
+	});
+
+	// printing it as it is would show nothing at all, or would not show where it
+	// begins and ends
+	it('should quote a default that would otherwise be invisible', async () => {
+		const text = await help({
+			name: 'mycli',
+			options: {
+				'--empty [v]': { default: '', desc: 'Empty' },
+				'--padded [v]': { default: ' x ', desc: 'Padded' },
+				'--plain [v]': { default: 'x', desc: 'Plain' },
+				'--zero [v]': { default: 0, desc: 'Zero', type: 'int' },
+			},
+		});
+		expect(sectionOf(text, 'Options')).toEqual([
+			'  --empty [v]   Empty (default: "")',
+			'  --padded [v]  Padded (default: " x ")',
+			'  --plain [v]   Plain (default: x)',
+			'  --zero [v]    Zero (default: 0)',
+		]);
 	});
 
 	it('should print a default the schema declared', async () => {
@@ -409,14 +458,37 @@ describe('layout', () => {
 	it('should keep every line within the width', async () => {
 		const schema: Schema = {
 			name: 'mycli',
-			options: { '-v, --verbose': 'Print more about what is happening, at length' },
-			commands: { build: { desc: 'Compile the project into something shippable' } },
+			options: {
+				'-v, --verbose': 'Print more about what is happening, at length',
+				'--target [name]': { choices: ['node', 'browser'], desc: 'What to build for' },
+			},
+			commands: {
+				build: { desc: 'Compile the project into something shippable' },
+				serve: { desc: 'Run a development server on a port nobody is using' },
+			},
 		};
-		for (const width of [30, 40, 60, 80]) {
+		for (const width of [24, 30, 40, 60, 80, 100]) {
 			for (const line of (await help(schema, [], width)).split('\n')) {
-				expect(line.length, `width ${width}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(width);
+				// measured in columns, not code units, which is the only measurement
+				// that means anything once a description is styled
+				expect(stringWidth(line), `width ${width}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(
+					width
+				);
 			}
 		}
+	});
+
+	// a flag name broken across two lines is a flag nobody can type, which is
+	// worse than one line the terminal wraps for us
+	it('should print a label wider than the width whole', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			options: { '--an-extremely-long-option-name [value]': 'The long one' },
+		};
+		expect(sectionOf(await help(schema, [], 28), 'Options')).toEqual([
+			'  --an-extremely-long-option-name [value]',
+			'    The long one',
+		]);
 	});
 });
 
@@ -446,6 +518,31 @@ describe('styling', () => {
 			.map((line) => ansi.strip(line).indexOf('Loud') + ansi.strip(line).indexOf('Silent'))
 			.filter((index) => index > 0);
 		expect(new Set(columns).size).toBeLessThanOrEqual(1);
+	});
+});
+
+describe('empty and odd declarations', () => {
+	it('should ignore a description of nothing but whitespace', async () => {
+		const schema: Schema = { name: 'mycli', commands: { build: { desc: '   ' } } };
+		expect(await help(schema, ['build'])).toBe('Usage: mycli build');
+	});
+
+	it('should ignore an empty choices list', async () => {
+		const text = await help({
+			name: 'mycli',
+			options: { '--mode [name]': { choices: [], desc: 'Which mode' } },
+		});
+		expect(sectionOf(text, 'Options')).toEqual(['  --mode [name]  Which mode']);
+	});
+
+	it('should render an option with no description', async () => {
+		const text = await help({ name: 'mycli', options: { '-x, --extra': undefined } });
+		expect(sectionOf(text, 'Options')).toEqual(['  -x, --extra']);
+	});
+
+	it('should render a command with no description', async () => {
+		const text = await help({ name: 'mycli', commands: { build: {} } });
+		expect(sectionOf(text, 'Commands')).toEqual(['  build']);
 	});
 });
 
