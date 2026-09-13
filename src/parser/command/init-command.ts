@@ -57,6 +57,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		throw new TypeError(`Expected hidden to be a boolean in "${it.name}" command`);
 	}
 
+	if (command.default !== undefined && typeof command.default !== 'boolean') {
+		throw new TypeError(`Expected default in "${it.name}" command to be a boolean`);
+	}
+
 	const parsed = parseName(it.name);
 
 	for (const alias of parsed.aliases) {

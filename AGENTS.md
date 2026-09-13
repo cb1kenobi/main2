@@ -120,6 +120,16 @@ false` rethrows instead; a function replaces the handler.
   `parse()` for what `parse()` throws and inside `main2()` for everything
   else, innermost command first and the schema last, before rendering and
   before the `errorHandler: false` opt-out. See `test/parser/hooks.test.ts`.
+- **A `default` command is dispatched whenever argv named no command, even
+  when it declares required arguments.** `default` means the name is implied,
+  not that the command is a fallback that steps aside when the arguments are
+  inconvenient — so `mycli` with a default `build <entry>` reports
+  `Missing required arguments: <entry>` rather than silently doing nothing.
+  Only applying it when there are no positionals would also make
+  `mycli out.js` an `Unexpected argument`, which is the case a default command
+  exists for. Two siblings both marked `default` throw while the schema is
+  built; picking one would pick it by registration order. See
+  `test/parser/default-command.test.ts`.
 - **Undeclared options produce values rather than erroring.** `--foo` is
   `foo: true`, `--foo bar` is `foo: 'bar'`. They resolve after every command
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
@@ -142,11 +152,13 @@ false` rethrows instead; a function replaces the handler.
 
 ## Known bugs
 
-- `command.default: true` is never dispatched.
 - `parse()` mutates the schema object it is given.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
-  pass that reads it. See the warning in `docs/parser.md`.
+  pass that reads it. A default command's options are always in that position,
+  since it joins the chain only after argv has been walked. See the warning in
+  `docs/parser.md` and the pinned tests in
+  `test/parser/default-command.test.ts`.
 
 ## Conventions
 
