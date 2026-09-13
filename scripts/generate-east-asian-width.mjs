@@ -67,7 +67,7 @@ const parsedVersion = /^#\s*EastAsianWidth-([\d.]+)\.txt/.exec(text)?.[1];
 if (!parsedVersion) {
 	throw new Error('Could not read the Unicode version from the data file');
 }
-if (!parsedVersion.startsWith(version)) {
+if (parsedVersion !== version) {
 	throw new Error(`Asked for Unicode ${version} but the data file says ${parsedVersion}`);
 }
 
@@ -99,6 +99,39 @@ for (const [start, end] of ranges) {
 		last[1] = Math.max(last[1], end);
 	} else {
 		merged.push([start, end]);
+	}
+}
+
+// A 200 response is not a whole file. A truncated body parses fine, produces a
+// handful of ranges, and would overwrite the table with something that measures
+// most of CJK as one column -- so the result is checked before anything is
+// written. The anchors are characters whose width is not going to change.
+const anchors = [
+	[0x1100, 'Hangul choseong kiyeok'],
+	[0x3000, 'ideographic space'],
+	[0x4e00, 'CJK unified ideograph'],
+	[0xac00, 'Hangul syllable ga'],
+	[0xf900, 'CJK compatibility ideograph'],
+	[0xff01, 'fullwidth exclamation mark'],
+	[0x1f600, 'grinning face'],
+	[0x20000, 'plane 2'],
+];
+
+const covers = (cp) => merged.some(([start, end]) => cp >= start && cp <= end);
+
+if (merged.length < 100) {
+	throw new Error(`Only ${merged.length} ranges parsed; the data file looks truncated`);
+}
+
+for (const [cp, name] of anchors) {
+	if (!covers(cp)) {
+		throw new Error(`0x${cp.toString(16)} (${name}) is missing; the data file looks truncated`);
+	}
+}
+
+for (const cp of [0x41, 0x20, 0x00e9]) {
+	if (covers(cp)) {
+		throw new Error(`0x${cp.toString(16)} should not be wide; the data file looks wrong`);
 	}
 }
 

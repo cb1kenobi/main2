@@ -35,6 +35,20 @@ const SKIN_TONE = String.fromCodePoint(0x1f3ff); // emoji modifier fitzpatrick 6
 const HANGUL_KAK =
 	String.fromCodePoint(0x1100) + String.fromCodePoint(0x1161) + String.fromCodePoint(0x11a8);
 
+const COPYRIGHT = String.fromCodePoint(0xa9); // an emoji character that is narrow as text
+const ARABIC_NUMBER_SIGN = String.fromCodePoint(0x600); // invisible, and prefixes its base
+const DOT_REPH = String.fromCodePoint(0xd4e); // visible, and also prefixes its base
+
+// a base plus a spacing vowel sign, which advances the cursor rather than
+// drawing on top of the base
+const DEVANAGARI_KA = String.fromCodePoint(0x915) + String.fromCodePoint(0x93e);
+const TAMIL_KA = String.fromCodePoint(0xb95) + String.fromCodePoint(0xbbe);
+const THAI_KAM = String.fromCodePoint(0xe01) + String.fromCodePoint(0xe33);
+// consonant, virama, consonant: the virama is a nonspacing mark, the second
+// consonant is not
+const DEVANAGARI_KSHA =
+	String.fromCodePoint(0x915) + String.fromCodePoint(0x94d) + String.fromCodePoint(0x937);
+
 const FAMILY = [0x1f468, 0x1f469, 0x1f467, 0x1f466].map((c) => String.fromCodePoint(c)).join(ZWJ);
 const FLAG_US = String.fromCodePoint(0x1f1fa) + String.fromCodePoint(0x1f1f8);
 
@@ -90,6 +104,23 @@ describe('stringWidth()', () => {
 		expect(stringWidth(HEART + VS15)).toBe(1);
 	});
 
+	// a cluster is its base plus what attaches to it, and a spacing mark attaches
+	// by advancing the cursor rather than by drawing on top
+	it('should count a spacing mark as the column it takes', () => {
+		expect(graphemes(DEVANAGARI_KA)).toHaveLength(1);
+		expect(stringWidth(DEVANAGARI_KA)).toBe(2);
+		expect(stringWidth(TAMIL_KA)).toBe(2);
+		expect(stringWidth(THAI_KAM)).toBe(2);
+		expect(stringWidth(DEVANAGARI_KSHA)).toBe(2);
+	});
+
+	// the base of a cluster is not always the first thing in it
+	it('should measure a cluster whose base is not first', () => {
+		expect(graphemes(ARABIC_NUMBER_SIGN + '1')).toHaveLength(1);
+		expect(stringWidth(ARABIC_NUMBER_SIGN + '1')).toBe(1);
+		expect(stringWidth(DOT_REPH + String.fromCodePoint(0xd15))).toBe(2);
+	});
+
 	// the selector is a nonspacing mark, so a cluster may carry one for reasons
 	// that have nothing to do with emoji
 	it('should only let the selector widen something that can be an emoji', () => {
@@ -99,6 +130,14 @@ describe('stringWidth()', () => {
 		// a digit can be, which is what makes a keycap two columns
 		expect(stringWidth(`1${VS16}`)).toBe(2);
 		expect(stringWidth(`#${VS16}`)).toBe(2);
+	});
+
+	// the selector selects the presentation of the character in front of it, so
+	// one that is not in front of the base is selecting nothing
+	it('should ignore a selector that is not next to the base', () => {
+		expect(stringWidth(COPYRIGHT + VS16)).toBe(2);
+		expect(graphemes(COPYRIGHT + ACUTE + VS16)).toHaveLength(1);
+		expect(stringWidth(COPYRIGHT + ACUTE + VS16)).toBe(1);
 	});
 
 	// UTS #51 spells a keycap as digit, selector, enclosing keycap, and the
@@ -147,6 +186,16 @@ describe('graphemes()', () => {
 		expect(graphemes(`cafe${ACUTE}`)).toEqual(['c', 'a', 'f', `e${ACUTE}`]);
 		expect(graphemes(`${FLAG_US}!`)).toEqual([FLAG_US, '!']);
 		expect(graphemes(FAMILY)).toEqual([FAMILY]);
+	});
+
+	it('should measure a decomposed Hangul syllable as one syllable', () => {
+		// the leading consonant is wide and carries the syllable's two columns; the
+		// medial vowel and final consonant draw inside it
+		expect(stringWidth(HANGUL_KAK)).toBe(2);
+		expect(stringWidth('각')).toBe(2);
+		expect(charWidth(0x1161)).toBe(0);
+		expect(charWidth(0x11a8)).toBe(0);
+		expect(charWidth(0xd7b0)).toBe(0);
 	});
 
 	it('should keep a decomposed Hangul syllable in one cluster', () => {
@@ -254,5 +303,18 @@ describe('the generated table', () => {
 
 	it('should record the Unicode version it came from', () => {
 		expect(unicodeVersion).toMatch(/^\d+\.\d+\.\d+$/);
+	});
+
+	// a truncated data file parses into a handful of ranges rather than failing,
+	// so the count and a few anchors are what says the table is whole. The
+	// generator checks the same things before it writes.
+	it('should cover the characters a whole table has to cover', () => {
+		expect(wideRanges.length / 2).toBeGreaterThanOrEqual(100);
+		for (const codePoint of [0x1100, 0x3000, 0x4e00, 0xac00, 0xf900, 0xff01, 0x1f600, 0x20000]) {
+			expect(charWidth(codePoint), codePoint.toString(16)).toBe(2);
+		}
+		for (const codePoint of [0x41, 0x20, 0x00e9]) {
+			expect(charWidth(codePoint), codePoint.toString(16)).toBe(1);
+		}
 	});
 });

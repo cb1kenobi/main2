@@ -38,15 +38,27 @@ const emojiPresentation = /^\p{Emoji_Presentation}$/u;
  */
 const emoji = /^\p{Emoji}$/u;
 
+/**
+ * The Hangul jamo that draw inside the syllable they belong to: the medial
+ * vowels and final consonants, in both the original block and Extended-B. A
+ * leading consonant is Wide and carries the syllable's two columns; these add
+ * nothing to it.
+ *
+ * They are not in any of the zero-width categories above and there is no
+ * property escape that selects them -- their Grapheme_Cluster_Break value is
+ * what says so, and ECMAScript exposes no such escape -- so they are listed.
+ * This is the same special case every `wcwidth` carries.
+ */
+const hangulZeroWidth = [
+	[0x1160, 0x11ff], // Hangul Jamo: medial vowels and final consonants
+	[0xd7b0, 0xd7ff], // Hangul Jamo Extended-B: the same two, and unassigned tail
+] as const;
+
 /** Nothing outside printable ASCII, where one code unit is one column. */
 const asciiOnly = /^[\x20-\x7E]*$/;
 
-/**
- * The emoji presentation selector, which makes an emoji character before it
- * wide. Built rather than written as a literal, because the formatter turns a
- * `\u` escape into the character itself and this one is invisible.
- */
-const VS16 = String.fromCodePoint(0xfe0f);
+/** The emoji presentation selector, which asks for an emoji rendering. */
+const VS16 = 0xfe0f;
 
 let segmenter: Intl.Segmenter | undefined;
 
@@ -90,9 +102,13 @@ export function stringWidth(str: string): number {
  * Splits a string into grapheme clusters -- what a reader would call a
  * character, and what a terminal draws as one.
  *
- * This is what keeps a wrap from cutting a flag in half. Escape sequences are
- * not stripped: a caller that needs them gone strips first, and one that is
- * wrapping styled text needs them left where they are.
+ * This is what keeps a wrap from cutting a flag in half.
+ *
+ * It knows nothing about escape sequences, and it is not a way to walk styled
+ * text: the clusters of `ESC[31ma` include `[`, `3`, `1`, and `m`, which are not
+ * characters anything draws. Text with sequences in it has to have them split
+ * out first -- which is the wrapper's job, because it needs them kept and put
+ * back, not removed.
  *
  * @param str - The string to split.
  * @returns The clusters, in order.
@@ -109,19 +125,24 @@ export function graphemes(str: string): string[] {
 /**
  * How many columns one grapheme cluster occupies.
  *
- * The cluster's first character decides, because everything after it in a
- * cluster is something drawn on top of or joined to that first one. The
- * exception is the emoji presentation selector, which is what turns a
- * text-presentation character into a two-column emoji: `U+2764` is a narrow
- * heavy heart, and `U+2764 U+FE0F` is the emoji.
+ * There are two rules, and which one applies is the whole of it.
  *
- * The selector only widens something that can be an emoji in the first place.
- * It is a nonspacing mark, so a cluster is free to carry one for reasons that
- * have nothing to do with emoji, and `a U+FE0F` is still one column.
+ * An emoji cluster is two columns however many characters it is made of. That
+ * is the one case where a cluster is not the sum of its parts: a four-person
+ * family is four emoji and three joiners, and a terminal draws one glyph two
+ * columns wide.
+ *
+ * Everything else is the sum. A cluster is a base plus what attaches to it, and
+ * what attaches is usually invisible -- a combining accent, a virama, a
+ * joiner -- so the sum is usually just the base. It is not always: a Devanagari
+ * vowel sign is a spacing mark, and a terminal advances the cursor for it, so
+ * `का` is two columns rather than one. Summing is also what gets a
+ * cluster right when the base is *not* first, which happens with the Arabic and
+ * Indic characters that prefix one.
  *
  * @param cluster - The cluster to measure. A string of more than one cluster is
  * measured as whichever one it starts with.
- * @returns 0, 1, or 2.
+ * @returns The number of columns.
  */
 export function graphemeWidth(cluster: string): number {
 	const first = cluster.codePointAt(0);
@@ -130,19 +151,41 @@ export function graphemeWidth(cluster: string): number {
 		return 0;
 	}
 
-	const base = String.fromCodePoint(first);
-
-	// a cluster of nothing but marks -- a lone selector, an orphaned combining
-	// accent -- draws nothing, selector or not
-	if (zeroWidth.test(base)) {
-		return 0;
-	}
-
-	if (cluster.includes(VS16) && emoji.test(base)) {
+	if (isEmoji(cluster, first)) {
 		return 2;
 	}
 
-	return charWidth(first);
+	let width = 0;
+	for (const char of cluster) {
+		width += charWidth(char.codePointAt(0)!);
+	}
+	return width;
+}
+
+/**
+ * Whether a cluster is drawn as a single emoji glyph, which is two columns.
+ *
+ * Either the base is a character that is an emoji on its own -- and then
+ * whatever follows it is a joiner, a skin tone, another emoji joined to it, or a
+ * mark, none of which add a column -- or it is a character that becomes one when
+ * the presentation selector asks it to.
+ *
+ * The selector has to come immediately after the base to be asking about the
+ * base, which is what `U+00A9 U+0301 U+FE0F` is not: a copyright sign with an
+ * accent on it, followed by a selector that selects nothing.
+ *
+ * @param cluster - The cluster to test.
+ * @param first - Its first code point.
+ * @returns `true` when the cluster is one emoji.
+ */
+function isEmoji(cluster: string, first: number): boolean {
+	const base = String.fromCodePoint(first);
+
+	if (emojiPresentation.test(base)) {
+		return true;
+	}
+
+	return emoji.test(base) && cluster.codePointAt(base.length) === VS16;
 }
 
 /**
@@ -164,6 +207,12 @@ export function charWidth(codePoint: number): number {
 
 	if (zeroWidth.test(char)) {
 		return 0;
+	}
+
+	for (const [start, end] of hangulZeroWidth) {
+		if (codePoint >= start && codePoint <= end) {
+			return 0;
+		}
 	}
 
 	if (emojiPresentation.test(char) || isWide(codePoint)) {
