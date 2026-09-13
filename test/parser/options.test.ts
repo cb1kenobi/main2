@@ -1564,6 +1564,18 @@ describe('options', () => {
 			expect(result.$.some((parsed) => parsed.type === 'UnknownOption')).to.equal(true);
 		});
 
+		// only the innermost context's arguments are read, so an ancestor's own
+		// arguments own nothing once a subcommand is dispatched: dropping the value
+		// protected a destination that was never going to be filled
+		it('should let an undeclared option through when only an ancestor declares the argument', async () => {
+			const result = await parse({
+				argv: ['build', '--mode', 'x'],
+				schema: { help: false, args: ['[mode]'], commands: { build: {} } },
+			});
+
+			expect(result.argv.mode).to.equal('x');
+		});
+
 		it('should not let an undeclared option overwrite an argument destination', async () => {
 			const result = await parse({
 				argv: ['--mode', 'fast'],

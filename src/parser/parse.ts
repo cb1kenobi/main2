@@ -720,17 +720,21 @@ export async function processArgs(state: ParseState): Promise<void> {
 	const ctx = state.contexts[0];
 	const internal = ctx[Internal];
 
-	// every destination the schema describes, from every context in the chain: an
-	// undeclared option that lands on one of these would be writing over a value
-	// something declared
+	// every destination something active describes: an undeclared option that lands
+	// on one of these would be writing over a value the schema described.
+	//
+	// Options come from the whole chain, because that is where they resolve from.
+	// Arguments come from this context alone -- an ancestor's arguments are not read
+	// once a subcommand is dispatched, so they receive nothing and own nothing, and
+	// counting them would drop a value nothing else was going to fill.
 	const declared = new Set<string>();
 	for (const context of state.contexts) {
 		for (const opt of context[Internal].options.values()) {
 			declared.add(opt[Internal].dest);
 		}
-		for (const arg of context[Internal].args) {
-			declared.add(arg[Internal].dest);
-		}
+	}
+	for (const arg of internal.args) {
+		declared.add(arg[Internal].dest);
 	}
 
 	let argIdx = 0;
