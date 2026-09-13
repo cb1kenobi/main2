@@ -8,6 +8,7 @@ import {
 	Schema,
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { lockDerived } from '../../util/lock-derived.js';
 import { initArg } from '../argument/init-arg.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
@@ -206,55 +207,37 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		entryFile = entryFile ? join(dirname(entryFile), commandPath) : commandPath;
 	}
 
-	const cmd = new Proxy(
-		Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
-			configurable: true,
-			value: {
-				aliases,
-				args,
-				commands,
-				label: parsed.label,
-				options,
-				path: entryFile,
-				// the command is not fully initialized until its init hooks have
-				// run, so a hook that throws leaves it dirty and it is rebuilt the
-				// next time it is initialized rather than silently accepted
-				state: InternalState.Dirty,
-			},
-		}),
-		{
-			deleteProperty(target, prop) {
-				if (typeof prop !== 'string') {
-					return false;
-				}
-				if (prop === 'args') {
-					// TODO
-				} else if (prop === 'commands') {
-					// TODO
-				} else if (prop === 'options') {
-					// TODO
-				} else {
-					delete target[prop];
-				}
-				return true;
-			},
-			set(target, prop, value) {
-				if (typeof prop !== 'string') {
-					return false;
-				}
-				if (prop === 'args') {
-					// TODO
-				} else if (prop === 'commands') {
-					// TODO
-				} else if (prop === 'options') {
-					// TODO
-				} else {
-					target[prop] = value;
-				}
-				return true;
-			},
-		}
-	) as InternalCommand;
+	const cmd = Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
+		configurable: true,
+		value: {
+			aliases,
+			args,
+			commands,
+			label: parsed.label,
+			// a placeholder has not pulled its module in yet; `loadCommand()`
+			// flips this only once the import and the module's own init have
+			// both succeeded
+			loaded: false,
+			options,
+			path: entryFile,
+			// the command is not fully initialized until its init hooks have
+			// run, so a hook that throws leaves it dirty and it is rebuilt the
+			// next time it is initialized rather than silently accepted
+			state: InternalState.Dirty,
+		},
+	}) as InternalCommand;
+
+	// `cmd.args`, `cmd.commands`, and `cmd.options` echo the declaration; the
+	// parser reads the normalized arguments and the registries on `Internal`,
+	// which are a different shape on purpose — an inline `<arg>` in the name, a
+	// subcommand still waiting on its module, and an option's parsed spellings
+	// only exist on the internal side
+	lockDerived(
+		cmd,
+		['args', 'commands', 'options'],
+		(prop) =>
+			`Cannot set "${prop}" on the initialized "${parsed.name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
+	);
 
 	// a command's `beforeError` hooks are not fired from here, but a list that
 	// is not a list of functions has to be rejected while the schema is being

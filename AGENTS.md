@@ -150,6 +150,22 @@ false` rethrows instead; a function replaces the handler.
   the command belongs in the `alias` property, which never reaches the help
   label. Covered by `test/parser/regressions.test.ts`.
 
+- **A command is fixed once it is initialized, and its declaration containers
+  are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
+  declaration; the parser reads the normalized arguments and the registries at
+  `cmd[Internal]`, which are a different shape on purpose. Assigning,
+  deleting, or adding to one of those three throws rather than silently
+  failing to reconfigure a built command. A hook changes a command through the
+  registries it is handed — `options.add()`, `args.push(initArg(...))`,
+  `commands.add(await initCommand(...))` — which take effect immediately. The
+  Proxy `set` traps that used to stand in for this could never have worked:
+  building a command or an option is async and a `set` trap is not. The same
+  line is drawn on options and arguments: `choices`, `default`, `multiple`,
+  `required`, `transform`, and `type` are read on every parse and are editable
+  in place, while `alias`, `env`, `format`, `name`, and `negate` built the
+  registry lookups and the destination, so they are read-only too. Covered by
+  `test/parser/schema.test.ts`.
+
 ## Known bugs
 
 - A subcommand's option used before its subcommand is not protected from being
@@ -173,6 +189,9 @@ false` rethrows instead; a function replaces the handler.
   loaded command module — which the ESM loader shares with every other
   importer — is merged into a copy rather than written to. Asserted in
   `test/parser/schema.test.ts`.
+- **No Proxies.** Internal commands, arguments, and options are plain objects.
+  Anything that has to stay in sync is built once by `init*()`; anything a
+  consumer may change afterwards is a property nothing is derived from.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.

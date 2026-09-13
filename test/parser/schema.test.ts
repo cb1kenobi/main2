@@ -1,5 +1,8 @@
+import { initArg } from '../../src/parser/argument/init-arg.js';
+import { initCommand } from '../../src/parser/command/init-command.js';
+import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
-import { Command, Internal, Schema } from '../../src/types.js';
+import { Command, CommandHookData, Internal, Schema } from '../../src/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -331,6 +334,335 @@ describe('schema', () => {
 			}
 		});
 	});
+
+	describe('a command is fixed once it is initialized', () => {
+		it('should throw rather than drop a write to args, commands, or options', async () => {
+			// `cmd.args`, `cmd.commands`, and `cmd.options` are the declaration as
+			// it was given; the parser reads `cmd[Internal]`. Writing one used to
+			// be silently discarded by a Proxy trap.
+			for (const prop of ['args', 'commands', 'options'] as const) {
+				const schema = {
+					commands: {
+						build: {
+							args: ['[entry]'],
+							commands: { nested: {} },
+							options: { '--target [name]': null },
+							hooks: {
+								init: [
+									({ cmd }: CommandHookData) => {
+										(cmd as Record<string, unknown>)[prop] = {};
+									},
+								],
+							},
+						},
+					},
+				};
+
+				await expect(parse({ argv: ['build'], schema })).rejects.toThrow(
+					new Error(
+						`Cannot set "${prop}" on the initialized "build" command: the parser reads cmd[Internal].${prop}, so change that instead`
+					)
+				);
+			}
+		});
+
+		it('should throw rather than drop a delete of args, commands, or options', async () => {
+			for (const prop of ['args', 'commands', 'options'] as const) {
+				const schema = {
+					commands: {
+						build: {
+							args: ['[entry]'],
+							commands: { nested: {} },
+							options: { '--target [name]': null },
+							hooks: {
+								init: [
+									({ cmd }: CommandHookData) => {
+										delete (cmd as Record<string, unknown>)[prop];
+									},
+								],
+							},
+						},
+					},
+				};
+
+				await expect(parse({ argv: ['build'], schema })).rejects.toThrow(TypeError);
+			}
+		});
+
+		it('should throw rather than drop a write into a container', async () => {
+			// the containers are frozen too, so reaching past the property and
+			// adding an entry is just as loud as replacing it
+			const schema = {
+				commands: {
+					build: {
+						options: { '--target [name]': null },
+						hooks: {
+							init: [
+								({ cmd }: CommandHookData) => {
+									(cmd.options as Record<string, unknown>)['--extra [v]'] = null;
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: ['build'], schema })).rejects.toThrow(TypeError);
+		});
+
+		it('should still define the containers a declaration left out', async () => {
+			// a command that declares no options has nothing to echo back, but the
+			// write is refused all the same rather than landing on a stray property
+			const schema = {
+				commands: {
+					build: {
+						hooks: {
+							init: [
+								({ cmd }: CommandHookData) => {
+									cmd.options = { '--extra [v]': null };
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: ['build'], schema })).rejects.toThrow(
+				/Cannot set "options" on the initialized "build" command/
+			);
+
+			// ...and the absent containers stay absent, so a command still reads
+			// back as what was declared
+			const { contexts } = await parse({ argv: ['build'], schema: { commands: { build: {} } } });
+			expect(Object.keys(contexts[0])).to.not.include('options');
+			expect(Object.keys(contexts[0])).to.not.include('args');
+			expect(Object.keys(contexts[0])).to.not.include('commands');
+		});
+
+		it('should let an init hook add an option through the registry', async () => {
+			const schema = {
+				commands: {
+					build: {
+						hooks: {
+							init: [
+								async ({ options }: CommandHookData) => {
+									await options.add({ format: '--extra [v]' });
+								},
+							],
+						},
+					},
+				},
+			};
+
+			for (let i = 0; i < 2; i++) {
+				const { argv } = await parse({ argv: ['build', '--extra', 'yes'], schema });
+				expect(argv.extra).to.equal('yes');
+			}
+		});
+
+		it('should let an init hook add an argument through the registry', async () => {
+			const schema = {
+				commands: {
+					build: {
+						hooks: {
+							init: [
+								({ args }: CommandHookData) => {
+									args.push(initArg('[entry]'));
+								},
+							],
+						},
+					},
+				},
+			};
+
+			const { argv } = await parse({ argv: ['build', 'main.js'], schema });
+			expect(argv.entry).to.equal('main.js');
+		});
+
+		it('should let an init hook add a command through the registry', async () => {
+			const schema = {
+				commands: {
+					build: {
+						hooks: {
+							init: [
+								async ({ commands }: CommandHookData) => {
+									commands.add(await initCommand({ name: 'nested' }));
+								},
+							],
+						},
+					},
+				},
+			};
+
+			const { contexts } = await parse({ argv: ['build', 'nested'], schema });
+			expect(contexts.map((c) => c.name)).to.deep.equal(['nested', 'build', 'global']);
+		});
+
+		it('should keep the declaration echo out of sync with the registry', async () => {
+			// this is the reason the containers are read-only: what a command
+			// echoes back is what was declared, not what the parser resolved
+			const schema = {
+				commands: {
+					'build <entry>': {
+						options: { '-t, --target [name]': null },
+						hooks: {
+							init: [
+								async ({ options }: CommandHookData) => {
+									await options.add({ format: '--extra [v]' });
+								},
+							],
+						},
+					},
+				},
+			};
+
+			const { contexts } = await parse({ argv: ['build', 'main.js'], schema });
+			const build = contexts[0];
+
+			expect(build.args).to.deep.equal(['<entry>']);
+			expect(build.options).to.deep.equal({ '-t, --target [name]': null });
+			expect(build[Internal].args.map((a) => a.name)).to.deep.equal(['entry']);
+			expect([...build[Internal].options.keys()]).to.deep.equal(['target', 'extra']);
+		});
+
+		it('should initialize the loaded flag instead of leaning on undefined', async () => {
+			const { contexts } = await parse({
+				argv: [],
+				schema: { commands: { build: { path: path.join(__dirname, 'fixtures/frozen/build.js') } } },
+			});
+
+			const build = contexts[0][Internal].commands.find('build');
+			expect(build?.[Internal].loaded).to.equal(false);
+
+			await loadCommand(build!);
+			expect(build?.[Internal].loaded).to.equal(true);
+		});
+
+		it('should refuse a container write from a parse hook too', async () => {
+			// a `parse` hook runs long after init, so the command it is handed is
+			// just as fixed as the one an `init` hook sees
+			const schema = {
+				commands: {
+					build: {
+						options: { '--target [name]': null },
+						hooks: {
+							parse: [
+								({ cmd }: CommandHookData) => {
+									cmd.options = {};
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: ['build'], schema })).rejects.toThrow(
+				/Cannot set "options" on the initialized "build" command/
+			);
+		});
+
+		it('should refuse a write to a property an option was built from', async () => {
+			// the spellings the registry indexes, the destination, and the env
+			// fallbacks were all read out of these, so moving one afterwards can
+			// only mislead
+			for (const prop of ['alias', 'env', 'format', 'name', 'negate'] as const) {
+				const schema = {
+					commands: {
+						build: {
+							options: { '--target [name]': { alias: '-t', env: 'TARGET' } },
+							hooks: {
+								init: [
+									({ options }: CommandHookData) => {
+										(options.get('target') as Record<string, unknown>)[prop] = 'nope';
+									},
+								],
+							},
+						},
+					},
+				};
+
+				await expect(parse({ argv: ['build'], schema })).rejects.toThrow(
+					new RegExp(`Cannot set "${prop}" on the initialized "--target" option`)
+				);
+			}
+		});
+
+		it('should refuse a write to a property an argument was built from', async () => {
+			for (const prop of ['env', 'name'] as const) {
+				const schema = {
+					commands: {
+						build: {
+							args: [{ name: '<entry>', env: 'ENTRY' }],
+							hooks: {
+								init: [
+									({ args }: CommandHookData) => {
+										(args[0] as Record<string, unknown>)[prop] = 'nope';
+									},
+								],
+							},
+						},
+					},
+				};
+
+				await expect(parse({ argv: ['build', 'main.js'], schema })).rejects.toThrow(
+					new RegExp(`Cannot set "${prop}" on the initialized "entry" argument`)
+				);
+			}
+		});
+
+		it('should keep an option reading the environment it was built with', async () => {
+			const schema = {
+				commands: {
+					build: { options: { '--target [name]': { env: 'M2_TARGET' } } },
+				},
+			};
+
+			const { argv } = await parse({ argv: ['build'], env: { M2_TARGET: 'esm' }, schema });
+			expect(argv.target).to.equal('esm');
+		});
+
+		it('should not reload the command a lazy load produced', async () => {
+			const schema = {
+				commands: { build: { path: path.join(__dirname, 'fixtures/frozen/build.js') } },
+			};
+			const { contexts } = await parse({ argv: [], schema });
+			const placeholder = contexts[0][Internal].commands.find('build')!;
+
+			const loaded = await loadCommand(placeholder);
+			expect(loaded[Internal].loaded).to.equal(true);
+
+			// loading it again would re-import the module and rerun its init hooks
+			expect(await loadCommand(loaded)).to.equal(loaded);
+		});
+
+		it('should let an init hook edit an option in place', async () => {
+			// options and arguments are plain objects, so nothing is derived from
+			// them after init and a write to one is simply what the parser reads
+			const schema = {
+				commands: {
+					build: {
+						options: { '--target [name]': { choices: ['esm'] } },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									const target = options.get('target');
+									target!.choices = ['esm', 'cjs'];
+									target!.default = 'esm';
+								},
+							],
+						},
+					},
+				},
+			};
+
+			const { argv } = await parse({ argv: ['build', '--target', 'cjs'], schema });
+			expect(argv.target).to.equal('cjs');
+
+			const { argv: argv2 } = await parse({ argv: ['build'], schema });
+			expect(argv2.target).to.equal('esm');
+		});
+	});
+
 	// the guarantee has to keep holding for everything decided after it: a
 	// default command, a negated twin, and the error path all write during a
 	// parse, and none of it may reach the caller's object
@@ -376,6 +708,114 @@ describe('schema', () => {
 			await expect(parse({ argv: [], schema })).rejects.toThrow();
 
 			expect(schema).toStrictEqual(before);
+		});
+	});
+	// the locks have to keep holding for everything decided after them, and
+	// the twin pairing moves one property out from under the "editing it takes
+	// effect" rule
+	describe('interaction with option twins and default commands', () => {
+		it('should refuse a write to negate on a paired option', async () => {
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': {}, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									(options.get('cheese') as Record<string, unknown>).negate = true;
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: ['build'], schema })).rejects.toThrow(/Cannot set "negate"/);
+		});
+
+		it('should refuse a container write on a default command', async () => {
+			const schema = {
+				commands: {
+					build: {
+						default: true,
+						options: { '--target [name]': null },
+						hooks: {
+							init: [
+								({ cmd }: CommandHookData) => {
+									cmd.options = {};
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: [], schema })).rejects.toThrow(/Cannot set "options"/);
+		});
+
+		it('should let an init hook edit choices on a paired option', async () => {
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									options.get('cheese')!.choices = ['brie', 'gouda'];
+								},
+							],
+						},
+					},
+				},
+			};
+
+			expect((await parse({ argv: ['build', '--cheese', 'gouda'], schema })).argv.cheese).to.equal(
+				'gouda'
+			);
+			// and the twin still means `false`, which choices does not vet
+			expect((await parse({ argv: ['build', '--no-cheese'], schema })).argv.cheese).to.equal(false);
+		});
+
+		it('should let an init hook edit default on the valued twin', async () => {
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': {}, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									options.get('cheese')!.default = 'brie';
+								},
+							],
+						},
+					},
+				},
+			};
+
+			expect((await parse({ argv: ['build'], schema })).argv.cheese).to.equal('brie');
+		});
+
+		it('should ignore a default edited onto the negated twin', async () => {
+			// the valued twin owns the shared default, and which one owns it is
+			// settled when the registry links the pair — before any init hook
+			// runs. Pinned because the table in docs/parser.md calls `default`
+			// live, and this is the one place that does not hold
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': {}, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									(options.find('--no-cheese') as Record<string, unknown>).default = true;
+								},
+							],
+						},
+					},
+				},
+			};
+
+			expect((await parse({ argv: ['build'], schema })).argv.cheese).to.equal(undefined);
 		});
 	});
 });

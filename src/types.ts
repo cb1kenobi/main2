@@ -22,8 +22,17 @@ export const Internal: unique symbol = Symbol();
  */
 export const ErrorState: unique symbol = Symbol('main2.errorState');
 
+/**
+ * How far along an `init*()` call got. Only `OK` is trusted: an object in any
+ * other state is rebuilt from scratch the next time it is initialized.
+ */
 export enum InternalState {
+	/** Fully built, and safe to hand straight back. */
 	OK = 1,
+	/**
+	 * Built, but not finished — a command stays here until its init hooks have
+	 * all resolved, so a hook that throws leaves nothing half built behind.
+	 */
 	Dirty = 2,
 }
 
@@ -99,6 +108,12 @@ export interface InternalCommandBase extends InternalBase {
 	args: InternalArgument[];
 	commands: CommandRegistry;
 	label: string;
+	/**
+	 * Whether `loadCommand()` has finished with this command. Always set: it
+	 * starts `false` and flips once there is nothing left to fetch — either the
+	 * module came in, or the command never had one. A load that throws leaves it
+	 * `false` so the next match tries again.
+	 */
 	loaded: boolean;
 	options: OptionRegistry;
 	path?: string;

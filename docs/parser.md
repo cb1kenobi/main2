@@ -778,6 +778,72 @@ Command-level hooks live on `command.hooks`:
 | `parse`       | When the command is matched during parsing                 |
 | `beforeError` | On the way out of any error, before the schema's own hooks |
 
+A command hook is called with `{ cmd, ...cmd[Internal] }`, so it is handed the
+initialized command along with the registries the parser reads — see below for
+what it may change.
+
+## Changing a command from a hook
+
+A command is initialized once, and what the parser reads afterwards is the
+`Internal` state, not the declaration. So a hook changes a command through the
+registries it is handed, never through the command's own properties:
+
+| To do this       | Use                                        |
+| ---------------- | ------------------------------------------ |
+| Add an option    | `await options.add({ format: '--x [v]' })` |
+| Change an option | `options.get('x')!.choices = [...]`        |
+| Add an argument  | `args.push(initArg('[entry]'))`            |
+| Add a subcommand | `commands.add(await initCommand({ ... }))` |
+
+Those take effect immediately: the registries are what a parse walks, and an
+`init` hook runs before any argv is read, so an option it adds is matchable on
+that same parse.
+
+`cmd.args`, `cmd.commands`, and `cmd.options` are something else — they are the
+declaration as it was given, copied so a consumer editing one is not editing
+their own schema. The parser never looks at them again, and their shape differs
+from the registries on purpose: an inline `<arg>` in the command name, a
+subcommand still waiting on its module, and an option's parsed names, aliases,
+and data type only exist on the internal side.
+
+So those three properties are **read-only**. Assigning one, deleting one, or
+adding an entry to one throws, rather than appearing to reconfigure a command
+that has already been built:
+
+```js
+cmd.options = { '--extra [v]': null }; // throws
+cmd.options['--extra [v]'] = null; // throws
+delete cmd.args; // throws
+```
+
+Everything else about a command is a plain property. An option or an argument
+the registry hands back is a plain object too, so editing one in place is a
+supported way to reconfigure it — with one line drawn through its properties:
+
+| Property                                                          | After init                                                 |
+| ----------------------------------------------------------------- | ---------------------------------------------------------- |
+| `choices`, `default`, `multiple`, `required`, `transform`, `type` | Read on every parse — editing one takes effect             |
+| `desc`, `hidden`, `hint`                                          | Carried for the help screen; the parser does not read them |
+| `alias`, `env`, `format`, `name`, `negate`                        | Read once, at init — **read-only**, assigning throws       |
+
+The last row is everything the registry was built from: the spellings an option
+answers to, its camelCase destination, and the environment variables it falls
+back to are all resolved by the time `init*()` returns. Moving one afterwards
+could only mislead, so it throws and names the way through — declare another
+option or argument and `add()` or `push()` it.
+
+One thing the first row does not cover: whether `choices` is present at all is
+read once, because an option with choices is not a flag. Editing the values in
+a `choices` array is live; adding a `choices` array to an option that did not
+declare one does not turn it into an option that takes a value.
+
+Nor does it cover a negated twin's `default`. When an option and its negated
+twin share a destination the valued twin owns the default, and which one owns
+it is settled when the registry links the pair — before any `init` hook runs.
+So editing `default` on the valued twin is live as the table says, while
+editing it on the negated twin has no effect. Declare the default on the
+valued twin instead.
+
 ## Parse state
 
 `parse()` resolves to a `ParseState`:
@@ -822,9 +888,11 @@ array `default` on its way to `argv`. So nothing the parser hands back can be
 appended to and have that reach the declaration, whether it is reached from an
 `init` hook or from the parse state afterwards.
 
-The copy is shallow beyond that. A `run` handler, a `transform`, an object
-used as a `default`, and the argument and option declarations sitting inside
+The copy is shallow beyond that. A `run` handler, a `transform`, an object used
+as a `default`, and the argument and option declarations sitting inside
 `cmd.args` and `cmd.options` are the very ones that were declared; cloning a
 function is not something a library can do. The parser never writes to any of
-them, but a consumer who reaches in and mutates one is mutating their own
-schema.
+them, but a consumer who reaches into one and mutates it is mutating their own
+schema — and is not changing the parse either, since the parser reads the
+normalized copies in the registries. The containers holding them are frozen, so
+replacing an entry throws instead; see "Changing a command from a hook".

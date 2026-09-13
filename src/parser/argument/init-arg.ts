@@ -1,6 +1,7 @@
 import { Argument, InternalState, Internal, InternalArgument } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { lockDerived } from '../../util/lock-derived.js';
 
 // foo         optional
 // <foo>       required
@@ -81,17 +82,25 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 	arg.required ||= !!m[1];
 	arg.type ||= 'string';
 
-	return new Proxy(
-		Object.defineProperty(arg, Internal, {
-			configurable: true,
-			value: {
-				dest: camelCase(arg.name),
-				envs,
-				state: InternalState.OK,
-			},
-		}),
-		{
-			// TODO: wrap set/delete to detect changes
-		}
-	) as InternalArgument;
+	// the argument is a plain object: `required`, `type`, and the rest are read
+	// on every parse, so changing one of those changes what the parser reads
+	const internal = Object.defineProperty(arg, Internal, {
+		configurable: true,
+		value: {
+			dest: camelCase(arg.name),
+			envs,
+			state: InternalState.OK,
+		},
+	}) as InternalArgument;
+
+	// ...but the name and the environment list were just read to build the
+	// destination and the fallbacks, so they cannot move afterwards
+	lockDerived(
+		internal,
+		['env', 'name'],
+		(prop) =>
+			`Cannot set "${prop}" on the initialized "${arg.name}" argument: it built the argument's destination and environment fallbacks, so declare another argument and replace this one in cmd[Internal].args instead`
+	);
+
+	return internal;
 }
