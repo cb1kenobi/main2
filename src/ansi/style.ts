@@ -316,7 +316,8 @@ function reopen(
 	openAll: string
 ): string {
 	// an SGR carrying no parameters means the same as `0`
-	const values = params === '' ? [0] : params.split(';').map((p) => Number.parseInt(p, 10) || 0);
+	const parts = params === '' ? ['0'] : params.split(';');
+	const values = parts.map((p) => Number.parseInt(p, 10) || 0);
 
 	// only the parameters that are attributes, with the channels of an extended
 	// color dropped. In the semicolon form `38`, `48`, and `58` spread one color
@@ -330,7 +331,11 @@ function reopen(
 	for (let i = 0; i < values.length; i++) {
 		attrs.push(values[i]);
 
-		if (extendable.has(values[i])) {
+		// the colon form -- `38:2:255:0:0` -- carries the whole color inside this one
+		// parameter, so there is nothing after it belonging to the color and nothing
+		// to skip. Skipping anyway swallowed whatever followed: `ESC[38:2:255:0:0;39m`
+		// lost its `39` and left the outer style closed
+		if (extendable.has(values[i]) && !parts[i].includes(':')) {
 			// `38;5;n` is three parameters counting the 38, `38;2;r;g;b` is five. A
 			// mode that is neither is malformed, and the rest of the sequence is the
 			// only safe reading -- the alternative leaves its tail to be read as

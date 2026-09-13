@@ -595,9 +595,11 @@ and `int`, `count`, and `bool` all reject it — an _empty_ value is `0` for all
 of them, but a space is not empty, and space around a real number is still that
 number.
 
-A `date` is checked against the date it produces, because `Date` overflows
-rather than refusing: `2024-02-30` used to come back as March 1st. A day that
-does not exist now throws `Invalid date`, the same as `9999-99-99` always did.
+A `date` has its calendar checked before the `Date` is built, because `Date`
+overflows rather than refusing: `2024-02-30` used to come back as March 1st. A
+day that does not exist now throws `Invalid date`, the same as `9999-99-99`
+always did. The check is arithmetic, so it does not depend on the time zone the
+process is running in.
 
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
 `f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.

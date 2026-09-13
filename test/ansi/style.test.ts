@@ -182,6 +182,16 @@ describe('nesting', () => {
 	// belongs to it rather than being read as attributes
 	it('should handle the colon form and a malformed extended color', () => {
 		expect(ansi.red(`a${ESC}[38:2:255:0:0mb`)).toBe(`${ESC}[31ma${ESC}[38:2:255:0:0mb${ESC}[39m`);
+
+		// and because it is one parameter, what follows it is an attribute of its
+		// own -- skipping as though it were the semicolon form swallowed the `39`
+		// and left the outer style closed for the rest of the text
+		expect(ansi.red(`a${ESC}[38:2:255:0:0;39mb`)).toBe(
+			`${ESC}[31ma${ESC}[38:2:255:0:0;39m${ESC}[31mb${ESC}[39m`
+		);
+		expect(ansi.bold(`a${ESC}[38:5:1;22mb`)).toBe(
+			`${ESC}[1ma${ESC}[38:5:1;22m${ESC}[1mb${ESC}[22m`
+		);
 		expect(ansi.red(`a${ESC}[38;9;39mb`)).toBe(`${ESC}[31ma${ESC}[38;9;39mb${ESC}[39m`);
 		expect(ansi.red(`a${ESC}[38mb`)).toBe(`${ESC}[31ma${ESC}[38mb${ESC}[39m`);
 	});

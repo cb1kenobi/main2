@@ -12,7 +12,10 @@ import { lockDerived } from '../../util/lock-derived.js';
 // [foo]...    optional, multiple
 
 const argRequiredRE = /^(?:<([\w-]+)(\.\.\.)?>|\[([\w-]+)(\.\.\.)?\]|([\w-]+?))\s*(\.\.\.)?$/;
-const argTypesRE = /^auto|bool|date|int|json|number|string|yesno$/;
+// anchored as a group, for the reason `optionTypesRE` spells out: the
+// alternation bound looser than the anchors, so `integer` passed the guard and
+// then coerced as nothing at all
+const argTypesRE = /^(?:auto|bool|date|int|json|number|string|yesno)$/;
 
 /**
  * Builds an internal argument from a declaration. The declaration is only ever

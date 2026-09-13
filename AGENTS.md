@@ -135,16 +135,30 @@ These look like bugs and are not. Each is intentional and covered by tests.
   cannot detect, so it throws. `number` used to read a whitespace-only value as
   `0`, because `Number(' ')` is `0`, while `int`, `count`, and `bool` all threw
   on it; an _empty_ value is deliberately `0` for all of them, but a space is
-  not empty and space around a real number is still that number. A `date` is
-  read back out of the `Date` it produced, because `Date` overflows instead of
-  refusing and `2024-02-30` arrived as March 1st -- the wrong day rather than
-  the error `9999-99-99` already got.
+  not empty and space around a real number is still that number. A `date` has
+  its calendar checked before the `Date` is built, because `Date` overflows
+  instead of refusing and `2024-02-30` arrived as March 1st -- the wrong day
+  rather than the error `9999-99-99` already got. Checked arithmetically and not
+  by reading the parts back off the `Date`: those getters are local while the
+  value may be UTC, so `2024-06-15T00:00:00Z` is the 14th in Chicago and the
+  15th in Auckland, and a round trip rejected real instants depending on where
+  it ran.
+- **A data type name is matched anchored.** `optionTypesRE` and `argTypesRE`
+  were written `/^auto|bool|...|yesno$/`, where the alternation binds looser
+  than the anchors -- so the pattern read as `^auto` OR `bool` OR ... OR
+  `yesno$` and any string merely containing one of the middle names passed.
+  `integer` and `boolean` are the two somebody actually types, and past the
+  guard `transformValue()` does not know either name, so it handed back the raw
+  string and a `type: 'integer'` option quietly produced `'8080'`.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken
   for a reset, and reopened the whole outer chain on top of the inner color, so
   `ansi.blue(ansi.rgb(255, 0, 0)('x'))` rendered blue. `38;5;39` carries the
-  foreground's own close code and did the same. `src/wrap/sgr-state.ts` already
+  foreground's own close code and did the same. Only the semicolon form skips:
+  the colon form carries the whole color inside one parameter, so there is
+  nothing after it to skip and skipping anyway swallowed whatever followed.
+  `src/wrap/sgr-state.ts` already
   modeled this for the wrapper; the two say it separately rather than sharing a
   module across the styler and the wrapper.
 - **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are

@@ -10,6 +10,19 @@ const intRE = /^-?\d+$/;
 const noRE = /^no?$/i;
 const yesRE = /^y(es)?$/i;
 
+/**
+ * The number of days in a month, without asking the local time zone: day 0 of
+ * the next month is the last day of this one, and `Date.UTC` keeps the
+ * arithmetic out of wherever the process happens to be running.
+ *
+ * @param year - The full year.
+ * @param month - The month, 1-12.
+ * @returns The last day of that month.
+ */
+function daysInMonth(year: number, month: number): number {
+	return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 export function transformValue(
 	value: string,
 	type: DataType | string
@@ -40,24 +53,26 @@ export function transformValue(
 		} else {
 			m = value.match(dateRE);
 			if (m) {
+				// `dateRE` only checks the shape, and `Date` overflows rather than
+				// refusing: `2024-02-30` came back as March 1st, so a day that does not
+				// exist produced the wrong day instead of the error `9999-99-99` already
+				// got. The calendar is checked here rather than by reading the parts back
+				// off the `Date`, because the getters that would read them are local while
+				// the value may be UTC -- `2024-06-15T00:00:00Z` is the 14th in Chicago
+				// and the 15th in Auckland, so a round trip rejected real instants
+				// depending on where it ran
+				const [year, month, day] = m[0].split(/\D/, 3).map(Number);
+
+				if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+					throw new Error(`Invalid date: "${value}"`);
+				}
+
 				date = new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
 			}
 		}
 
 		if (!date || dateInvalid.test(date.toString())) {
 			throw new Error(`Invalid date: "${value}"`);
-		}
-
-		// `dateRE` checks the shape and `Date` does the rest, and `Date` overflows
-		// rather than refusing: `2024-02-30` came back as March 1st, so a day that
-		// does not exist produced the wrong day instead of the error `9999-99-99`
-		// already got. Reading the parts back is what catches it -- a date that
-		// overflowed is not the date that was written
-		if (m) {
-			const [year, month, day] = m[0].split(/\D/, 3).map(Number);
-			if (date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day) {
-				throw new Error(`Invalid date: "${value}"`);
-			}
 		}
 
 		return date;

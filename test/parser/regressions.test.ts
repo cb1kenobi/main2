@@ -1165,4 +1165,59 @@ describe('regressions', () => {
 			expect(result.argv.id).to.equal(expected);
 		});
 	});
+	describe('cross-model review round 3', () => {
+		// `/^auto|bool|count|date|int|json|number|string|yesno$/` reads as `^auto` OR
+		// `bool` OR ... OR `yesno$`: the alternation binds looser than the anchors, so
+		// any string merely containing one of the middle names passed the guard. Past
+		// it, `transformValue()` does not know that name and hands back the raw
+		// string, so a `type: 'integer'` option quietly produced a string
+		it.each(['integer', 'boolean', 'autoload', 'stringify', 'number2', 'jsonl'])(
+			'should reject the option data type %s',
+			async (type) => {
+				await expect(
+					parse({ argv: ['--port', '8080'], schema: { options: { '--port <n>': { type } } } })
+				).rejects.toThrow(`Option "port" has unsupported data type "${type}"`);
+			}
+		);
+
+		it.each(['integer', 'boolean', 'autoload', 'stringify'])(
+			'should reject the argument data type %s',
+			async (type) => {
+				await expect(
+					parse({ argv: ['8080'], schema: { args: [{ name: 'port', type }] } })
+				).rejects.toThrow(`Argument "port" has unsupported data type "${type}"`);
+			}
+		);
+
+		// the control: every name the guard is meant to accept still does
+		it.each(['auto', 'bool', 'count', 'date', 'int', 'json', 'number', 'string', 'yesno'])(
+			'should still accept the option data type %s',
+			async (type) => {
+				const flag = type === 'count' || type === 'bool' || type === 'yesno';
+				await expect(
+					parse({
+						argv: [],
+						schema: { options: { [flag ? '--on' : '--port [n]']: { type } } },
+					})
+				).resolves.toBeTruthy();
+			}
+		);
+
+		// the parts of a date are checked arithmetically rather than by reading them
+		// back off the `Date`, because those getters are local while the value may be
+		// UTC -- `2024-06-15T00:00:00Z` is the 14th in Chicago and the 15th in
+		// Auckland, so a round trip rejected real instants depending on where it ran
+		it('should accept a UTC instant whose local day differs', async () => {
+			const schema = { options: { '--when <d>': { type: 'date' } } };
+
+			for (const value of [
+				'2024-06-15T00:00:00Z',
+				'2024-06-15T23:59:59Z',
+				'2024-01-01T00:00:00Z',
+			]) {
+				const result = await parse({ argv: ['--when', value], schema });
+				expect((result.argv.when as Date).toISOString()).to.equal(new Date(value).toISOString());
+			}
+		});
+	});
 });

@@ -23,7 +23,13 @@ const optionNameRE = /^\w[\w-]*$/;
 const optionNegateRE = /^no-(\w[\w-]*)$/;
 const optionShortRE = /^-\w$/;
 const optionSplitRE = /[ ,|=]+/;
-const optionTypesRE = /^auto|bool|count|date|int|json|number|string|yesno$/;
+// anchored as a group. Written as `/^auto|bool|...|yesno$/` the alternation
+// bound looser than the anchors, so this read as `^auto` OR `bool` OR ... OR
+// `yesno$` -- any string merely containing one of the middle names passed, and
+// `integer` and `boolean` are the two somebody actually types. Past the guard
+// `transformValue()` does not know that name, so it returned the raw string and
+// `--port 8080` on a `type: 'integer'` option was `'8080'`
+const optionTypesRE = /^(?:auto|bool|count|date|int|json|number|string|yesno)$/;
 
 /**
  * Builds an internal option from a declaration. Everything the format string
