@@ -90,6 +90,25 @@ describe('stringWidth()', () => {
 		expect(stringWidth(HEART + VS15)).toBe(1);
 	});
 
+	// the selector is a nonspacing mark, so a cluster may carry one for reasons
+	// that have nothing to do with emoji
+	it('should only let the selector widen something that can be an emoji', () => {
+		expect(stringWidth(VS16)).toBe(0);
+		expect(stringWidth(`a${VS16}`)).toBe(1);
+		expect(stringWidth(`${ACUTE}${VS16}`)).toBe(0);
+		// a digit can be, which is what makes a keycap two columns
+		expect(stringWidth(`1${VS16}`)).toBe(2);
+		expect(stringWidth(`#${VS16}`)).toBe(2);
+	});
+
+	// UTS #51 spells a keycap as digit, selector, enclosing keycap, and the
+	// selector is what asks for the emoji. Without it this is a digit with a mark
+	// on it, and one column is the answer that follows from reading the selector
+	// at all.
+	it('should count a keycap without the selector as one column', () => {
+		expect(stringWidth(`1${KEYCAP}`)).toBe(1);
+	});
+
 	it('should count zero-width characters as nothing', () => {
 		expect(stringWidth(`a${ZWSP}b`)).toBe(2);
 		expect(stringWidth(`a${ZWJ}b`)).toBe(2);
@@ -154,6 +173,7 @@ describe('graphemeWidth()', () => {
 		expect(graphemeWidth(GRINNING)).toBe(2);
 		expect(graphemeWidth('')).toBe(0);
 		expect(graphemeWidth(ACUTE)).toBe(0);
+		expect(graphemeWidth(VS16)).toBe(0);
 	});
 
 	// the leading jamo of a decomposed syllable is wide and the rest of the

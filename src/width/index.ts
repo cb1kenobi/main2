@@ -25,16 +25,28 @@ export { unicodeVersion, wideRanges } from './east-asian-width.js';
 const zeroWidth = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}\p{Default_Ignorable_Code_Point}]$/u;
 
 /**
- * A character that a terminal draws as an emoji, and therefore two columns
- * wide, whatever its East Asian Width says.
+ * A character that a terminal draws as an emoji by default, and therefore two
+ * columns wide whatever its East Asian Width says.
  */
 const emojiPresentation = /^\p{Emoji_Presentation}$/u;
+
+/**
+ * A character that can be drawn as an emoji when asked to be -- which the
+ * presentation selector is what asks. It is a wider set than the one above and
+ * includes the ASCII digits, `#`, and `*`, which is what makes a keycap
+ * sequence two columns.
+ */
+const emoji = /^\p{Emoji}$/u;
 
 /** Nothing outside printable ASCII, where one code unit is one column. */
 const asciiOnly = /^[\x20-\x7E]*$/;
 
-/** The emoji presentation selector, which makes the character before it wide. */
-const VS16 = '️';
+/**
+ * The emoji presentation selector, which makes an emoji character before it
+ * wide. Built rather than written as a literal, because the formatter turns a
+ * `\u` escape into the character itself and this one is invisible.
+ */
+const VS16 = String.fromCodePoint(0xfe0f);
 
 let segmenter: Intl.Segmenter | undefined;
 
@@ -103,6 +115,10 @@ export function graphemes(str: string): string[] {
  * text-presentation character into a two-column emoji: `U+2764` is a narrow
  * heavy heart, and `U+2764 U+FE0F` is the emoji.
  *
+ * The selector only widens something that can be an emoji in the first place.
+ * It is a nonspacing mark, so a cluster is free to carry one for reasons that
+ * have nothing to do with emoji, and `a U+FE0F` is still one column.
+ *
  * @param cluster - The cluster to measure. A string of more than one cluster is
  * measured as whichever one it starts with.
  * @returns 0, 1, or 2.
@@ -114,7 +130,15 @@ export function graphemeWidth(cluster: string): number {
 		return 0;
 	}
 
-	if (cluster.includes(VS16)) {
+	const base = String.fromCodePoint(first);
+
+	// a cluster of nothing but marks -- a lone selector, an orphaned combining
+	// accent -- draws nothing, selector or not
+	if (zeroWidth.test(base)) {
+		return 0;
+	}
+
+	if (cluster.includes(VS16) && emoji.test(base)) {
 		return 2;
 	}
 
