@@ -447,6 +447,12 @@ function applyFallback(
 		return;
 	}
 
+	// what arrived decides how many values it is, before coercion has a say: a string
+	// is one value even when it parses to an array, so `ITEMS='[1,2]'` on a `json`
+	// option is the one value `[1, 2]` -- the same as `--items '[1,2]'` -- rather than
+	// two. An array `default` is the list itself and stays as it is.
+	const one = !Array.isArray(value);
+
 	if (typeof value === 'string') {
 		value = transformValue(value, type);
 	} else if (Array.isArray(value)) {
@@ -461,7 +467,7 @@ function applyFallback(
 	// on whether argv used the flag -- `2` used and `[0]` unused. `initOption()`
 	// refuses the pair outright, and this is the invariant rather than the guard:
 	// `multiple` stays editable after init, so a hook could otherwise put it back
-	state.argv[dest] = multiple && type !== 'count' && !Array.isArray(value) ? [value] : value;
+	state.argv[dest] = multiple && type !== 'count' && one ? [value] : value;
 	produced(state, dest, it);
 }
 
