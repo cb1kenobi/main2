@@ -1054,6 +1054,18 @@ describe('regressions', () => {
 			expect(result.cmd?.desc).to.equal('Conditions command');
 		});
 
+		// a fallback array means "the first of these that works", and whether one
+		// works is a question about the file system: returning only the first
+		// string named a path that does not exist and called the package broken
+		it('should try every candidate in an exports fallback array', async () => {
+			const result = await parse({
+				argv: ['fallback'],
+				schema: { commands: path.join(__dirname, 'fixtures/good-pkg-export-fallback') },
+			});
+			expect(result.cmd?.name).to.equal('fallback');
+			expect(result.cmd?.desc).to.equal('Fallback command');
+		});
+
 		// `typeof null` is `'object'` and so is an array, so both slipped past the
 		// check: the parse succeeded with a command that has no `run`, and the load
 		// was recorded as done so it was never retried

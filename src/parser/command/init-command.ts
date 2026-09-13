@@ -446,13 +446,18 @@ async function registerCommandPath({
 }
 
 /**
- * Resolves a package's `exports` down to the one relative path to import.
+ * Resolves a package's `exports` to the relative paths worth trying, best first.
  *
  * An `exports` map nests: `"."` holds a conditions object, a condition holds
- * another, and an array is a fallback list to try in order. Unwrapping exactly
- * one level -- `exports['.'] || exports.default` -- left a plain object for the
- * ordinary `{ ".": { "import": "./index.js" } }`, which then reached `join()` as
+ * another, and an array is a fallback list. Unwrapping exactly one level --
+ * `exports['.'] || exports.default` -- left a plain object for the ordinary
+ * `{ ".": { "import": "./index.js" } }`, which then reached `join()` as
  * `[object Object]` and reported the package as having no valid export.
+ *
+ * Every candidate is returned rather than the first one, because a fallback list
+ * means "the first of these that works" and whether one works is a question about
+ * the file system: the caller already walks the list looking for a file, so
+ * picking here would pick a path that may not exist and call the package broken.
  *
  * Only what this loader can actually import is considered: `import` and `node`
  * before `default`, and `require` last, since a CommonJS entry still loads. The
@@ -461,25 +466,19 @@ async function registerCommandPath({
  *
  * @param exports - The `exports` field, whatever shape it is in.
  * @param subpath - Whether a `"."` subpath is still to be taken.
- * @returns The relative path, if one resolved.
+ * @returns The relative paths, in the order they should be tried.
  */
-function resolveEntry(exports: unknown, subpath = true): string | undefined {
+function resolveEntries(exports: unknown, subpath = true): string[] {
 	if (typeof exports === 'string') {
-		return exports;
+		return [exports];
 	}
 
 	if (Array.isArray(exports)) {
-		for (const candidate of exports) {
-			const resolved = resolveEntry(candidate, subpath);
-			if (resolved !== undefined) {
-				return resolved;
-			}
-		}
-		return;
+		return exports.flatMap((candidate) => resolveEntries(candidate, subpath));
 	}
 
 	if (!exports || typeof exports !== 'object') {
-		return;
+		return [];
 	}
 
 	const map = exports as Record<string, unknown>;
@@ -487,17 +486,18 @@ function resolveEntry(exports: unknown, subpath = true): string | undefined {
 	// a map whose keys are subpaths is a different thing from one whose keys are
 	// conditions, and `"."` is only a subpath at the top
 	if (subpath && Object.hasOwn(map, '.')) {
-		return resolveEntry(map['.'], false);
+		return resolveEntries(map['.'], false);
 	}
 
+	const entries: string[] = [];
 	for (const condition of ['import', 'node', 'default', 'require']) {
 		if (Object.hasOwn(map, condition)) {
-			const resolved = resolveEntry(map[condition], false);
-			if (resolved !== undefined) {
-				return resolved;
-			}
+			entries.push(...resolveEntries(map[condition], false));
 		}
 	}
+
+	// one file reached through two conditions is still one file to try
+	return [...new Set(entries)];
 }
 
 async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
@@ -520,9 +520,12 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 
 	const { description, exports, main, name, type } = pkgJson;
 
-	const entry = resolveEntry(exports) ?? (typeof main === 'string' ? main : undefined);
+	const entries = resolveEntries(exports);
+	if (!entries.length && typeof main === 'string') {
+		entries.push(main);
+	}
 
-	const filePaths = entry ? [entry] : ['index.js', 'index.mjs', 'index.cjs'];
+	const filePaths = entries.length ? entries : ['index.js', 'index.mjs', 'index.cjs'];
 	let entryFile;
 
 	for (const filepath of filePaths) {
