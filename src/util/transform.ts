@@ -51,10 +51,22 @@ export function transformValue(
 		return date;
 	}
 
-	if (type === 'int') {
+	// a counter is an int that argv increments rather than writes, so a value that
+	// reaches it from anywhere else -- the environment, a string `default` -- is
+	// coerced and rejected the same way: without this it stayed a string, and
+	// `VERBOSE=lots` put the word "lots" on a destination the types call a number
+	if (type === 'int' || type === 'count') {
+		// a counter is a flag, and a flag with no value is off: `bool` reads an empty
+		// value as false, so an empty counter is 0 rather than an error. `VERBOSE=` in
+		// the environment means the variable is there and says nothing, which is the
+		// one reading that is not worth failing a parse over
+		if (type === 'count' && !value) {
+			return 0;
+		}
+
 		let num;
 		if ((!hexRE.test(value) && !intRE.test(value)) || isNaN((num = Number(value)))) {
-			throw new Error(`Invalid integer: ${value}`);
+			throw new Error(`Invalid ${type === 'count' ? 'count' : 'integer'}: ${value}`);
 		}
 		return num;
 	}

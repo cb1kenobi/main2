@@ -131,6 +131,16 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		} else if (opt.type !== 'bool' && opt.type !== 'count') {
 			throw new Error("Option flags must have type of 'auto', 'bool', 'count', or 'yesno'");
 		}
+		if (opt.type === 'count' && opt.multiple) {
+			// a counter already collects repeated uses -- into a number rather than an
+			// array -- so `multiple` asks for nothing it does not do, and the two are
+			// read by different code paths that disagree: the counting path ignores
+			// `multiple` when the flag is used, and the fallback wraps the default in
+			// an array when it is not, so the value changes shape depending on argv
+			throw new TypeError(
+				`Option "${opt.name}" cannot be a counter and collect; \`type: 'count'\` already counts repeated uses`
+			);
+		}
 		if (opt.default === undefined) {
 			opt.default = opt.type === 'count' ? 0 : !!opt.negate;
 			impliedDefault = true;

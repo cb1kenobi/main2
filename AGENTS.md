@@ -87,6 +87,23 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `<files...>` on an _argument_ is how a list of loose values is collected. A
   `...` hint on an option is therefore rejected by `initOption` rather than
   accepted as decoration. Both Commander and yargs diverge here.
+- **A counter is never an array, and a string that reaches it is coerced.**
+  `type: 'count'` already collects repeated uses, into a number rather than an array, so `multiple`
+  on a counter is refused by `initOption()` the way a `...` hint is -- it asks for
+  nothing a counter does not do, and the two were read by paths that disagreed:
+  the counting path ignored `multiple` when the flag was used and `applyFallback()`
+  wrapped the default when it was not, so `argv.v` was `2` used and `[0]` unused.
+  The invariant is enforced where the value lands as well as where it is declared,
+  because `multiple` stays editable after init and a hook could otherwise put it
+  back. `transformValue()` coerces a counter like an `int` for the same reason: a
+  value from the environment or a string `default` used to stay a string, so
+  `VERBOSE=lots` put the word on a destination the types call a number; an empty
+  value is `0`, matching `bool`, and whitespace throws, also matching `bool`.
+  Either property alone is consistent, which is what said the combination was the
+  bug. Two things a counter does not escape, because no type escapes them: a
+  non-string `default` passes through untouched, and a negated twin sharing the
+  destination writes `false` -- which is why inference types that pair as
+  `number | boolean`. See `test/parser/options.test.ts`.
 - **A required option rejects a missing or empty value; an optional one gets
   an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
   (or `0`, per the data type) for `[value]`.

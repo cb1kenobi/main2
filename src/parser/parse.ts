@@ -335,7 +335,8 @@ function envValue(state: ParseState, envs: Set<string>): string | undefined {
  * @param dest - The destination key in `state.argv`.
  * @param value - The fallback value, if there is one.
  * @param type - The declared data type.
- * @param multiple - When set, scalar fallbacks are wrapped in an array.
+ * @param multiple - When set, scalar fallbacks are wrapped in an array. Ignored
+ * for a counter, which is a number however it was declared.
  */
 function applyFallback(
 	state: ParseState,
@@ -357,7 +358,12 @@ function applyFallback(
 		value = [...value];
 	}
 
-	state.argv[dest] = multiple && !Array.isArray(value) ? [value] : value;
+	// a counter is never wrapped, whatever it says: `processArgs()` counts and does
+	// not look at `multiple`, so wrapping here is what made the value's shape depend
+	// on whether argv used the flag -- `2` used and `[0]` unused. `initOption()`
+	// refuses the pair outright, and this is the invariant rather than the guard:
+	// `multiple` stays editable after init, so a hook could otherwise put it back
+	state.argv[dest] = multiple && type !== 'count' && !Array.isArray(value) ? [value] : value;
 }
 
 /**

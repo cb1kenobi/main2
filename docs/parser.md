@@ -390,6 +390,17 @@ parse({ schema: { options: { '--tag <tags...>': { multiple: true } } } });
 An environment fallback or a scalar `default` on a `multiple` option is wrapped
 in an array, so the value's shape does not depend on where it came from.
 
+A counter is refused the same way, from the other direction: `type: 'count'`
+already collects repeated uses — into a number rather than an array — so
+`multiple` asks for nothing it does not do, and asking anyway used to produce a
+value whose shape depended on argv:
+
+```js
+parse({ schema: { options: { '-v': { type: 'count', multiple: true } } } });
+// TypeError: Option "v" cannot be a counter and collect; `type: 'count'`
+// already counts repeated uses
+```
+
 ### Undeclared options
 
 An option-like token that nothing declared still produces a value, so a CLI can
@@ -529,7 +540,12 @@ retried once more contexts are known.
 it turns `007` into `7` — and because it makes static types unusable.
 
 Flags accept only `bool`, `count`, `yesno`, and `auto`; the last two are
-normalized to `bool`. `count` is rejected on non-flags. Normalizing `yesno`
+normalized to `bool`. `count` is rejected on non-flags, and with `multiple`. A
+string value that reaches a counter — from the environment, or from a string
+`default` — is coerced like an `int`, and an empty one is `0`, the same way `bool`
+reads an empty value as false. A counter is never wrapped in an array. What a
+counter does not escape is what no type escapes: a non-string `default` passes
+through untouched, and a negated twin sharing the destination writes `false`. Normalizing `yesno`
 to `bool` loses nothing, since `bool` accepts `yes` and `no` too.
 
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,

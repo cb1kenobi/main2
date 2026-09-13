@@ -1,5 +1,5 @@
 import { parse } from '../../src/parser/parse.js';
-import { Internal, Option } from '../../src/types.js';
+import { Internal, Option, type Schema } from '../../src/types.js';
 import { describe, it, expect } from 'vitest';
 
 describe('options', () => {
@@ -1208,6 +1208,132 @@ describe('options', () => {
 				},
 			});
 			expect(result.argv.verbose).to.equal(5);
+		});
+
+		// a counter already collects repeated uses, and the two properties were read
+		// by code paths that disagreed: `-v -v` counted to 2 while an unused `-v`
+		// came back as `[0]`, so the value changed shape depending on argv
+		it("should error if a counter also declares 'multiple'", async () => {
+			const err = new TypeError(
+				'Option "verbose" cannot be a counter and collect; `type: \'count\'` already counts repeated uses'
+			);
+
+			await expect(
+				parse({
+					argv: ['-vv'],
+					schema: {
+						options: {
+							'-v, --verbose': { multiple: true, type: 'count' },
+						},
+					},
+				})
+			).rejects.toThrow(err);
+		});
+
+		it('should error before argv is read, so an unused counter is rejected too', async () => {
+			await expect(
+				parse({
+					argv: [],
+					schema: {
+						options: {
+							'-v, --verbose': { multiple: true, type: 'count' },
+						},
+					},
+				})
+			).rejects.toThrow('cannot be a counter and collect');
+		});
+
+		// `multiple: false` is not asking for anything, so there is nothing to reject
+		it("should allow a counter that declares 'multiple' false", async () => {
+			const result = await parse({
+				argv: ['-vv'],
+				schema: {
+					options: {
+						'-v, --verbose': { multiple: false, type: 'count' },
+					},
+				},
+			});
+			expect(result.argv.verbose).to.equal(2);
+		});
+
+		// `multiple` stays editable after init -- it is read on every parse -- so the
+		// shape has to hold at the point of use and not only at the declaration
+		it('should not wrap a counter a hook made multiple', async () => {
+			const schema: Schema = {
+				commands: {
+					build: {
+						options: { '-v, --verbose': { type: 'count' } },
+						hooks: {
+							init: [
+								({ options }) => {
+									options.find('-v')!.multiple = true;
+								},
+							],
+						},
+					},
+				},
+			};
+
+			expect((await parse({ argv: ['build'], schema })).argv.verbose).to.equal(0);
+			expect((await parse({ argv: ['build', '-vv'], schema })).argv.verbose).to.equal(2);
+		});
+
+		// a counter is an int that argv increments rather than writes, so a value
+		// arriving from anywhere else is coerced the same way
+		it('should coerce a counter that comes from the environment', async () => {
+			const result = await parse({
+				argv: [],
+				env: { VERBOSE: '3' },
+				schema: {
+					options: { '-v, --verbose': { env: 'VERBOSE', type: 'count' } },
+				},
+			});
+			expect(result.argv.verbose).to.equal(3);
+		});
+
+		it('should coerce a counter with a string default', async () => {
+			const result = await parse({
+				argv: [],
+				schema: { options: { '-v, --verbose': { default: '3', type: 'count' } } },
+			});
+			expect(result.argv.verbose).to.equal(3);
+		});
+
+		it('should reject a counter value that is not a number', async () => {
+			await expect(
+				parse({
+					argv: [],
+					env: { VERBOSE: 'lots' },
+					schema: {
+						options: { '-v, --verbose': { env: 'VERBOSE', type: 'count' } },
+					},
+				})
+			).rejects.toThrow('Invalid count: lots');
+		});
+
+		// a counter is a flag, and `bool` -- the other flag type -- reads an empty
+		// value as false, so an environment variable that is set and says nothing is 0
+		it('should read an empty counter value as zero', async () => {
+			const result = await parse({
+				argv: [],
+				env: { VERBOSE: '' },
+				schema: { options: { '-v, --verbose': { env: 'VERBOSE', type: 'count' } } },
+			});
+			expect(result.argv.verbose).to.equal(0);
+		});
+
+		// a transform runs before coercion, so it cannot hand a counter a string either
+		it('should reject a transform that takes a counter off a number', async () => {
+			await expect(
+				parse({
+					argv: ['-v'],
+					schema: {
+						options: {
+							'-v, --verbose': { transform: async () => 'lots', type: 'count' },
+						},
+					},
+				})
+			).rejects.toThrow('Invalid count: lots');
 		});
 	});
 

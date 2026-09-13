@@ -183,8 +183,11 @@ type OptionValue<K extends string, D> = D extends { choices: readonly unknown[] 
 
 /**
  * `multiple` collects repeated uses into an array -- except on a counter, which
- * counts them instead. `processArgs()` takes the counting path before it looks at
- * `multiple` at all, so a counter is a number however it was declared.
+ * counts them instead, so a counter is a `number`.
+ *
+ * Declaring both is refused by `initOption()`, and the answer here is still
+ * `number`: validity is the parser's to report, and the types describe an invalid
+ * declaration as though it had worked.
  */
 type Collected<K extends string, D> = D extends { type: 'count' }
 	? number
