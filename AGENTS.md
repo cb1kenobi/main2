@@ -166,6 +166,17 @@ false` rethrows instead; a function replaces the handler.
   has been matched, coerce with `auto`, do not read `no-` as negation, and do
   not reach `state._`. `settings.allowUnknownOptions: false` restores the
   `Unknown option` error.
+- **A value is validated by whoever wrote it.** More than one declaration can reach
+  one destination -- a valued option and its negated twin, an option and a
+  positional argument of the same name, a nearer context's option of the same
+  destination -- and each has its own `choices`. The parser records which
+  declaration produced what is on a destination and validates only that pairing, so
+  `--cheese brie --no-cheese` is `cheese: false` rather than
+  `Invalid value "false" for option --cheese`, and a `false` the valued option
+  produced itself is still checked. The old rule -- skip a `false` when a negated
+  twin exists -- was a guess at the writer's identity from the value, and it was
+  wrong in both directions. See `test/parser/options.test.ts` and
+  `test/parser/regressions.test.ts`.
 - **The first bare label in a command name is the name; the rest are
   aliases.** `'build, b'` and `'build b'` declare `build` aliased `b`. A `@` or
   `!` prefixed label is always an alias and names the command only when there

@@ -170,12 +170,10 @@ registration order, and for a directory of command modules that is whatever the
 file system returned first.
 
 > [!NOTE]
-> Help does not exist yet. When it does, `--help` has to short-circuit before
-> the required-argument check, or `mycli --help` under a default command with
-> required arguments would report the missing argument instead of printing
-> help. Dispatch happens in one place — `dispatchDefaultCommand()` in
-> `src/parser/parse.ts` — so that is the one decision point to teach about
-> help.
+> `--help` short-circuits before the required-argument check, so `mycli --help`
+> under a default command with required arguments prints help rather than
+> reporting the missing argument. See
+> [Help wins over what is missing](#help-wins-over-what-is-missing).
 
 `default` has to be visible where the command is registered. A command that is
 only a path is not loaded to find out whether its module claims to be the
@@ -482,9 +480,18 @@ valued twin's are read first — then a default.
 
 Because `<type>` makes the option required, anything that fills the shared
 destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`
-or environment variable declared on either twin. `choices` on the valued
-option constrain the values it takes, not the `false` its twin means, so
-`--no-cheese` is always allowed.
+or environment variable declared on either twin.
+
+`choices` belong to whichever of the two wrote the value. They constrain the
+values the valued option takes, not the `false` its twin means, so `--no-cheese`
+is always allowed — including after a value has already been given:
+`--cheese brie --no-cheese` is `cheese: false`, because the flag wrote last. A
+`false` the valued option produced itself is still checked, whether it came from
+its own `default` or from `--cheese false`.
+
+The same rule holds wherever two declarations share a destination — an option and
+a positional argument of the same name — and it is why a value is validated once,
+by its writer, rather than once per declaration that can reach it.
 
 Declaring `negate: false` on the flag opts out of all of this: the `no-` is
 then part of the name, so it keeps its own `noCheese` destination and reads as

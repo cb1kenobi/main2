@@ -620,6 +620,72 @@ describe('options', () => {
 			}
 		);
 
+		it.each([
+			['valued first', { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} }],
+			['negated first', { '--no-cheese': {}, '--cheese [type]': { choices: ['brie'] } }],
+		] as Order[])(
+			'should let the flag turn off a value that was already given, %s',
+			async (_label, options) => {
+				// the flag wrote the destination last, so the `false` on it is the flag's
+				// and answers to the flag rather than to the valued twin's choices. This
+				// threw `Invalid value "false" for option --cheese` on a legal command line.
+				expect(
+					(await parse({ argv: ['--cheese', 'brie', '--no-cheese'], schema: { options } })).argv
+						.cheese
+				).to.equal(false);
+
+				// and the other way round, which always worked
+				expect(
+					(await parse({ argv: ['--no-cheese', '--cheese', 'brie'], schema: { options } })).argv
+						.cheese
+				).to.equal('brie');
+			}
+		);
+
+		it.each([
+			[
+				'valued first',
+				{ '--cheese [type]': { choices: ['brie'], default: false }, '--no-cheese': {} },
+			],
+			[
+				'negated first',
+				{ '--no-cheese': {}, '--cheese [type]': { choices: ['brie'], default: false } },
+			],
+		] as Order[])(
+			'should check a default of its own against choices even with a twin, %s',
+			async (_label, options) => {
+				// the valued twin owns the destination's default, so the `false` on it is
+				// its own and is not the flag's exemption. Having a twin used to excuse it,
+				// which made one declaration fine or an error depending on the pairing.
+				await expect(parse({ argv: [], schema: { options } })).rejects.toThrow(
+					'Invalid value "false" for option --cheese'
+				);
+			}
+		);
+
+		it('should check a value a hook wrote itself', async () => {
+			// a value that did not come through the parser has no writer to attribute it
+			// to, so every declaration that can reach the destination checks it. Only
+			// validating a value you wrote would otherwise make a hook a way around
+			// `choices`.
+			await expect(
+				parse({
+					argv: [],
+					schema: {
+						help: false,
+						options: { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} },
+						hooks: {
+							beforeParse: [
+								(state) => {
+									state.argv.cheese = 'gouda';
+								},
+							],
+						},
+					},
+				})
+			).rejects.toThrow('Invalid value "gouda" for option --cheese');
+		});
+
 		it('should let the last of two identical declarations win', async () => {
 			const result = await parse({
 				argv: ['-c', 'blue'],
