@@ -53,7 +53,7 @@ Commander and yargs. This README is the API tour.
 - [Hooks](#hooks)
 - [Help](#help)
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `paths`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `paths`, `updates`
 
 ---
 
@@ -568,6 +568,48 @@ renderHelp(state, { width: 100 }); // renders a context chain directly
 
 `HelpOptions` takes `ansi`, `gap`, `indent`, `maxLabel`, `name`, `sections`,
 and `width`.
+
+### `main2/terminal`
+
+Owns the terminal's global state: the streams, its size, the cursor, raw mode,
+and putting all of it back however the process ends.
+
+```js
+import { terminal, createTerminal } from 'main2/terminal';
+
+terminal.write('hello\n'); // never throws, even into a closed pipe
+terminal.isTTY; // whether repainting means anything
+terminal.width; // live, uncapped
+terminal.height;
+
+const off = terminal.onResize(({ width, height }) => redraw(width, height));
+
+terminal.hideCursor(); // shown again on exit, SIGINT, SIGTERM, or SIGHUP
+terminal.setRawMode(true); // left again the same way
+terminal.restore(); // or put it all back now
+```
+
+`write()` and `writeErr()` swallow the far end going away — `mycli --help |
+head -1` closes the pipe the instant `head` has its line, and an `EPIPE` with
+no listener is an uncaught exception. After that `terminal.closed` is `true`
+and writes are no-ops.
+
+`width` is deliberately **uncapped**, unlike `terminalWidth()`, which stops at
+`MAX_WIDTH`: that cap is a readability limit on generated prose, while this is
+the real screen, and cursor math needs the real number.
+
+Only one thing may repaint the bottom of the screen — a spinner still ticking
+underneath a prompt draws over it — so the live region is a lock:
+
+```js
+const claim = terminal.claimLive(() => clearWhatIDrew());
+
+claim.active; // false once something else claims it
+claim.release();
+```
+
+Nothing is installed on the process until there is something to put back, so
+importing this does not give every CLI a signal handler.
 
 ### `main2/paths`
 
