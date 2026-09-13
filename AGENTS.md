@@ -14,18 +14,28 @@ necessary, raise it rather than adding it.
 | Path                     | Contents                                             |
 | ------------------------ | ---------------------------------------------------- |
 | `src/parser/`            | The parser: commands, options, arguments, registries |
+| `src/ansi/`              | SGR styling, strip, color support detection          |
+| `src/width/`             | Display width: grapheme clusters, East Asian Width   |
+| `src/wrap/`              | Text wrapping, SGR state, terminal width             |
+| `src/help/`              | The generated help screen and its two-column layout  |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
 | `src/paths.ts`           | XDG base directories                                 |
 | `src/updates/`           | npm update check, run in a spawned worker            |
 | `src/error-handler.ts`   | Renders an error and sets the exit code              |
 | `src/error-hooks.ts`     | Fires `beforeError` hooks; carries state on an error |
+| `scripts/`               | Generators, run by hand and their output committed   |
 | `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
 | `test/parser/commander/` | Ported Commander test cases                          |
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
 
-`src/ansi/`, `src/canvas/`, `src/components/`, and `src/i18n/` are empty
-placeholders. Canvas and components are post-1.0.
+`src/canvas/`, `src/components/`, and `src/i18n/` are empty placeholders. Canvas
+and components are post-1.0.
+
+`src/width/east-asian-width.ts` is generated. Regenerate it with
+`node scripts/generate-east-asian-width.mjs <unicode-version>` and then
+`pnpm fmt`; the version is pinned in the script so re-running reproduces what is
+committed.
 
 ## Commands
 
@@ -45,6 +55,9 @@ matching it by hand.
 1.0 is the parser, a generated help screen, ANSI wrapping, and ANSI strip.
 Nothing else. Titanium CLI is the acceptance test: if it does not need a
 feature, that feature is not in 1.0.
+
+All four are in. What is left for 1.0 is static argv types, the Titanium port,
+and whatever that port turns up.
 
 ## Deliberate decisions — do not "fix" these
 
@@ -165,6 +178,40 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Help
+
+- **`--help` and a `help` command are added to the root, and only where the app
+  left room.** Options resolve across the whole context chain, so one `--help`
+  on the root answers everywhere. Nothing is added over the top of a
+  declaration: an app whose `-h` means `--host` keeps it and gets `--help`
+  without the short form, and an app that declares `--help` itself gets neither
+  the flag nor the short-circuit, because it owns what `--help` means.
+  `schema.help: false` adds nothing at all. See `test/help/wiring.test.ts`.
+- **The help flag's value never reaches `argv`.** A flag always has a value, so
+  an added `--help` would put `help: false` on every app's parsed values. The
+  option is marked `parserOwned` and is skipped by both fallback passes and by
+  the write in `processArgs()`. An app that declares `--help` itself owns the
+  value, and that one does reach `argv`.
+- **Help wins over a missing required option or argument, and nothing else.**
+  `parse()` detects the request after walking argv and before validating, so
+  `mycli build --help` answers what `build` needs instead of complaining that it
+  was not given. An _invalid_ value still throws: it failed on the way in, while
+  argv was being read, and there was never a question to answer.
+- **`--help` with no command named describes the program, not the default
+  command.** A default command is in the context chain without argv having named
+  it, and answering with its screen would hide every other command there is. The
+  chain is trimmed to the commands argv actually named -- one `ParsedCommand`
+  each, none for a default.
+- **Help sorts commands and does not sort options.** Options are registered in
+  the order the schema wrote them. Commands are registered as their
+  initialization resolves, and one with subcommands of its own resolves after
+  its siblings, so the registry's order is not the schema's and sorting is the
+  only stable thing to print.
+- **A lazily loaded command appears in help by name alone** until its module is
+  read, because its description and its `hidden` are in that module. Hiding one
+  is what the `!` name prefix is for. `help <command>` does load the module,
+  since it is describing that one command.
 
 ## Known bugs
 

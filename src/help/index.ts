@@ -2,10 +2,12 @@ import { type Ansi, ansi as defaultAnsi } from '../ansi/index.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
 import {
 	type CommandExample,
+	type HelpRenderer,
 	Internal,
 	type InternalArgument,
 	type InternalCommand,
 	type InternalOption,
+	type ParseState,
 	type Schema,
 } from '../types.js';
 import { terminalWidth, wrap } from '../wrap/index.js';
@@ -534,4 +536,38 @@ function section(title: string, items: Definition[], layout: LayoutOptions, ansi
  */
 function lines(text: string, width: number, indent = 0): string[] {
 	return wrap(text, { indent, width }).split('\n');
+}
+
+/**
+ * The help screen for a parse, with a command's own help in place of the
+ * generated one if it declares any.
+ *
+ * `Command.help` is either the text to print instead, or something that produces
+ * it. A renderer is handed the screen that would have been printed, so one that
+ * only wants to add a note does not have to rebuild the rest, and one that
+ * returns nothing at all leaves the generated screen alone.
+ *
+ * @param state - The parse state. Its `help` request says what to describe; a
+ * state without one is described as it stands.
+ * @param opts - Where the columns are and what to write with.
+ * @returns The screen.
+ */
+export async function resolveHelp(state: ParseState, opts: HelpOptions = {}): Promise<string> {
+	const target: HelpTarget = state.help
+		? { contexts: state.help.contexts, schema: state.schema }
+		: state;
+	const generated = renderHelp(target, opts);
+	const cmd = target.contexts[0]!;
+	const custom = cmd.help as string | HelpRenderer | undefined;
+
+	if (typeof custom === 'string') {
+		return custom;
+	}
+
+	if (typeof custom === 'function') {
+		const replacement = await custom({ cmd, generated, state });
+		return typeof replacement === 'string' ? replacement : generated;
+	}
+
+	return generated;
 }

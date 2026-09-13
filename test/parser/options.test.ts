@@ -466,8 +466,10 @@ describe('options', () => {
 			],
 		];
 
+		// `help: false` because the count is the point: the parser's own `--help`
+		// would be a third option and say nothing about the pairing
 		it.each(orders)('should register both options, %s', async (_label, options) => {
-			const result = await parse({ argv: ['--no-cheese'], schema: { options } });
+			const result = await parse({ argv: ['--no-cheese'], schema: { help: false, options } });
 			const { options: registry } = result.contexts[0][Internal];
 			expect(registry.size).to.equal(2);
 			expect(registry.find('--cheese')?.hint).to.equal('type');
@@ -621,7 +623,7 @@ describe('options', () => {
 		it('should let the last of two identical declarations win', async () => {
 			const result = await parse({
 				argv: ['-c', 'blue'],
-				schema: { options: { '--cheese <type>': {}, '-c, --cheese <kind>': {} } },
+				schema: { help: false, options: { '--cheese <type>': {}, '-c, --cheese <kind>': {} } },
 			});
 			const { options } = result.contexts[0][Internal];
 			expect(options.size).to.equal(1);
@@ -632,7 +634,10 @@ describe('options', () => {
 		it('should not pair a flag whose negation was suppressed', async () => {
 			const result = await parse({
 				argv: ['--cheese', 'blue'],
-				schema: { options: { '--cheese <type>': {}, '--no-cheese': { negate: false } } },
+				schema: {
+					help: false,
+					options: { '--cheese <type>': {}, '--no-cheese': { negate: false } },
+				},
 			});
 			const { options } = result.contexts[0][Internal];
 			expect(options.size).to.equal(2);

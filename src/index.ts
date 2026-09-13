@@ -63,6 +63,11 @@ export async function main2(opts: AppOptions = {}): Promise<ParseState | unknown
 			throw err;
 		}
 
+		if (state.help) {
+			await printHelp(state);
+			return state;
+		}
+
 		const { cmd } = state;
 		if (cmd?.run) {
 			log(`Executing command "${cmd.name}"`);
@@ -75,6 +80,36 @@ export async function main2(opts: AppOptions = {}): Promise<ParseState | unknown
 		// died with, which is where the matched command comes from
 		return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
 	}
+}
+
+/**
+ * Writes the help screen and sets the exit code.
+ *
+ * The help module is imported here rather than at the top, the same way the
+ * parser is: a bin script that never prints help should not pay to load the
+ * renderer, the wrapper, and the width tables to find that out.
+ *
+ * @param state - The parse state, carrying the request.
+ */
+async function printHelp(state: ParseState): Promise<void> {
+	const { resolveHelp } = await import('./help/index.js');
+	log(`Printing help for "${state.help?.contexts[0]?.name}"`);
+	process.stdout.write(`${await resolveHelp(state)}\n`);
+	process.exitCode = exitCode(state.settings.helpExitCode);
+}
+
+/**
+ * The exit code to set after printing help.
+ *
+ * Zero unless the app said otherwise: being asked what a command does and
+ * answering is not a failure. A value that is not an exit code is not an
+ * instruction, and assigning it would turn printing help into a crash.
+ *
+ * @param code - The configured code.
+ * @returns The code to set.
+ */
+function exitCode(code: number | undefined): number {
+	return Number.isInteger(code) && code! >= 0 && code! < 256 ? code! : 0;
 }
 
 /**

@@ -11,6 +11,10 @@ const ESC = String.fromCharCode(0x1b);
 /**
  * Renders help for whatever context the argv lands in, at a fixed width.
  *
+ * `help: false` so that these stay about the renderer: the `--help` flag and the
+ * `help` command the parser adds are M2-28's, and asserting them in every
+ * expectation here would say nothing about the layout.
+ *
  * A parse that throws still gets help rendered, off the state the error carries.
  * That is the whole reason `parse()` stashes it: the errors that most need a
  * usage line -- a missing required option, an unexpected argument -- are the ones
@@ -20,7 +24,7 @@ const ESC = String.fromCharCode(0x1b);
 async function help(schema: Schema, argv: string[] = [], width = 72) {
 	let state;
 	try {
-		state = await parse({ argv, schema });
+		state = await parse({ argv, schema: { help: false, ...schema } });
 	} catch (err) {
 		state = stateFromError(err);
 	}
@@ -57,7 +61,7 @@ describe('the usage line', () => {
 
 	it('should be overridable', async () => {
 		const text = await help({ name: 'mycli' });
-		const state = await parse({ argv: [], schema: { name: 'mycli' } });
+		const state = await parse({ argv: [], schema: { help: false, name: 'mycli' } });
 		expect(renderHelp(state, { name: 'other' }).split('\n')[0]).toBe('Usage: other');
 		expect(text).toBeTruthy();
 	});
@@ -75,6 +79,7 @@ describe('the usage line', () => {
 	// naming one is optional
 	it('should make the command optional when one of them is the default', async () => {
 		const schema: Schema = {
+			help: false,
 			name: 'mycli',
 			commands: { build: {}, serve: { default: true, run: () => {} } },
 		};
