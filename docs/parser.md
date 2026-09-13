@@ -170,12 +170,10 @@ registration order, and for a directory of command modules that is whatever the
 file system returned first.
 
 > [!NOTE]
-> Help does not exist yet. When it does, `--help` has to short-circuit before
-> the required-argument check, or `mycli --help` under a default command with
-> required arguments would report the missing argument instead of printing
-> help. Dispatch happens in one place — `dispatchDefaultCommand()` in
-> `src/parser/parse.ts` — so that is the one decision point to teach about
-> help.
+> `--help` short-circuits before the required-argument check, so `mycli --help`
+> under a default command with required arguments prints help rather than
+> reporting the missing argument. See
+> [Help wins over what is missing](#help-wins-over-what-is-missing).
 
 `default` has to be visible where the command is registered. A command that is
 only a path is not loaded to find out whether its module claims to be the

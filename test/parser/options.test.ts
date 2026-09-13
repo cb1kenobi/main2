@@ -663,6 +663,29 @@ describe('options', () => {
 			}
 		);
 
+		it('should check a value a hook wrote itself', async () => {
+			// a value that did not come through the parser has no writer to attribute it
+			// to, so every declaration that can reach the destination checks it. Only
+			// validating a value you wrote would otherwise make a hook a way around
+			// `choices`.
+			await expect(
+				parse({
+					argv: [],
+					schema: {
+						help: false,
+						options: { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} },
+						hooks: {
+							beforeParse: [
+								(state) => {
+									state.argv.cheese = 'gouda';
+								},
+							],
+						},
+					},
+				})
+			).rejects.toThrow('Invalid value "gouda" for option --cheese');
+		});
+
 		it('should let the last of two identical declarations win', async () => {
 			const result = await parse({
 				argv: ['-c', 'blue'],

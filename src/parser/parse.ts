@@ -338,14 +338,20 @@ function produced(state: ParseState, dest: string, by: InternalOption | Internal
 }
 
 /**
- * Whether a declaration is the one that produced what is on its destination now.
+ * Whether a value is this declaration's to validate.
+ *
+ * Its own, or nobody's. Nothing recorded means the value did not come through the
+ * parser at all -- a hook wrote `state.argv` itself -- and then every declaration
+ * that can reach the destination checks it, which is what happened before writers
+ * were tracked. Skipping it instead would make a hook a way around `choices`.
  *
  * @param state - The parse state.
  * @param it - The option or argument asking.
- * @returns `true` when the value is this declaration's to validate.
+ * @returns `true` when this declaration should validate what is on its destination.
  */
-function isProducer(state: ParseState, it: InternalOption | InternalArgument): boolean {
-	return producers.get(state)?.get(it[Internal].dest) === it;
+function validates(state: ParseState, it: InternalOption | InternalArgument): boolean {
+	const writer = producers.get(state)?.get(it[Internal].dest);
+	return writer === undefined || writer === it;
 }
 
 /**
@@ -822,7 +828,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 	// only what this argument produced: an option can share the destination, and its
 	// value answers to its own `choices` rather than to these
 	for (const arg of internal.args) {
-		if (isProducer(state, arg)) {
+		if (validates(state, arg)) {
 			assertChoices(arg.choices, resolved(state, arg[Internal].dest), `argument <${arg.name}>`);
 		}
 	}
@@ -867,7 +873,7 @@ export async function processOptions(state: ParseState): Promise<void> {
 		// writer -- a negated twin, a positional argument of the same name, a
 		// nearer context's option of the same destination -- and each of them has
 		// its own `choices`, so a value belongs to whichever one wrote it
-		if (isProducer(state, opt)) {
+		if (validates(state, opt)) {
 			assertChoices(choices, value, `option ${label}`);
 		}
 	}
