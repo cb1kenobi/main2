@@ -338,20 +338,56 @@ function produced(state: ParseState, dest: string, by: InternalOption | Internal
 }
 
 /**
+ * Every declaration that can validate something in this parse: the options of the
+ * whole chain, since that is where options resolve from, and the arguments of the
+ * innermost context, since those are the only ones read.
+ *
+ * It is also exactly the set of destinations the schema describes, which is what an
+ * undeclared option may not write -- one set, so the two cannot drift.
+ *
+ * @param state - The parse state.
+ * @returns The declarations.
+ */
+function liveDeclarations(state: ParseState): Set<InternalOption | InternalArgument> {
+	const live = new Set<InternalOption | InternalArgument>();
+
+	for (const context of state.contexts) {
+		for (const opt of context[Internal].options.values()) {
+			live.add(opt);
+		}
+	}
+
+	for (const arg of state.contexts[0][Internal].args) {
+		live.add(arg);
+	}
+
+	return live;
+}
+
+/**
  * Whether a value is this declaration's to validate.
  *
- * Its own, or nobody's. Nothing recorded means the value did not come through the
- * parser at all -- a hook wrote `state.argv` itself -- and then every declaration
- * that can reach the destination checks it, which is what happened before writers
- * were tracked. Skipping it instead would make a hook a way around `choices`.
+ * Its own, or nobody's -- where nobody covers two things. Nothing recorded means
+ * the value did not come through the parser at all: a hook wrote `state.argv`
+ * itself, and then every declaration that can reach the destination checks it,
+ * which is what happened before writers were tracked. A writer that is recorded but
+ * is no longer live means the same thing, and is how a hook replacing an option
+ * after its value was read left a value nobody validated: the writer on record was
+ * the object the replacement evicted, so every live declaration read it as somebody
+ * else's. Either way, skipping is what would make a hook a way around `choices`.
  *
  * @param state - The parse state.
  * @param it - The option or argument asking.
+ * @param live - The declarations this parse validates with.
  * @returns `true` when this declaration should validate what is on its destination.
  */
-function validates(state: ParseState, it: InternalOption | InternalArgument): boolean {
+function validates(
+	state: ParseState,
+	it: InternalOption | InternalArgument,
+	live: ReadonlySet<InternalOption | InternalArgument>
+): boolean {
 	const writer = producers.get(state)?.get(it[Internal].dest);
-	return writer === undefined || writer === it;
+	return writer === undefined || writer === it || !live.has(writer);
 }
 
 /**
@@ -720,22 +756,10 @@ export async function processArgs(state: ParseState): Promise<void> {
 	const ctx = state.contexts[0];
 	const internal = ctx[Internal];
 
-	// every destination something active describes: an undeclared option that lands
-	// on one of these would be writing over a value the schema described.
-	//
-	// Options come from the whole chain, because that is where they resolve from.
-	// Arguments come from this context alone -- an ancestor's arguments are not read
-	// once a subcommand is dispatched, so they receive nothing and own nothing, and
-	// counting them would drop a value nothing else was going to fill.
-	const declared = new Set<string>();
-	for (const context of state.contexts) {
-		for (const opt of context[Internal].options.values()) {
-			declared.add(opt[Internal].dest);
-		}
-	}
-	for (const arg of internal.args) {
-		declared.add(arg[Internal].dest);
-	}
+	// an undeclared option may not write a destination the schema describes, and
+	// what describes one is what could validate it
+	const live = liveDeclarations(state);
+	const declared = new Set([...live].map((it) => it[Internal].dest));
 
 	let argIdx = 0;
 
@@ -852,7 +876,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 	// only what this argument produced: an option can share the destination, and its
 	// value answers to its own `choices` rather than to these
 	for (const arg of internal.args) {
-		if (validates(state, arg)) {
+		if (validates(state, arg, live)) {
 			assertChoices(arg.choices, resolved(state, arg[Internal].dest), `argument <${arg.name}>`);
 		}
 	}
@@ -861,6 +885,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 export async function processOptions(state: ParseState): Promise<void> {
 	const missingOptions: string[] = [];
 	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
+	const live = liveDeclarations(state);
 
 	// every environment fallback is applied before any default, and both before
 	// anything is validated, so that a destination two options share — a valued
@@ -897,7 +922,7 @@ export async function processOptions(state: ParseState): Promise<void> {
 		// writer -- a negated twin, a positional argument of the same name, a
 		// nearer context's option of the same destination -- and each of them has
 		// its own `choices`, so a value belongs to whichever one wrote it
-		if (validates(state, opt)) {
+		if (validates(state, opt, live)) {
 			assertChoices(choices, value, `option ${label}`);
 		}
 	}
