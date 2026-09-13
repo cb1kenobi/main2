@@ -1321,6 +1321,20 @@ describe('options', () => {
 			});
 			expect(result.argv.verbose).to.equal(0);
 		});
+
+		// a transform runs before coercion, so it cannot hand a counter a string either
+		it('should reject a transform that takes a counter off a number', async () => {
+			await expect(
+				parse({
+					argv: ['-v'],
+					schema: {
+						options: {
+							'-v, --verbose': { transform: async () => 'lots', type: 'count' },
+						},
+					},
+				})
+			).rejects.toThrow('Invalid count: lots');
+		});
 	});
 
 	describe('aliases', () => {
