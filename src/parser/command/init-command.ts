@@ -239,6 +239,16 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	) as InternalCommand;
 
+	// a command's `beforeError` hooks are not fired from here, but a list that
+	// is not a list of functions has to be rejected while the schema is being
+	// built: the error path is the one place a silent no-op does the most harm
+	if (command.hooks?.beforeError !== undefined) {
+		const beforeError = command.hooks.beforeError;
+		if (!Array.isArray(beforeError) || beforeError.some((h) => typeof h !== 'function')) {
+			throw new TypeError('Expected command beforeError hooks to be an array of functions');
+		}
+	}
+
 	if (command.hooks?.init !== undefined) {
 		if (!Array.isArray(command.hooks.init)) {
 			throw new TypeError('Expected command init hooks to be an array');

@@ -204,7 +204,9 @@ part is interpreted by shape:
 | `<hint>` | Takes a value, and the **option is required**  |
 | `[hint]` | Takes a value                                  |
 
-An option with no hint and no `choices` is a **flag**.
+An option with no hint and no `choices` is a **flag**. A hint ending in `...`
+is rejected — only a positional argument can be variadic. See
+[Repeatable options](#repeatable-options).
 
 > [!IMPORTANT]
 > `<hint>` marks the _option_ as required, not just its value. This diverges
@@ -266,6 +268,46 @@ reaches step 3, or that is handed an explicitly empty value, throws instead:
 | `--name --declared`   | throws                  | `''`                    |
 | `--name --undeclared` | `'--undeclared'`        | `'--undeclared'`        |
 
+### Repeatable options
+
+An option takes **one** value per use. `multiple` makes it repeatable, and each
+use appends to an array:
+
+```js
+parse({
+	argv: ['--tag', 'a', '--tag', 'b'],
+	schema: { options: { '--tag <t>': { multiple: true } } },
+});
+// { tag: ['a', 'b'] }
+```
+
+An option never consumes consecutive values, so `--tag a b` is `tag: ['a']`
+with `b` left as a positional. Consuming consecutive values is what a variadic
+**argument** is for:
+
+```js
+parse({ argv: ['a', 'b', 'c'], schema: { args: ['<files...>'] } });
+// { files: ['a', 'b', 'c'] }
+```
+
+This divides the job cleanly: repetition is unambiguous, while a greedy option
+competes with the positional arguments for every token after it — which is why
+Commander needs `--` and yargs needs `greedy-arrays=false` to get back out. It
+is also the same rule as [how an option gets its value](#how-an-option-gets-its-value):
+one token, then stop.
+
+Because of that, a `...` hint on an option is a promise the parser will not
+keep, so it is refused at schema-build time rather than accepted as decoration:
+
+```js
+parse({ schema: { options: { '--tag <tags...>': { multiple: true } } } });
+// TypeError: Option "tag" hint cannot be variadic; use `multiple: true` to
+// collect repeated uses into an array
+```
+
+An environment fallback or a scalar `default` on a `multiple` option is wrapped
+in an array, so the value's shape does not depend on where it came from.
+
 ### Undeclared options
 
 An option-like token that nothing declared still produces a value, so a CLI can
@@ -312,6 +354,49 @@ registered, and the one actually typed decides the value:
 | `--color=false`    | `false` |
 | `--no-color=false` | `true`  |
 
+Every other name a negated flag answers to turns the destination off, the same
+as `--no-color` does. Given `-C, --no-color`, `-C` is `color: false`. Only the
+positive spelling the flag registers for itself — `--color` — turns it on.
+
+#### Declaring both a value and its negation
+
+A valued option and a negated flag of the same name may be declared together.
+They are two options sharing one destination: the valued one sets it and the
+flag turns it off. Declaration order does not matter.
+
+```js
+{
+	options: {
+		'--cheese <type>': 'cheese flavour',
+		'--no-cheese': 'hold the cheese'
+	}
+}
+```
+
+| Input            | Result                           |
+| ---------------- | -------------------------------- |
+| `--cheese gouda` | `cheese: 'gouda'`                |
+| `--no-cheese`    | `cheese: false`                  |
+| `--cheese`       | throws, `<type>` demands a value |
+
+The valued option owns the destination's default, so the `true` a lone
+negated flag would imply is dropped: the pair above starts out undefined, and
+`--cheese [type]` with a `default` of `'mozzarella'` starts out
+`'mozzarella'`. A `default` declared on the flag itself is still honored when
+the valued twin declares none. Precedence over the shared destination is the
+usual one: argv, then an environment variable declared on either twin — the
+valued twin's are read first — then a default.
+
+Because `<type>` makes the option required, anything that fills the shared
+destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`
+or environment variable declared on either twin. `choices` on the valued
+option constrain the values it takes, not the `false` its twin means, so
+`--no-cheese` is always allowed.
+
+Declaring `negate: false` on the flag opts out of all of this: the `no-` is
+then part of the name, so it keeps its own `noCheese` destination and reads as
+present rather than inverted.
+
 ### Short option groups
 
 Groups are expanded against the schema, not by shape, because whether a
@@ -349,7 +434,7 @@ retried once more contexts are known.
 | Type     | Accepts                                      | Produces  |
 | -------- | -------------------------------------------- | --------- |
 | `string` | anything                                     | `string`  |
-| `bool`   | anything; `'false'` and `''` are false       | `boolean` |
+| `bool`   | `true`/`t`/`yes`/`y`/`on`/`1` and negations  | `boolean` |
 | `yesno`  | `y`, `yes`, `n`, `no` (case-insensitive)     | `boolean` |
 | `int`    | `-?\d+` or `0x…`                             | `number`  |
 | `number` | anything `Number()` accepts                  | `number`  |
@@ -362,11 +447,15 @@ retried once more contexts are known.
 it turns `007` into `7` — and because it makes static types unusable.
 
 Flags accept only `bool`, `count`, `yesno`, and `auto`; the last two are
-normalized to `bool`. `count` is rejected on non-flags.
+normalized to `bool`. `count` is rejected on non-flags. Normalizing `yesno`
+to `bool` loses nothing, since `bool` accepts `yes` and `no` too.
 
-> [!NOTE]
-> `bool` treats any non-empty string other than `'false'` as true, so
-> `--flag=0` is `true`.
+`bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
+`f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.
+Anything else throws `Invalid boolean: "…"` rather than guessing — `0` and
+`no` are far more likely to mean false than to be a value someone wants
+coerced to true, and a typo such as `--flag=ture` should not silently read
+as true.
 
 ## Value precedence
 
@@ -402,7 +491,154 @@ values — see [Undeclared options](#undeclared-options).
 | `allowUnexpectedArguments` | `false` | Permit undeclared positional arguments                        |
 | `allowUnknownOptions`      | `true`  | Collect undeclared options instead of throwing                |
 | `assertCwd`                | `true`  | Fail early if the working directory is gone                   |
+| `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself   |
 | `helpExitCode`             | —       | Exit code after printing help _(help is not implemented yet)_ |
+
+## Errors
+
+`parse()` throws. `main2()` catches — from the working directory check, from
+`parse()`, and from the matched command's `run()`, synchronously or as a
+rejected promise — and hands the thrown value to `errorHandler()`, the single
+place an error becomes output:
+
+```
+$ mycli build
+Error: Missing required options: --target
+$ echo $?
+1
+```
+
+The message and nothing else. Parser errors are plain `Error`s whose messages
+are written for the person running the CLI, so a stack trace would only bury
+them. The whole error is logged through the debug logger, so
+`DEBUG=main2:error` brings the stack back when you want it.
+
+`errorHandler()` sets `process.exitCode` rather than calling `process.exit()`,
+so buffered stdout still flushes. The code is `1`, unless the thrown value
+carries an `exitCode` that is an integer from 0 to 255 — an explicit `0`
+included, which is how a future `--help` short-circuit will exit cleanly.
+Anything that is not an `Error` renders too: a thrown string, an object with a
+`message`, even `null`.
+
+After an error is handled, `main2()` resolves with `undefined`. It does not
+reject: its caller is a bin script, and an unhandled rejection printing a
+stack is exactly what the handler exists to avoid.
+
+### The `beforeError` hook
+
+Every error passes through the `beforeError` hooks on its way out, whatever
+threw it: a missing required option, an invalid choice, a value that will not
+coerce, an unknown option, a command module that will not load, a `transform`
+or a `beforeParse` hook of your own that threw, an invalid schema, and an error
+from the command's `run()`. They fire inside `parse()` for everything `parse()`
+throws — so calling `parse()` without `main2()` gets the same error path — and
+inside `main2()`'s catch for everything else. Either way they fire once.
+
+They run before the error is rendered, before a custom `errorHandler`, and
+before the `errorHandler: false` opt-out, so the error that leaves is the error
+the hooks made of it, whichever way it goes out.
+
+**A hook may observe the error, mutate it, or replace it. It may never suppress
+it.**
+
+| The hook        | Effect                                                                                |
+| --------------- | ------------------------------------------------------------------------------------- |
+| returns nothing | The error is unchanged — this is the observing case                                   |
+| returns a value | That value is the error from there on, for the hooks after it too                     |
+| mutates `err`   | The change sticks; it is the same object                                              |
+| throws          | Logged under `DEBUG=main2:error` and skipped; the error it was handed stays in flight |
+
+Suppression is deliberately not on that list. It would have to mean something
+different at every throw site — what does `parse()` return when the argv it was
+given is unusable, does the command still run, what is the exit code — and a
+rule that cannot hold everywhere is worse than no rule. An error that has been
+raised gets reported. What a hook gets to change is _which_ error that is:
+
+```js
+await main2({
+	schema: {
+		hooks: {
+			beforeError: [
+				(err, state) => {
+					if (err?.code === 'ENOENT') {
+						return new Error(`${state?.cmd?.name ?? 'cli'}: no such file or directory`);
+					}
+				},
+			],
+		},
+	},
+});
+```
+
+A replacement carries the parse state along with it, under the same
+`ErrorState` symbol, so swapping the error out does not cost the renderer its
+usage line. That is a reason to replace an error with an `Error`: a string, or
+anything else that cannot carry a property, arrives at the handler with no
+state and so with no usage line.
+
+Commands declare `beforeError` hooks too. They fire innermost command first,
+then outward along the context chain, and the schema's own hooks last — the
+direction the error itself travels — and each hook is handed whatever the hook
+before it made of the error. A hook listed twice, which is what the schema's
+hooks would be if the context chain were walked naively, still fires once.
+
+Both arguments are as wide as the truth: anything at all can be thrown, and an
+error raised before parsing produced a state arrives without one.
+
+```ts
+type BeforeErrorHook = (err: unknown, state: ParseState | undefined) => unknown;
+```
+
+### Handling errors yourself
+
+| `settings.errorHandler` | Effect                                                 |
+| ----------------------- | ------------------------------------------------------ |
+| unset                   | Built-in handler renders and sets `process.exitCode`   |
+| `false`                 | `main2()` rethrows; nothing is written, no code is set |
+| a function              | Replaces the handler; it owns output and the exit code |
+
+A custom handler that throws rejects `main2()`. That is a bug in the handler,
+and swallowing it would leave nothing at all reporting the original error.
+
+```js
+await main2({
+	schema,
+	settings: {
+		errorHandler(err, { state }) {
+			console.error(`${state?.cmd?.name ?? 'cli'}: ${err.message}`);
+			process.exitCode = 2;
+		},
+	},
+});
+```
+
+### Rendering more than the message
+
+`errorHandler(err, opts)` takes a `render` function — this is the seam the
+Phase 3 help and ANSI work plugs into, once there is a usage line to print and
+color to print it in:
+
+```js
+import { errorHandler, renderError } from 'main2/error-handler';
+
+errorHandler(err, {
+	render: (err, { state }) => `${renderError(err)}\n\n${usageFor(state?.cmd)}`,
+});
+```
+
+The renderer is handed the `ParseState` on `ctx` whenever there is one, which
+is where the matched command — and therefore the usage line — comes from. That
+includes a parse error: the errors that most want a usage line are exactly the
+ones that stop `parse()` from returning, so `parse()` stashes its in-flight
+state on the error it throws, under the exported `ErrorState` symbol and
+non-enumerably, and `main2()` reads it back. Only an error thrown before there
+is a state at all — invalid parse options, an invalid schema — arrives without
+one. A renderer that throws falls back to the default one,
+so a broken renderer cannot swallow the error it was given. `opts.stderr`
+redirects the output, which is mostly there for tests. A `write` that throws
+is swallowed — rendering an error must not raise a second, worse one — but an
+asynchronous `EPIPE` still arrives as an `error` event on the stream, and
+handling that belongs to the terminal wrapper that Phase 3 brings back.
 
 ## Differences from Commander and yargs
 
@@ -423,6 +659,7 @@ Commander, these are the ones that will bite:
 | String `default`                | used as-is                       | coerced to the declared type             |
 | Option format strictness        | one short, one long              | extras become aliases; bare word allowed |
 | Repeatable option               | `<v...>` eats consecutive values | `multiple` collects repeated uses        |
+| `...` in an option hint         | makes the option variadic        | rejected; only arguments are variadic    |
 | `-p=value`                      | value is `=value`                | value is `value`                         |
 | `-0`                            | negative zero                    | undeclared short option `0`              |
 
@@ -445,18 +682,19 @@ The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
 
 Schema-level hooks are arrays of functions on `schema.hooks`:
 
-| Hook          | When                                           |
-| ------------- | ---------------------------------------------- |
-| `beforeParse` | Before argv is walked                          |
-| `afterParse`  | After argv is walked                           |
-| `beforeError` | **Declared but never fired — not implemented** |
+| Hook          | When                                                |
+| ------------- | --------------------------------------------------- |
+| `beforeParse` | Before argv is walked                               |
+| `afterParse`  | After argv is walked                                |
+| `beforeError` | On the way out of any error — see [Errors](#errors) |
 
 Command-level hooks live on `command.hooks`:
 
-| Hook    | When                                       |
-| ------- | ------------------------------------------ |
-| `init`  | When the command is initialized            |
-| `parse` | When the command is matched during parsing |
+| Hook          | When                                                       |
+| ------------- | ---------------------------------------------------------- |
+| `init`        | When the command is initialized                            |
+| `parse`       | When the command is matched during parsing                 |
+| `beforeError` | On the way out of any error, before the schema's own hooks |
 
 ## Parse state
 

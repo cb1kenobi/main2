@@ -1,17 +1,26 @@
 import { CommandRegistry } from './parser/command/command-registry.js';
 import { OptionRegistry } from './parser/option/option-registry.js';
-import { Terminal } from './terminal.js';
 
 export type AppOptions = {
 	argv?: string[];
 	schema?: Schema;
 	settings?: Settings;
-	terminal?: Terminal;
 };
 
 export type Callback = (schema: Schema) => Promise<string>;
 
 export const Internal: unique symbol = Symbol();
+
+/**
+ * The key `parse()` stashes its in-flight `ParseState` under on any error it
+ * throws once that state exists.
+ *
+ * The errors that most need a usage line -- a missing required option, an
+ * unexpected argument -- are the ones that stop `parse()` from ever returning,
+ * so the error is the only way the matched command gets back out. A symbol,
+ * and non-enumerable, so nothing inspecting the error ever sees it.
+ */
+export const ErrorState: unique symbol = Symbol('main2.errorState');
 
 export enum InternalState {
 	OK = 1,
@@ -70,6 +79,7 @@ export interface Command {
 	help?: string | Callback;
 	hidden?: boolean;
 	hooks?: {
+		beforeError?: BeforeErrorHook[];
 		init?: CommandHook[];
 		parse?: CommandHook[];
 	};
@@ -137,10 +147,16 @@ export interface InternalOption extends Option {
 export interface InternalOptionBase extends InternalBase {
 	dest: string;
 	envs: Set<string>;
+	/** The parser supplied the default, the declaration did not. */
+	impliedDefault: boolean;
 	isFlag: boolean;
 	label: string;
 	long: Set<string>;
+	/** The negated flag declared alongside this option, sharing its destination. */
+	negatedTwin?: InternalOption;
 	short: Set<string>;
+	/** Another option owns the default for the destination they share. */
+	skipDefault: boolean;
 }
 
 export interface ParseOptions {
@@ -220,13 +236,38 @@ export interface Schema {
 	hooks?: {
 		beforeParse?: SchemaHook[];
 		afterParse?: SchemaHook[];
+		/**
+		 * Fires on the way out of any error. Commands in the context chain
+		 * declare their own, and those run first; see `BeforeErrorHook`.
+		 */
 		beforeError?: BeforeErrorHook[];
 	};
 	name?: string;
 	options?: Record<string, string | Option | undefined | null>;
 }
 
-export type BeforeErrorHook = (error: Error, state: ParseState) => Promise<void>;
+/**
+ * Fires for every error on its way out of `parse()` or `main2()`, before the
+ * error is rendered, handed to a custom handler, or rethrown.
+ *
+ * A hook may observe the error, mutate it, or return a replacement -- it may
+ * never suppress it. Returning `undefined`, which is what a hook that only
+ * looks returns, keeps the error as it is; returning anything else makes that
+ * value the error from there on. A hook that throws is logged under
+ * `DEBUG=main2:error` and skipped, leaving the error it was given in flight.
+ *
+ * Neither argument can be narrower than this: anything at all can be thrown,
+ * and an error raised before there was a parse state -- an invalid schema, an
+ * option format that will not parse -- arrives without one.
+ *
+ * @param err - The thrown value.
+ * @param state - The parse state, when parsing got far enough to produce one.
+ * @returns A replacement error, or `undefined` to keep the current one.
+ */
+export type BeforeErrorHook = (
+	err: unknown,
+	state: ParseState | undefined
+) => unknown | Promise<unknown>;
 
 export type SchemaHook =
 	| (() => Promise<void> | void)
@@ -237,5 +278,45 @@ export interface Settings {
 	allowUnexpectedArguments?: boolean;
 	allowUnknownOptions?: boolean;
 	assertCwd?: boolean;
+	/**
+	 * How `main2()` deals with an error thrown by `parse()` or by the matched
+	 * command's `run()`.
+	 *
+	 * Unset, the built-in `errorHandler()` renders the message to stderr, sets
+	 * `process.exitCode`, and `main2()` resolves with `undefined`. Set it to
+	 * `false` to have `main2()` rethrow instead and handle the error yourself,
+	 * or to a function to replace the built-in handler entirely.
+	 */
+	errorHandler?: ErrorHandler | false;
 	helpExitCode?: number;
+}
+
+/**
+ * What the error path knows beyond the error itself. Phase 3's help rendering
+ * reads the matched command off `state` to print the relevant usage line.
+ */
+export interface ErrorContext {
+	/** The parse state, when parsing got far enough to produce one. */
+	state?: ParseState;
+}
+
+/**
+ * Turns a thrown value into the text written to stderr. Replacing this is how
+ * richer rendering -- usage lines, ANSI color -- plugs in.
+ */
+export type ErrorRenderer = (err: unknown, ctx: ErrorContext) => string;
+
+/**
+ * A complete replacement for the built-in error handler, set via
+ * `Settings.errorHandler`. It owns the output and the exit code. A handler
+ * that throws rejects `main2()` -- that is a bug in the handler, and hiding
+ * it would leave nothing at all reporting the original error.
+ */
+export type ErrorHandler = (err: unknown, ctx: ErrorContext) => Promise<void> | void;
+
+export interface ErrorHandlerOptions extends ErrorContext {
+	/** Replaces the default renderer. */
+	render?: ErrorRenderer;
+	/** Where the rendered error is written. Defaults to `process.stderr`. */
+	stderr?: NodeJS.WritableStream;
 }
