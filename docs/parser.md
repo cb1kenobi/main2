@@ -787,6 +787,10 @@ Handing the hook the state is the point of it being a function rather than a lis
 on the declaration. `ti build --help` and `ti build --platform ios --help` can
 describe different things, and which is a decision for the command.
 
+A title used twice is one section rather than two headings saying the same thing,
+so two platforms that share one add to it. `Global` is not available as a title or
+a group, because help writes `Global options` itself.
+
 Sections are listed after the command's own options and groups, and before what
 it inherited, in the order they were added. Only the command being described is
 asked: an ancestor's sections would appear under a command that has nothing to do

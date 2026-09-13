@@ -18,8 +18,26 @@ export function initArgs(
 	decls: (string | Argument | InternalArgument)[],
 	where: string
 ): InternalArgument[] {
-	const args = decls.map((decl) => initArg(decl));
+	return normalizeArgs(
+		decls.map((decl) => initArg(decl)),
+		where
+	);
+}
 
+/**
+ * Applies the two list-wide rules to a list that is already built.
+ *
+ * Separate from `initArgs()` because a list can be assembled in more than one
+ * step -- a help section merged with another of the same title -- and the rules
+ * are about the list, so they have to be applied to the whole of it rather than
+ * to each piece. Both are idempotent, so re-running them on a list that has
+ * already been through them changes nothing.
+ *
+ * @param args - The arguments, in order.
+ * @param where - What is being built, for the error message.
+ * @returns The same list.
+ */
+export function normalizeArgs(args: InternalArgument[], where: string): InternalArgument[] {
 	// a variadic argument takes every remaining value, so anything declared after
 	// it could never be given one. this runs before the promotion below so a
 	// rejected list is not left half promoted.

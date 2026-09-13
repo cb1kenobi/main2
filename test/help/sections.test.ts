@@ -102,6 +102,45 @@ describe('Option.group', () => {
 		expect(headings(await help(only))).toEqual(['Advanced options']);
 	});
 
+	// help writes "Global options" itself, so two headings of one name on a screen
+	// would describe options in different scopes
+	it('should refuse a group named Global', async () => {
+		for (const group of ['Global', 'global', '  GLOBAL  ']) {
+			await expect(
+				parse({ argv: [], schema: { name: 'mycli', options: { '--a': { group } } } })
+			).rejects.toThrow('Expected option "a" group not to be');
+		}
+	});
+
+	// validated at init, and checked again at render because `group` stays
+	// editable: no heading is better than a broken screen
+	it('should ignore a group mutated into something that cannot be a heading', async () => {
+		const schema: Schema = {
+			help: false,
+			name: 'mycli',
+			options: { '--a': { desc: 'A', group: 'Extra' } },
+		};
+		const state = await parse({ argv: [], schema });
+		state.contexts[0][Internal].options.find('--a')!.group = 'Broken\nGlobal options';
+		const text = await resolveHelp(state, { width: 72 });
+		expect(sectionOf(text, 'Options')).toEqual(['  --a  A']);
+		expect(headings(text)).toEqual(['Options']);
+	});
+
+	// being hidden is about whether help lists it, not about whether it resolves
+	it('should shadow an inherited option from behind a hidden one', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			options: { '--mode [name]': 'Root mode' },
+			commands: {
+				build: { options: { '--mode [name]': { desc: 'Build mode', hidden: true } } },
+			},
+		};
+		const text = await help(schema, ['build']);
+		expect(text).not.toContain('Build mode');
+		expect(sectionOf(text, 'Global options')).toEqual([]);
+	});
+
 	// a group becomes a heading, so a bad one is rejected while the schema is being
 	// built rather than when somebody asks for help
 	it('should reject a group that is not a name', async () => {
@@ -504,8 +543,49 @@ describe('the help hook', () => {
 		expect(promoted.list[0]?.args.map((arg) => arg.required)).toEqual([true, true]);
 	});
 
+	// the rules are about the list, so merging has to apply them to the whole of it
+	it('should hold a merged argument list to the same rules', async () => {
+		const variadic = createSections();
+		await variadic.add({ args: ['[files...]'], title: 'Extra' });
+		await expect(variadic.add({ args: ['<out>'], title: 'Extra' })).rejects.toThrow(
+			'Only the last argument can be variadic'
+		);
+
+		const promoting = createSections();
+		await promoting.add({ args: ['[a]'], title: 'Extra' });
+		await promoting.add({ args: ['<b>'], title: 'Extra' });
+		expect(promoting.list[0]?.args.map((arg) => arg.required)).toEqual([true, true]);
+	});
+
+	// nothing is kept until everything validated
+	it('should leave a section alone when adding to it throws', async () => {
+		const sections = createSections();
+		await sections.add({ args: ['[a]'], options: { '--a': 'A' }, title: 'Extra' });
+		await expect(
+			sections.add({ args: ['[b]'], options: 'nope' as never, title: 'Extra' })
+		).rejects.toThrow('Expected help section "Extra" options to be an object');
+
+		expect(sections.list).toHaveLength(1);
+		expect(sections.list[0]?.args.map((arg) => arg.name)).toEqual(['a']);
+		expect(sections.list[0]?.options.size).toBe(1);
+	});
+
+	it('should pair a negated twin that arrived in a later call', async () => {
+		const sections = createSections();
+		await sections.add({ options: { '--cheese [type]': 'Add cheese' }, title: 'Extra' });
+		await sections.add({ options: { '--no-cheese': undefined }, title: 'Extra' });
+		expect(sections.list[0]?.options.find('--cheese')?.[Internal].negatedTwin).toBeTruthy();
+	});
+
+	it('should refuse a section named Global', async () => {
+		const sections = createSections();
+		await expect(sections.add({ title: 'Global' })).rejects.toThrow(
+			'Expected help section title not to be "Global"'
+		);
+	});
+
 	// a hook that adds to the list it is being read from would extend the run it
-	// is already in
+	// is already in, and would reach the caller's declaration while doing it
 	it('should fire the hooks the command had when help was asked for', async () => {
 		const late = vi.fn();
 		const growing: Schema = {
@@ -525,6 +605,11 @@ describe('the help hook', () => {
 		};
 		await help(growing, ['build']);
 		expect(late).not.toHaveBeenCalled();
+
+		// and the caller's own declaration is not where it landed
+		expect(
+			(growing.commands as Record<string, { hooks: { help: unknown[] } }>).build.hooks.help
+		).toHaveLength(1);
 	});
 });
 
@@ -593,6 +678,51 @@ describe('bad sections', () => {
 			},
 		};
 		const state = await parse({ argv: ['notes', '--help'], schema });
+		expect(await resolveHelp(state, { width: 72 })).toContain('Extra options:');
+	});
+
+	// a stack overflow is a poor way to find out, and what a hook wanting the
+	// generated screen is looking for is `Command.help`
+	it('should refuse a hook that asks for the help it is contributing to', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				build: {
+					desc: 'Build',
+					hooks: { help: [({ state }) => resolveHelp(state) as unknown as void] },
+				},
+			},
+		};
+		const state = await parse({ argv: ['build', '--help'], schema });
+		await expect(resolveHelp(state)).rejects.toThrow(
+			'A help hook for "build" asked for the help it is contributing to'
+		);
+	});
+
+	// and the guard lifts, so the next screen still renders
+	it('should let help render again after a hook was refused', async () => {
+		let recurse = true;
+		const schema: Schema = {
+			name: 'mycli',
+			commands: {
+				build: {
+					desc: 'Build',
+					hooks: {
+						help: [
+							async ({ sections, state }) => {
+								if (recurse) {
+									recurse = false;
+									await resolveHelp(state);
+								}
+								await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
+							},
+						],
+					},
+				},
+			},
+		};
+		const state = await parse({ argv: ['build', '--help'], schema });
+		await expect(resolveHelp(state)).rejects.toThrow(/asked for the help/);
 		expect(await resolveHelp(state, { width: 72 })).toContain('Extra options:');
 	});
 

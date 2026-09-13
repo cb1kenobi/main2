@@ -214,6 +214,31 @@ false` rethrows instead; a function replaces the handler.
   in the order they were added, and only the described command's hooks fire --
   an ancestor's sections would appear under a command that has nothing to do
   with them. See `test/help/sections.test.ts`.
+- **A section title and a `group` are checked, and `Global` is taken.** Either
+  becomes a heading on a line of its own, so a newline or a control character in
+  one is rejected while the schema is built rather than when somebody asks for
+  help, and surrounding whitespace is trimmed. `Global` is refused because help
+  writes `Global options` itself and two headings of one name on a screen
+  describe options in different scopes. A `group` mutated after init into
+  something that cannot be a heading gets no heading rather than a broken
+  screen, which is the same call `format()` makes for a default that cannot be
+  written as JSON.
+- **A section used twice is one section.** Two platforms sharing a title, or a
+  hook that ran twice, add to what is there. The argument rules are about the
+  list, so they are applied to the whole of the merged one, and nothing is kept
+  until everything validated -- an `add()` that throws leaves the section it was
+  merging into alone.
+- **Shadowing counts every option, including a hidden one.** Being hidden is
+  about whether help lists an option, not about whether it resolves: a command
+  with a hidden `--mode` is still the `--mode` that argv reaches, so the root's
+  is not what to describe.
+- **A `help` hook that asks for the help it is contributing to is refused.** It
+  is handed the state, which is all `resolveHelp()` needs, so it is an easy
+  mistake and a stack overflow is a poor way to find it. What such a hook wants
+  is `Command.help`, which is handed the generated screen.
+- **A string `Command.help` builds no screen and fires no hook.** It replaces
+  the screen outright, so a command that writes its own help cannot be stopped
+  by a hook failing on the way to not using the generated one.
 - **`HelpHookData` does not spread `InternalCommandBase`**, unlike every other
   command hook's data, because that carries a `state` of its own -- the
   command's `InternalState` -- and what a help hook wants under that name is the

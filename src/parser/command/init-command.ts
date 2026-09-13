@@ -295,14 +295,15 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
 	// on the command it was handed does not append to the declaration — and
 	// does not extend the list `initCommand()` is in the middle of walking
 	if (decl.hooks && typeof decl.hooks === 'object') {
-		const hooks = { ...decl.hooks };
-		for (const name of ['init', 'parse'] as const) {
-			const list = hooks[name];
+		// every list, not a named few: a hook that adds to the list it was read from
+		// would otherwise reach the caller's declaration and grow it on every parse
+		const hooks: Record<string, unknown> = { ...decl.hooks };
+		for (const [name, list] of Object.entries(hooks)) {
 			if (Array.isArray(list)) {
 				hooks[name] = [...list];
 			}
 		}
-		cmd.hooks = hooks;
+		cmd.hooks = hooks as Command['hooks'];
 	}
 
 	return cmd;

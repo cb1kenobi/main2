@@ -116,20 +116,25 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	// typed: a command declaring a short-only `-x` does not shadow a root `--x`,
 	// and `mycli build --x` still reaches the root's. An outer option is left out
 	// only when every one of its spellings has been claimed by a nearer one.
-	const claimed = new Set(options.flatMap(resolvable));
-	const inherited: InternalOption[] = [];
+	//
+	// Every option claims, including a hidden one. Being hidden is about whether
+	// help lists it, not about whether it resolves -- a command with a hidden
+	// `--mode` is still the `--mode` that `mycli build --mode` reaches, so listing
+	// the root's under "Global options" would describe the wrong one.
+	const claimed = new Set([...internal.options.values()].flatMap(resolvable));
+	const reachable: InternalOption[] = [];
 	for (const ctx of contexts.slice(1)) {
-		for (const opt of optionsOf(ctx[Internal].options)) {
+		for (const opt of ctx[Internal].options.values()) {
 			const spellings = resolvable(opt);
-			if (spellings.every((spelling) => claimed.has(spelling))) {
-				continue;
+			if (!spellings.every((spelling) => claimed.has(spelling))) {
+				reachable.push(opt);
 			}
 			for (const spelling of spellings) {
 				claimed.add(spelling);
 			}
-			inherited.push(opt);
 		}
 	}
+	const inherited = withoutTwins(shown(reachable));
 	const args = internal.args;
 	// a name that is nothing but an alias -- `'@b'` -- is its own alias, and the
 	// command is already named on the usage line
@@ -685,21 +690,42 @@ async function contributedSections(
 		return undefined;
 	}
 
+	// a hook is handed the state, which is everything `resolveHelp()` needs, so
+	// calling it from inside one is an easy mistake to make and a stack overflow is
+	// a poor way to find out. What a hook wanting the generated screen is looking
+	// for is `Command.help`, which is handed it.
+	if (rendering.has(cmd)) {
+		throw new Error(
+			`A help hook for "${cmd.name}" asked for the help it is contributing to; use Command.help to read the generated screen`
+		);
+	}
+
 	const internal = cmd[Internal];
 	const sections = createSections();
+	rendering.add(cmd);
 
-	// a copy: a hook that adds to the list it is being read from would otherwise
-	// extend the run it is already in
-	for (const hook of hooks.slice()) {
-		await hook({
-			args: internal.args,
-			cmd,
-			commands: internal.commands,
-			options: internal.options,
-			sections,
-			state,
-		});
+	try {
+		// a copy: a hook that adds to the list it is being read from would otherwise
+		// extend the run it is already in
+		for (const hook of hooks.slice()) {
+			await hook({
+				args: internal.args,
+				cmd,
+				commands: internal.commands,
+				options: internal.options,
+				sections,
+				state,
+			});
+		}
+	} finally {
+		rendering.delete(cmd);
 	}
 
 	return sections.list;
 }
+
+/**
+ * The commands whose `help` hooks are running, so that one asking for the screen
+ * it is building gets told rather than filling the stack.
+ */
+const rendering = new WeakSet<InternalCommand>();
