@@ -1,4 +1,5 @@
 import debug from '../debug/index.js';
+import { attachState, fireBeforeError } from '../error-hooks.js';
 import {
 	DataType,
 	Internal,
@@ -10,6 +11,7 @@ import {
 	ParsedValue,
 	ParseOptions,
 	ParseState,
+	Schema,
 } from '../types.js';
 import { camelCase } from '../util/camel-case.js';
 import { transformValue } from '../util/transform.js';
@@ -24,64 +26,92 @@ const optionNoSpaceRE = /^([^'"]*)(['"])(.*)\2$/;
 const negatedRE = /^--no-/;
 const unknownOptionRE = /^(?:--(\w[\w-]*)|-(\w))$/;
 
+/**
+ * Parses argv against a schema.
+ *
+ * Every throw site -- an invalid schema, a command module that will not load,
+ * a missing required option, a bad data type, a hook or transform of the
+ * caller's own -- leaves through the one catch below, which is where the
+ * `beforeError` hooks fire and where the in-flight state is pinned to the
+ * error. So a caller using `parse()` without `main2()` gets the same error
+ * path.
+ *
+ * @param opts - The parse options.
+ * @returns The resolved parse state.
+ */
 export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
-	if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
-		throw new TypeError('Expected parse options to be an object');
-	}
+	let schema: Schema | undefined;
+	let state: ParseState | undefined;
 
-	const { argv, env = {}, schema = {} } = opts;
-
-	if (!schema || typeof schema !== 'object') {
-		throw new TypeError('Expected schema to be an object');
-	}
-
-	if (schema.name !== undefined && (!schema.name || typeof schema.name !== 'string')) {
-		throw new TypeError('Expected schema name to be a non-empty string');
-	}
-
-	if (schema.hooks && typeof schema.hooks !== 'object') {
-		throw new TypeError('Expected hooks to be an object of hook names and callbacks');
-	}
-	const hooks = {
-		beforeParse: [],
-		afterParse: [],
-		beforeError: [],
-		...schema.hooks,
-	};
-	for (const [name, hookList] of Object.entries(hooks)) {
-		if (!Array.isArray(hookList) || hookList.some((h) => typeof h !== 'function')) {
-			throw new TypeError(`Expected "${name}" hook to be an array of functions`);
+	try {
+		if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
+			throw new TypeError('Expected parse options to be an object');
 		}
+
+		// the schema comes first because it is where the `beforeError` hooks
+		// live: reading anything else off the options ahead of it would leave a
+		// getter of the caller's own able to throw past its own hooks. Only an
+		// absent schema gets the empty default; `null` is an error
+		schema = opts.schema === undefined ? {} : opts.schema;
+
+		const { argv, env = {} } = opts;
+
+		if (!schema || typeof schema !== 'object') {
+			throw new TypeError('Expected schema to be an object');
+		}
+
+		if (schema.name !== undefined && (!schema.name || typeof schema.name !== 'string')) {
+			throw new TypeError('Expected schema name to be a non-empty string');
+		}
+
+		if (schema.hooks && typeof schema.hooks !== 'object') {
+			throw new TypeError('Expected hooks to be an object of hook names and callbacks');
+		}
+		const hooks = {
+			beforeParse: [],
+			afterParse: [],
+			beforeError: [],
+			...schema.hooks,
+		};
+		for (const [name, hookList] of Object.entries(hooks)) {
+			if (!Array.isArray(hookList) || hookList.some((h) => typeof h !== 'function')) {
+				throw new TypeError(`Expected "${name}" hook to be an array of functions`);
+			}
+		}
+
+		if (argv !== undefined && !Array.isArray(argv)) {
+			throw new TypeError('Expected argv to be an array');
+		}
+
+		if (!env || typeof env !== 'object') {
+			throw new TypeError('Expected environment option to be an object');
+		}
+
+		state = {
+			$: [],
+			$orig: argv || [],
+			_: [],
+			argv: {},
+			cmd: undefined,
+			// the root context is built from a copy of the schema, never by writing
+			// a default name onto the caller's object
+			contexts: [await initCommand({ ...schema, name: schema.name ?? 'global' })],
+			env,
+			schema,
+			settings: opts.settings || {},
+		};
+
+		await initArgv(state);
+		await parseArgv(state);
+		await processArgs(state);
+		await processOptions(state);
+
+		return state;
+	} catch (err) {
+		attachState(err, state);
+		// a hook may replace the error, never swallow it, so this always throws
+		throw await fireBeforeError(err, state, schema);
 	}
-
-	if (argv !== undefined && !Array.isArray(argv)) {
-		throw new TypeError('Expected argv to be an array');
-	}
-
-	if (!env || typeof env !== 'object') {
-		throw new TypeError('Expected environment option to be an object');
-	}
-
-	const state: ParseState = {
-		$: [],
-		$orig: argv || [],
-		_: [],
-		argv: {},
-		cmd: undefined,
-		// the root context is built from a copy of the schema, never by writing
-		// a default name onto the caller's object
-		contexts: [await initCommand({ ...schema, name: schema.name ?? 'global' })],
-		env,
-		schema,
-		settings: opts.settings || {},
-	};
-
-	await initArgv(state);
-	await parseArgv(state);
-	await processArgs(state);
-	await processOptions(state);
-
-	return state;
 }
 
 export default parse;
@@ -200,6 +230,28 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
 }
 
 /**
+ * Decides whether a flag token turns its destination off.
+ *
+ * A negated flag turns it off through every name it answers to — `-C` as much
+ * as `--no-color` — except the positive spelling it registers for itself,
+ * which is the one way to turn it on. An explicit `negate: false` opts out of
+ * negation entirely, so a flag literally named `no-color` is just present.
+ *
+ * @param option - The declared option the token resolved to.
+ * @param subject - The token as it was typed.
+ * @returns `true` when the token means off.
+ */
+function isNegated(option: InternalOption, subject?: string): boolean {
+	if (option.negate === false) {
+		return false;
+	}
+	if (option.negate) {
+		return subject !== `--${option.name}`;
+	}
+	return negatedRE.test(`${subject}`);
+}
+
+/**
  * Decides whether the next unresolved token may be taken as the value of a
  * declared option.
  *
@@ -248,44 +300,43 @@ function resolved(state: ParseState, dest: string): unknown {
 }
 
 /**
- * Applies an environment variable or default value fallback, coercing strings
- * to the declared data type exactly as a value parsed from argv would be.
- * Precedence is argv, then environment, then default.
+ * Reads the first environment variable of a list that is set.
+ *
+ * @param state - The parse state.
+ * @param envs - Environment variable names to look for.
+ * @returns The value of the first one that is defined, if any.
+ */
+function envValue(state: ParseState, envs: Set<string>): string | undefined {
+	for (const env of envs) {
+		if (state.env[env] !== undefined) {
+			return state.env[env];
+		}
+	}
+}
+
+/**
+ * Applies a fallback to a destination argv did not fill, coercing strings to
+ * the declared data type exactly as a value parsed from argv would be.
+ *
+ * Precedence is argv, then environment, then default: callers apply every
+ * environment fallback before any default, so that a declared default does not
+ * make the variable unreachable — and so that a flag, which always has an
+ * implicit default, can be set from the environment at all.
  *
  * @param state - The parse state.
  * @param dest - The destination key in `state.argv`.
- * @param def - The declared default value, if any.
- * @param envs - Environment variable names to fall back to.
+ * @param value - The fallback value, if there is one.
  * @param type - The declared data type.
  * @param multiple - When set, scalar fallbacks are wrapped in an array.
  */
 function applyFallback(
 	state: ParseState,
 	dest: string,
-	def: unknown,
-	envs: Set<string>,
+	value: unknown,
 	type: DataType | string,
 	multiple?: boolean
 ): void {
-	if (resolved(state, dest) !== undefined) {
-		return;
-	}
-
-	let value;
-
-	// the environment beats the default, so that a declared default does not
-	// make the variable unreachable — and so that a flag, which always has an
-	// implicit default, can be set from the environment at all
-	for (const env of envs) {
-		if (state.env[env] !== undefined) {
-			value = state.env[env];
-			break;
-		}
-	}
-
-	value ??= def;
-
-	if (value === undefined) {
+	if (value === undefined || resolved(state, dest) !== undefined) {
 		return;
 	}
 
@@ -320,8 +371,60 @@ function assertChoices(choices: unknown[] | undefined, value: unknown, label: st
 	}
 }
 
+/**
+ * Takes the place of the command name that was never typed.
+ *
+ * A command marked `default` runs when argv did not name one, so the innermost
+ * context is consulted for a default only once every context discovered so far
+ * has had a pass -- by then argv is not going to name a command it has not
+ * already named. The default joins the chain exactly as a matched command
+ * does, which is the whole point: its options resolve on the pass that
+ * follows, its arguments take the positional values, and `state.cmd` is the
+ * command `main2()` runs. The one difference is that nothing is added to
+ * `state.$`, because no token in argv named it.
+ *
+ * @param state - The parse state.
+ * @param visited - The default commands already adopted, so that a schema that
+ * points a command at itself cannot loop forever.
+ * @returns `true` when a default command joined the chain.
+ */
+async function dispatchDefaultCommand(
+	state: ParseState,
+	visited: Set<InternalCommand>
+): Promise<boolean> {
+	const cmd = state.contexts[0][Internal].commands.default;
+
+	if (!cmd || visited.has(cmd)) {
+		return false;
+	}
+	visited.add(cmd);
+
+	log(`Dispatching default command "${cmd.name}"`);
+
+	// matched before loaded, same as a typed command: a module that will not
+	// load is an error this command's own `beforeError` hooks should still see
+	state.contexts.unshift(cmd);
+	state.cmd = cmd;
+
+	const loaded = await loadCommand(cmd);
+	if (loaded !== cmd) {
+		state.contexts[0] = loaded;
+		state.cmd = loaded;
+		visited.add(loaded);
+	}
+
+	if (loaded.hooks?.parse) {
+		for (const hook of loaded.hooks.parse) {
+			await hook({ cmd: loaded, ...loaded[Internal] });
+		}
+	}
+
+	return true;
+}
+
 async function parseArgv(state: ParseState): Promise<void> {
 	const { $, contexts } = state;
+	const defaults = new Set<InternalCommand>();
 
 	if (state.schema.hooks?.beforeParse) {
 		for (const hook of state.schema.hooks.beforeParse) {
@@ -358,14 +461,25 @@ async function parseArgv(state: ParseState): Promise<void> {
 			const cmd = contexts[0][Internal].commands.find(subject);
 			if (cmd) {
 				log(`Found command "${cmd.name}"`);
+
+				// the command has matched, so it joins the chain before the module
+				// behind it is loaded -- a module that will not load is an error
+				// this command's own `beforeError` hooks should still see
+				contexts.unshift(cmd);
+				state.cmd = cmd;
+
 				const loaded = await loadCommand(cmd);
+				if (loaded !== cmd) {
+					// loading merged the module's exports into a new command object
+					contexts[0] = loaded;
+					state.cmd = loaded;
+				}
+
 				$[j] = {
 					cmd: loaded,
 					inputs: arg.inputs,
 					type: 'Command',
 				};
-				contexts.unshift(loaded);
-				state.cmd = loaded;
 
 				if (loaded.hooks?.parse) {
 					for (const hook of loaded.hooks.parse) {
@@ -402,7 +516,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 				// `--foo` is true and `--no-foo` is false, but an explicit
 				// `--foo=false` beats the name it was reached by
 				const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
-				value = negatedRE.test(`${subject}`) ? !bool : bool;
+				value = isNegated(option, subject) ? !bool : bool;
 			} else {
 				const next = $[j + 1];
 
@@ -441,6 +555,15 @@ async function parseArgv(state: ParseState): Promise<void> {
 				type: 'Option',
 				value,
 			};
+		}
+
+		// this pass turned up no new context, so argv has named every command it
+		// is going to: whatever the innermost context calls its default command
+		// now stands in for the name that was never typed. Adopting it grows the
+		// chain, so the loop makes one more pass and resolves the options it
+		// declares -- and then asks it for a default of its own
+		if (pass === contexts.length - 1) {
+			await dispatchDefaultCommand(state, defaults);
 		}
 	}
 
@@ -614,7 +737,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 		const { dest, envs } = arg[Internal];
 
-		applyFallback(state, dest, arg.default, envs, arg.type, arg.multiple);
+		applyFallback(state, dest, envValue(state, envs) ?? arg.default, arg.type, arg.multiple);
 
 		if (missingArguments.length || (required && resolved(state, dest) === undefined)) {
 			missingArguments.unshift(`<${name}>`);
@@ -632,27 +755,42 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 export async function processOptions(state: ParseState): Promise<void> {
 	const missingOptions: string[] = [];
+	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
 
-	for (const ctx of state.contexts) {
-		const { options } = ctx[Internal];
+	// every environment fallback is applied before any default, and both before
+	// anything is validated, so that a destination two options share — a valued
+	// option and its negated twin — keeps the same argv, then environment, then
+	// default precedence a lone option has, and is not reported missing just
+	// because the option that fills it comes second
+	for (const opt of all) {
+		const { dest, envs } = opt[Internal];
+		applyFallback(state, dest, envValue(state, envs), opt.type, opt.multiple);
+	}
 
-		for (const opt of options.values()) {
-			const { choices, multiple, required, type } = opt;
-			const { dest, envs, label } = opt[Internal];
+	for (const opt of all) {
+		const { dest, skipDefault } = opt[Internal];
 
-			applyFallback(state, dest, opt.default, envs, type, multiple);
+		// the valued twin owns the default of the destination the two share
+		if (!skipDefault) {
+			applyFallback(state, dest, opt.default, opt.type, opt.multiple);
+		}
+	}
 
-			if (required) {
-				const existing = state.$.find(
-					(parsed) => parsed.type === 'Option' && parsed.option === opt
-				);
-				if (!existing && resolved(state, dest) === undefined) {
-					missingOptions.unshift(label);
-				}
-			}
+	for (const opt of all) {
+		const { choices, required } = opt;
+		const { dest, label, negatedTwin } = opt[Internal];
+		const value = resolved(state, dest);
+		const typed = state.$.some((parsed) => parsed.type === 'Option' && parsed.option === opt);
 
-			// only validate when there is actually a value to validate
-			assertChoices(choices, resolved(state, dest), `option ${label}`);
+		if (required && !typed && value === undefined) {
+			missingOptions.unshift(label);
+		}
+
+		// only validate when there is actually a value to validate, and never
+		// against a `false` this option did not produce: turning the destination
+		// off is what the negated twin means, not one of the values declared here
+		if (!negatedTwin || typed || value !== false) {
+			assertChoices(choices, value, `option ${label}`);
 		}
 	}
 

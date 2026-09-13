@@ -662,4 +662,160 @@ describe('schema', () => {
 			expect(argv2.target).to.equal('esm');
 		});
 	});
+
+	// the guarantee has to keep holding for everything decided after it: a
+	// default command, a negated twin, and the error path all write during a
+	// parse, and none of it may reach the caller's object
+	describe('interaction with the rest of the parser', () => {
+		it('should leave a schema carrying a default command untouched', async () => {
+			const schema = { commands: { build: { default: true }, test: {} } };
+			const before = structuredClone(schema);
+
+			await parse({ argv: [], schema });
+
+			expect(schema).toStrictEqual(before);
+			expect(Internal in schema).to.equal(false);
+			expect(Internal in schema.commands.build).to.equal(false);
+		});
+
+		it('should parse a frozen schema carrying a default command', async () => {
+			const schema = deepFreeze({ commands: { build: { default: true } } });
+
+			expect((await parse({ argv: [], schema })).cmd?.name).to.equal('build');
+		});
+
+		it('should dispatch a default identically on a second parse', async () => {
+			const schema = { commands: { build: { args: ['[out]'], default: true } } };
+
+			const first = await parse({ argv: ['x'], schema });
+			const second = await parse({ argv: ['x'], schema });
+
+			expect(first.cmd?.name).to.equal(second.cmd?.name);
+			expect(first.argv).toStrictEqual(second.argv);
+		});
+
+		it('should parse a frozen schema carrying negated twins, twice', async () => {
+			const schema = deepFreeze({ options: { '--cheese [type]': {}, '--no-cheese': {} } });
+
+			expect((await parse({ argv: ['--no-cheese'], schema })).argv.cheese).to.equal(false);
+			expect((await parse({ argv: ['--cheese', 'brie'], schema })).argv.cheese).to.equal('brie');
+		});
+
+		it('should not mutate the schema on the error path', async () => {
+			const schema = { options: { '--name <value>': {} } };
+			const before = structuredClone(schema);
+
+			await expect(parse({ argv: [], schema })).rejects.toThrow();
+
+			expect(schema).toStrictEqual(before);
+		});
+	});
+	// the locks have to keep holding for everything decided after them, and
+	// the twin pairing moves one property out from under the "editing it takes
+	// effect" rule
+	describe('interaction with option twins and default commands', () => {
+		it('should refuse a write to negate on a paired option', async () => {
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': {}, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									(options.get('cheese') as Record<string, unknown>).negate = true;
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: ['build'], schema })).rejects.toThrow(/Cannot set "negate"/);
+		});
+
+		it('should refuse a container write on a default command', async () => {
+			const schema = {
+				commands: {
+					build: {
+						default: true,
+						options: { '--target [name]': null },
+						hooks: {
+							init: [
+								({ cmd }: CommandHookData) => {
+									cmd.options = {};
+								},
+							],
+						},
+					},
+				},
+			};
+
+			await expect(parse({ argv: [], schema })).rejects.toThrow(/Cannot set "options"/);
+		});
+
+		it('should let an init hook edit choices on a paired option', async () => {
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									options.get('cheese')!.choices = ['brie', 'gouda'];
+								},
+							],
+						},
+					},
+				},
+			};
+
+			expect((await parse({ argv: ['build', '--cheese', 'gouda'], schema })).argv.cheese).to.equal(
+				'gouda'
+			);
+			// and the twin still means `false`, which choices does not vet
+			expect((await parse({ argv: ['build', '--no-cheese'], schema })).argv.cheese).to.equal(false);
+		});
+
+		it('should let an init hook edit default on the valued twin', async () => {
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': {}, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									options.get('cheese')!.default = 'brie';
+								},
+							],
+						},
+					},
+				},
+			};
+
+			expect((await parse({ argv: ['build'], schema })).argv.cheese).to.equal('brie');
+		});
+
+		it('should ignore a default edited onto the negated twin', async () => {
+			// the valued twin owns the shared default, and which one owns it is
+			// settled when the registry links the pair — before any init hook
+			// runs. Pinned because the table in docs/parser.md calls `default`
+			// live, and this is the one place that does not hold
+			const schema = {
+				commands: {
+					build: {
+						options: { '--cheese [type]': {}, '--no-cheese': {} },
+						hooks: {
+							init: [
+								({ options }: CommandHookData) => {
+									(options.find('--no-cheese') as Record<string, unknown>).default = true;
+								},
+							],
+						},
+					},
+				},
+			};
+
+			expect((await parse({ argv: ['build'], schema })).argv.cheese).to.equal(undefined);
+		});
+	});
 });

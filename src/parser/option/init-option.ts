@@ -98,6 +98,14 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		throw new TypeError('Expected option name to be a non-empty string');
 	}
 
+	if (opt.hint?.endsWith('...')) {
+		// a variadic hint promises `--tag a b c`, which an option never does;
+		// only a positional argument can consume consecutive values
+		throw new TypeError(
+			`Option "${opt.name}" hint cannot be variadic; use \`multiple: true\` to collect repeated uses into an array`
+		);
+	}
+
 	if (opt.type && !optionTypesRE.test(opt.type)) {
 		throw new Error(`Option "${opt.name}" has unsupported data type "${opt.type}"`);
 	}
@@ -111,13 +119,21 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 	}
 
 	opt.type ||= isFlag ? 'bool' : 'string';
+
+	// a default the parser supplied is weaker than one the schema declared: it
+	// gives way to the twin that shares its destination, if there is one
+	let impliedDefault = false;
+
 	if (isFlag) {
 		if (opt.type === 'auto' || opt.type === 'yesno') {
 			opt.type = 'bool';
 		} else if (opt.type !== 'bool' && opt.type !== 'count') {
 			throw new Error("Option flags must have type of 'auto', 'bool', 'count', or 'yesno'");
 		}
-		opt.default ??= opt.type === 'count' ? 0 : !!opt.negate;
+		if (opt.default === undefined) {
+			opt.default = opt.type === 'count' ? 0 : !!opt.negate;
+			impliedDefault = true;
+		}
 	} else if (opt.type === 'count') {
 		throw new Error('Only flags can be of type "count"');
 	}
@@ -194,11 +210,13 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 		value: {
 			dest: camelCase(opt.name),
 			envs,
+			impliedDefault,
 			isFlag,
 			label,
 			format: label + (isFlag ? '' : opt.required ? `=<${opt.hint}>` : `=[${opt.hint}]`),
 			long,
 			short,
+			skipDefault: false,
 			state: InternalState.OK,
 		},
 	}) as InternalOption;

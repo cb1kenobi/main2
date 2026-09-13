@@ -79,6 +79,10 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		throw new TypeError(`Expected hidden to be a boolean in "${decl.name}" command`);
 	}
 
+	if (decl.default !== undefined && typeof decl.default !== 'boolean') {
+		throw new TypeError(`Expected default in "${decl.name}" command to be a boolean`);
+	}
+
 	const parsed = parseName(decl.name);
 
 	for (const alias of parsed.aliases) {
@@ -234,6 +238,16 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		(prop) =>
 			`Cannot set "${prop}" on the initialized "${parsed.name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
 	);
+
+	// a command's `beforeError` hooks are not fired from here, but a list that
+	// is not a list of functions has to be rejected while the schema is being
+	// built: the error path is the one place a silent no-op does the most harm
+	if (decl.hooks?.beforeError !== undefined) {
+		const beforeError = decl.hooks.beforeError;
+		if (!Array.isArray(beforeError) || beforeError.some((h) => typeof h !== 'function')) {
+			throw new TypeError('Expected command beforeError hooks to be an array of functions');
+		}
+	}
 
 	if (decl.hooks?.init !== undefined) {
 		if (!Array.isArray(decl.hooks.init)) {

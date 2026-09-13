@@ -58,13 +58,19 @@ describe('commander: options', () => {
 			expect(result.argv.cheese).to.equal(false);
 		});
 
-		it('should coerce a non-boolean default on a flag to a boolean', async () => {
+		it('should coerce a string default on a flag to a boolean', async () => {
 			// Commander keeps the raw default; here string defaults are coerced
 			// to the declared type, and a flag's type is bool
 			const result = await parse({
-				schema: { options: { '-v, --olives': { default: 'black' } } },
+				schema: { options: { '-v, --olives': { default: 'yes' } } },
 			});
 			expect(result.argv.olives).to.equal(true);
+		});
+
+		it('should reject a string default on a flag that is not a boolean', async () => {
+			await expect(
+				parse({ schema: { options: { '-v, --olives': { default: 'black' } } } })
+			).rejects.toThrow('Invalid boolean: "black"');
 		});
 
 		it('should leave a non-string default on a flag alone', async () => {
@@ -411,12 +417,21 @@ describe('commander: options', () => {
 			expect(result.argv.foo).to.equal(false);
 		});
 
-		it('should treat a non-empty environment value for a flag as true', async () => {
+		it('should treat a 0 environment value for a flag as false', async () => {
 			const result = await parse({
 				env: { BAR: '0' },
 				schema: { options: { '-f, --foo': { env: 'BAR' } } },
 			});
-			expect(result.argv.foo).to.equal(true);
+			expect(result.argv.foo).to.equal(false);
+		});
+
+		it('should reject an environment value for a flag that is not a boolean', async () => {
+			await expect(
+				parse({
+					env: { BAR: 'sometimes' },
+					schema: { options: { '-f, --foo': { env: 'BAR' } } },
+				})
+			).rejects.toThrow('Invalid boolean: "sometimes"');
 		});
 	});
 
