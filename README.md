@@ -1,38 +1,30 @@
 # main2
 
-A framework for building CLI apps in Node.js, and the successor to `cli-kit`.
+A framework for building CLI apps in Node.js.
 
 At its heart is a multi-pass hierarchical argument parser built for CLIs that
 lean heavily on subcommands, with **zero production dependencies**. ANSI
-handling, text wrapping, display width, and XDG paths are all written here and
-bundled.
-
-> [!WARNING]
-> Pre-1.0 and not yet published to npm. The parser, the generated help screen,
-> ANSI, and wrapping are all in and well covered by tests. The public API is not
-> frozen yet — see [Scope for 1.0](#scope-for-10).
-
-ESM only. Requires Node.js >= 22.19.
+handling, text wrapping, display width, and XDG paths.
 
 ```js
 import { main2 } from 'main2';
 
 await main2({
-	schema: {
-		name: 'mycli',
-		desc: 'A demo CLI',
-		options: { '-v, --verbose': 'Print more output' },
-		commands: {
-			build: {
-				desc: 'Build the project',
-				options: { '--target [name]': { choices: ['esm', 'cjs'], default: 'esm' } },
-				args: ['<entry>', '[rest...]'],
-				run({ argv }) {
-					console.log(argv.target, argv.entry, argv.rest, argv.verbose);
-				},
-			},
-		},
-	},
+  schema: {
+    name: 'mycli',
+    desc: 'A demo CLI',
+    options: { '-v, --verbose': 'Print more output' },
+    commands: {
+      build: {
+        desc: 'Build the project',
+        options: { '--target [name]': { choices: ['esm', 'cjs'], default: 'esm' } },
+        args: ['<entry>', '[rest...]'],
+        run({ argv }) {
+          console.log(argv.target, argv.entry, argv.rest, argv.verbose);
+        },
+      },
+    },
+  },
 });
 ```
 
@@ -62,7 +54,6 @@ Commander and yargs. This README is the API tour.
 - [Help](#help)
 - [Typed argv](#typed-argv)
 - [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `paths`, `updates`
-- [Scope for 1.0](#scope-for-10)
 
 ---
 
@@ -70,12 +61,12 @@ Commander and yargs. This README is the API tour.
 
 ```js
 import {
-	main2, // parse argv and run the matched command
-	command, // identity function that types one command's argv
-	options, // identity function that keeps an option group's types
-	errorHandler, // the built-in error renderer + exit code
-	renderError, // an error as the string that would be printed
-	errorExitCode, // the exit code an error implies
+  main2, // parse argv and run the matched command
+  command, // identity function that types one command's argv
+  options, // identity function that keeps an option group's types
+  errorHandler, // the built-in error renderer + exit code
+  renderError, // an error as the string that would be printed
+  errorExitCode, // the exit code an error implies
 } from 'main2';
 ```
 
@@ -86,9 +77,9 @@ Every type is exported from the same place — `Schema`, `Command`, `Option`,
 
 ```ts
 await main2({
-	argv?: string[],      // defaults to process.argv.slice(2)
-	schema?: Schema,
-	settings?: Settings,
+  argv?: string[],      // defaults to process.argv.slice(2)
+  schema?: Schema,
+  settings?: Settings,
 });
 ```
 
@@ -104,13 +95,13 @@ are exported so you can use them from a `settings.errorHandler` of your own:
 import { renderError, errorExitCode } from 'main2';
 
 await main2({
-	schema,
-	settings: {
-		errorHandler(err) {
-			console.error(`✖ ${renderError(err)}`);
-			process.exitCode = errorExitCode(err);
-		},
-	},
+  schema,
+  settings: {
+    errorHandler(err) {
+      console.error(`✖ ${renderError(err)}`);
+      process.exitCode = errorExitCode(err);
+    },
+  },
 });
 ```
 
@@ -119,14 +110,14 @@ around `main2()`.
 
 ```js
 try {
-	await main2({
-		argv: ['--nope'],
-		schema,
-		settings: { allowUnknownOptions: false, errorHandler: false },
-	});
+  await main2({
+    argv: ['--nope'],
+    schema,
+    settings: { allowUnknownOptions: false, errorHandler: false },
+  });
 } catch (err) {
-	renderError(err); // 'Error: Unknown option "--nope"'
-	errorExitCode(err); // 1
+  renderError(err); // 'Error: Unknown option "--nope"'
+  errorExitCode(err); // 1
 }
 ```
 
@@ -143,12 +134,12 @@ string, or an object, or `null` for neither.
 
 ```js
 options: {
-	'-v, --verbose': 'Print more output',
-	'--target [name]': { choices: ['esm', 'cjs'], default: 'esm', desc: 'Output format' },
-	'-o, --out-dir [dir]': { default: 'dist', desc: 'Where to write' },
-	'--define [pair]': { desc: 'Define a global', multiple: true },
-	'--port [n]': { env: 'PORT', type: 'int' },
-	'--no-color': 'Disable color',
+  '-v, --verbose': 'Print more output',
+  '--target [name]': { choices: ['esm', 'cjs'], default: 'esm', desc: 'Output format' },
+  '-o, --out-dir [dir]': { default: 'dist', desc: 'Where to write' },
+  '--define [pair]': { desc: 'Define a global', multiple: true },
+  '--port [n]': { env: 'PORT', type: 'int' },
+  '--no-color': 'Disable color',
 }
 ```
 
@@ -233,13 +224,13 @@ Matched or not, every positional is also pushed onto `state._`.
 
 ```js
 commands: {
-	build: {
-		desc: 'Build the project',
-		options: { '--minify': 'Minify the output' },
-		args: ['<entry>'],
-		commands: { clean: { run() {} } },   // nested, to any depth
-		run({ argv, _, cmd, contexts }) {},
-	},
+  build: {
+    desc: 'Build the project',
+    options: { '--minify': 'Minify the output' },
+    args: ['<entry>'],
+    commands: { clean: { run() {} } },   // nested, to any depth
+    run({ argv, _, cmd, contexts }) {},
+  },
 }
 ```
 
@@ -248,8 +239,8 @@ aliases, a `!` prefix hides it:
 
 ```js
 commands: {
-	'build, b': { run() {} },   // `build`, aliased `b`
-	'!secret': { run() {} },    // works, stays out of help
+  'build, b': { run() {} },   // `build`, aliased `b`
+  '!secret': { run() {} },    // works, stays out of help
 }
 ```
 
@@ -267,17 +258,17 @@ single-command CLI is written:
 
 ```js
 await main2({
-	schema: {
-		name: 'bundle',
-		commands: {
-			build: {
-				default: true,
-				args: ['<entry>'],
-				options: { '--minify': 'Minify' },
-				run: ({ argv }) => console.log(argv.entry, argv.minify),
-			},
-		},
-	},
+  schema: {
+    name: 'bundle',
+    commands: {
+      build: {
+        default: true,
+        args: ['<entry>'],
+        options: { '--minify': 'Minify' },
+        run: ({ argv }) => console.log(argv.entry, argv.minify),
+      },
+    },
+  },
 });
 ```
 
@@ -293,7 +284,7 @@ directory. The module is not read until the command is matched.
 
 ```js
 commands: {
-	deploy: './commands/deploy.js',   // one module
+  deploy: './commands/deploy.js',   // one module
 }
 
 commands: './commands'                // every module in a directory
@@ -302,11 +293,11 @@ commands: './commands'                // every module in a directory
 ```js
 // commands/deploy.js
 export default {
-	desc: 'Deploy the app',
-	options: { '--dry-run': 'Do not actually deploy' },
-	run({ argv }) {
-		console.log('dryRun =', argv.dryRun);
-	},
+  desc: 'Deploy the app',
+  options: { '--dry-run': 'Do not actually deploy' },
+  run({ argv }) {
+    console.log('dryRun =', argv.dryRun);
+  },
 };
 ```
 
@@ -351,24 +342,24 @@ await main2({ schema, settings: { allowExtraArguments: true } });
 
 ```js
 await main2({
-	schema: {
-		hooks: {
-			beforeParse: [(state) => {}], // before argv is walked
-			afterParse: [(state) => {}], // after, before validation results are returned
-			beforeError: [(err, ctx) => {}],
-		},
-		commands: {
-			build: {
-				hooks: {
-					init: [({ options, args, commands }) => {}], // when the command is built
-					parse: [({ cmd, options }) => {}], // when argv matches it
-					help: [({ sections, state }) => {}], // when its help is rendered
-					beforeError: [(err, ctx) => {}],
-				},
-				run() {},
-			},
-		},
-	},
+  schema: {
+    hooks: {
+      beforeParse: [(state) => {}], // before argv is walked
+      afterParse: [(state) => {}], // after, before validation results are returned
+      beforeError: [(err, ctx) => {}],
+    },
+    commands: {
+      build: {
+        hooks: {
+          init: [({ options, args, commands }) => {}], // when the command is built
+          parse: [({ cmd, options }) => {}], // when argv matches it
+          help: [({ sections, state }) => {}], // when its help is rendered
+          beforeError: [(err, ctx) => {}],
+        },
+        run() {},
+      },
+    },
+  },
 });
 ```
 
@@ -390,9 +381,9 @@ return nothing to leave it alone, return a value to make that value the error.
 
 ```js
 hooks: {
-	beforeError: [
-		(err) => (err.code === 'ENOENT' ? new Error('Run `mycli init` first') : undefined),
-	],
+  beforeError: [
+    (err) => (err.code === 'ENOENT' ? new Error('Run `mycli init` first') : undefined),
+  ],
 }
 ```
 
@@ -434,13 +425,13 @@ _describe_ without _parsing_:
 
 ```js
 hooks: {
-	help: [
-		({ sections }) =>
-			sections.add({
-				title: 'iOS',
-				options: { '--sdk [ver]': 'iOS SDK version', '--simulator [udid]': 'Simulator to run on' },
-			}),
-	],
+  help: [
+    ({ sections }) =>
+      sections.add({
+        title: 'iOS',
+        options: { '--sdk [ver]': 'iOS SDK version', '--simulator [udid]': 'Simulator to run on' },
+      }),
+  ],
 }
 ```
 
@@ -453,13 +444,13 @@ Writing your own screen for one command:
 
 ```js
 {
-	// a string replaces the screen outright
-	help: 'Usage: mycli build <entry>\n\nSee https://example.com/docs',
+  // a string replaces the screen outright
+  help: 'Usage: mycli build <entry>\n\nSee https://example.com/docs',
 }
 
 {
-	// a function receives the generated screen and adds to it
-	help: ({ generated }) => `${generated}\n\nDocs: https://example.com/docs`,
+  // a function receives the generated screen and adds to it
+  help: ({ generated }) => `${generated}\n\nDocs: https://example.com/docs`,
 }
 ```
 
@@ -474,20 +465,20 @@ Wrapping a command reads its format strings and gives `run` a narrow `argv`:
 import { command, options } from 'main2';
 
 const global = options({
-	'-v, --verbose': 'Say more',
-	'--port [n]': { default: 8080, type: 'int' },
+  '-v, --verbose': 'Say more',
+  '--port [n]': { default: 8080, type: 'int' },
 });
 
 const build = command({
-	options: { ...global, '--target [name]': { choices: ['esm', 'cjs'] } },
-	args: ['<entry>', '[rest...]'],
-	run({ argv }) {
-		argv.entry; // string
-		argv.rest; // string[] | undefined
-		argv.target; // 'esm' | 'cjs' | undefined
-		argv.verbose; // boolean
-		argv.port; // number
-	},
+  options: { ...global, '--target [name]': { choices: ['esm', 'cjs'] } },
+  args: ['<entry>', '[rest...]'],
+  run({ argv }) {
+    argv.entry; // string
+    argv.rest; // string[] | undefined
+    argv.target; // 'esm' | 'cjs' | undefined
+    argv.verbose; // boolean
+    argv.port; // number
+  },
 });
 ```
 
@@ -605,12 +596,12 @@ the CLI.
 import { check } from 'main2/updates';
 
 const { current, latest } = await check({
-	packageName: 'mycli',
-	packageVersion: '1.2.3',
-	cacheDir: cache('mycli'),
-	// wait: true,          // await the worker instead of firing and forgetting
-	// checkInterval: 864e5,
-	// distTag: 'latest',
+  packageName: 'mycli',
+  packageVersion: '1.2.3',
+  cacheDir: cache('mycli'),
+  // wait: true,          // await the worker instead of firing and forgetting
+  // checkInterval: 864e5,
+  // distTag: 'latest',
 });
 ```
 
@@ -618,30 +609,6 @@ By default it returns immediately with whatever the cache already had and lets
 the worker refresh it for next time.
 
 ---
-
-## Scope for 1.0
-
-The parser, a generated help screen, ANSI wrapping, and ANSI strip. Titanium
-CLI is the acceptance test: if it does not need a feature, that feature is not
-in 1.0.
-
-- [x] Multi-pass hierarchical parser
-- [x] Generated, context-sensitive help
-- [x] ANSI: styling, strip, display width
-- [x] Text wrapping and terminal width detection
-- [x] `beforeError` hooks
-- [x] Default command dispatch
-- [x] Subpath exports
-- [x] Static argv types
-- [ ] Port Titanium CLI onto main2, and fill the gaps it surfaces
-- [ ] Getting started and migration docs
-- [ ] A `which` API — only if the port needs one
-- [ ] Freeze the public API and tag 1.0
-
-Dropped: dotenv loading, since Node has `--env-file`.
-
-After 1.0: a terminal wrapper (width detection, EPIPE handling), terminal
-canvas, components, themes, i18n.
 
 ## License
 
