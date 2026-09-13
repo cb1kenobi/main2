@@ -102,6 +102,19 @@ describe('wrap()', () => {
 	it('should keep the leading whitespace of a line', () => {
 		expect(lines(wrap('  indented already', 20))).toEqual(['  indented already']);
 	});
+
+	// a terminal draws nothing for it, it is what a break at a space leaves
+	// behind anyway, and leaving it makes a measured line wider than anything
+	// anybody can see
+	it('should drop trailing whitespace even from a line it did not wrap', () => {
+		expect(wrap('x   ', 10)).toBe('x');
+		expect(wrap('   ', 5)).toBe('');
+		expect(wrap('a   \nb  ', 20)).toBe('a\nb');
+	});
+
+	it('should keep a run of spaces inside a line', () => {
+		expect(wrap('a   b', 20)).toBe('a   b');
+	});
 });
 
 describe('indenting', () => {
@@ -261,10 +274,22 @@ describe('styled text', () => {
 		});
 	});
 
-	it('should open nothing on a line with no content', () => {
+	// dropping them would change the text, and a caller joining wrapped pieces
+	// would lose the styling the next piece was meant to inherit
+	it('should keep sequences that come after the last word', () => {
 		styled(() => {
-			expect(lines(wrap(ansi.bgRed('aaa\n\nbbb'), 10))[1]).toBe('');
+			expect(wrap(`${ESC}[31m`, 10)).toBe(`${ESC}[31m`);
+			expect(wrap(`foo ${ESC}[31m`, 10)).toBe(`foo${ESC}[31m`);
 		});
+	});
+
+	it('should not open a style on a line with no content', () => {
+		// nothing on the line, so nothing to close at the end of it either
+		expect(lines(wrap(`${ESC}[41maaa\n\nbbb${ESC}[49m`, 10))).toEqual([
+			`${ESC}[41maaa${ESC}[49m`,
+			'',
+			`${ESC}[41mbbb${ESC}[49m`,
+		]);
 	});
 
 	// the sequence sits between the space and the word, so it moves down with the

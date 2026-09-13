@@ -85,9 +85,23 @@ describe('what stays in effect', () => {
 		expect(after(`${CSI}1m`).open()).toBe(`${ESC}[1m`);
 	});
 
-	// the sub-parameter of a curly underline belongs to the 4, not to the list
-	it('should not read a sub-parameter as a parameter', () => {
-		expect(after(`${ESC}[4:3m`).open()).toBe(`${ESC}[4m`);
+	// a sub-parameter belongs to the parameter in front of it rather than standing
+	// on its own -- and it has to survive, because `4:3` is a curly underline and
+	// `4` is a straight one
+	it('should keep a sub-parameter without reading it as a parameter', () => {
+		expect(after(`${ESC}[4:3m`).open()).toBe(`${ESC}[4:3m`);
+		expect(after(`${ESC}[4:3m`).close()).toBe(`${ESC}[24m`);
+		expect(after(`${ESC}[4:3m`, `${ESC}[24m`).active).toBe(false);
+	});
+
+	// the colon form carries the whole color in one parameter. Rebuilding it from
+	// its leading number writes `ESC[38m`, which is not a sequence at all.
+	it('should keep a colon-form color whole', () => {
+		expect(after(`${ESC}[38:2:95:135:175m`).open()).toBe(`${ESC}[38:2:95:135:175m`);
+		expect(after(`${ESC}[38:5:214m`).open()).toBe(`${ESC}[38:5:214m`);
+		expect(after(`${ESC}[48:2:0:0:0m`).close()).toBe(`${ESC}[49m`);
+		// and the parameters after it are still parameters of their own
+		expect(after(`${ESC}[38:2:95:135:175;1m`).open()).toBe(`${ESC}[38:2:95:135:175;1m`);
 	});
 
 	it('should ignore what it does not model rather than guess at a slot', () => {

@@ -43,9 +43,12 @@ export interface TerminalWidthOptions {
  */
 export function terminalWidth(opts: TerminalWidthOptions = {}): number {
 	const env = opts.env ?? process.env;
-	const max = opts.max ?? MAX_WIDTH;
-	const fallback = opts.fallback ?? DEFAULT_WIDTH;
 	const stream = 'stream' in opts ? opts.stream : process.stdout;
+
+	// a cap or a fallback that is not a width is no instruction at all, and
+	// carrying it through would come back out as the answer
+	const max = opts.max !== undefined && opts.max > 0 ? opts.max : MAX_WIDTH;
+	const fallback = positive(opts.fallback) ?? DEFAULT_WIDTH;
 
 	const columns = positive(env.COLUMNS) ?? positive(stream?.columns) ?? fallback;
 
@@ -61,10 +64,13 @@ export function terminalWidth(opts: TerminalWidthOptions = {}): number {
  * @returns The count, when it is one.
  */
 function positive(value: string | number | undefined): number | undefined {
-	const columns = typeof value === 'string' ? Number.parseInt(value, 10) : value;
-	return typeof columns === 'number' && Number.isFinite(columns) && columns > 0
-		? Math.floor(columns)
-		: undefined;
+	if (typeof value === 'string') {
+		// the whole string, not as much of it as parses: `COLUMNS=12junk` is not
+		// somebody saying twelve
+		return /^\s*\d+\s*$/.test(value) ? positive(Number(value)) : undefined;
+	}
+
+	return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
 }
 
 export interface WrapOptions {
@@ -105,6 +111,11 @@ export interface WrapOptions {
  * Newlines already in the text are kept, each line wrapped on its own, and the
  * styling carries across them. A tab is treated as one space: how wide a tab is
  * depends on the column it lands in, and wrapping is the thing that moves it.
+ *
+ * Trailing whitespace is dropped from every line, including a line that did not
+ * need wrapping. A terminal draws nothing for it, it is what a break at a space
+ * would leave behind anyway, and leaving it makes a measured line wider than
+ * what anybody can see. Leading whitespace is kept: that is indentation.
  *
  * @param text - The text to wrap.
  * @param opts - The width to wrap at, or the options.
@@ -296,11 +307,23 @@ function wrapLine(
 	}
 
 	placeWord();
+
+	// the sequences that came after the last word. They are written as they were
+	// and they are not closed: they are how the text ends, and closing them would
+	// be inventing something the text never said. Dropping them would be worse --
+	// a caller joining wrapped pieces would lose the styling the next piece was
+	// meant to inherit.
+	const trailing = pending
+		.filter((token) => token.type === 'sequence')
+		.map((token) => token.text)
+		.join('');
+
 	endLine();
-	// a line may end with sequences and nothing after them. They are not written
-	// -- the line already closed what it had open -- but they still happened, and
-	// the next line has to open the styling they left behind.
 	dropPending();
+
+	if (trailing !== '') {
+		lines[lines.length - 1] += trailing;
+	}
 }
 
 /**

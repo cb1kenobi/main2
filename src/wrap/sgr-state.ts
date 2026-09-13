@@ -138,6 +138,13 @@ const closedBy = new Map<number, Slot>(
 const extendedLengths: Record<number, number> = { 2: 5, 5: 3 };
 
 /**
+ * The attributes that take a color rather than being one. In the colon form
+ * they carry it themselves and are one parameter; in the semicolon form the
+ * color is spread over the parameters after them.
+ */
+const extendable = new Set([38, 48, 58]);
+
+/**
  * Tracks what a stream of SGR sequences leaves in effect.
  *
  * @returns The state, empty.
@@ -159,7 +166,7 @@ export function createSgrState(): SgrState {
 			}
 
 			for (let i = 0; i < params.length; i++) {
-				const code = params[i]!;
+				const { code, text } = params[i]!;
 
 				// a reset, and the sequence that carries no parameters at all
 				if (code === 0) {
@@ -181,14 +188,25 @@ export function createSgrState(): SgrState {
 					continue;
 				}
 
-				if (code === 38 || code === 48 || code === 58) {
-					const length = extendedLengths[params[i + 1]!] ?? params.length - i;
-					state.set(slot, params.slice(i, i + length).join(';'));
+				// the parameter is stored as it was written rather than rebuilt from
+				// its leading number, so a sub-parameter survives: `4:3` is a curly
+				// underline and `4` is a straight one, and the difference is only in
+				// the part a number would throw away
+				if (extendable.has(code) && !text.includes(':')) {
+					// the semicolon form spreads one color over several parameters
+					const length = extendedLengths[params[i + 1]?.code ?? -1] ?? params.length - i;
+					state.set(
+						slot,
+						params
+							.slice(i, i + length)
+							.map((param) => param.text)
+							.join(';')
+					);
 					i += length - 1;
 					continue;
 				}
 
-				state.set(slot, String(code));
+				state.set(slot, text);
 			}
 		},
 
@@ -212,17 +230,30 @@ export function createSgrState(): SgrState {
 	};
 }
 
+/** One parameter of an SGR sequence, as a number and as it was written. */
+interface SgrParam {
+	/** The leading number, which is what names the attribute. */
+	code: number;
+	/** The parameter exactly as written, sub-parameters and all. */
+	text: string;
+}
+
 /**
- * The parameters of an SGR sequence, as numbers.
+ * The parameters of an SGR sequence.
  *
- * A sub-parameter -- the `3` of `ESC[4:3m`, or the channels of `ESC[38:2:...m`
- * -- belongs to the parameter in front of it rather than standing on its own, so
- * only the part before the colon is read.
+ * Both readings are kept because both are needed. The number is what says which
+ * attribute this is; the text is what has to be written back, and rebuilding it
+ * from the number would throw away a sub-parameter -- the `3` of `ESC[4:3m` is
+ * the difference between a curly underline and a straight one, and the channels
+ * of `ESC[38:2:...m` are the color itself.
+ *
+ * A sub-parameter belongs to the parameter in front of it rather than standing
+ * on its own, which is why `code` reads only up to the colon.
  *
  * @param sequence - The sequence to read.
  * @returns The parameters, or `undefined` when the sequence is not an SGR.
  */
-function sgrParams(sequence: string): number[] | undefined {
+function sgrParams(sequence: string): SgrParam[] | undefined {
 	const body = sgrBody(sequence);
 
 	if (body === undefined) {
@@ -230,7 +261,11 @@ function sgrParams(sequence: string): number[] | undefined {
 	}
 
 	// an SGR with no parameters means the same as `0`
-	return body === '' ? [0] : body.split(';').map((param) => Number.parseInt(param, 10) || 0);
+	if (body === '') {
+		return [{ code: 0, text: '0' }];
+	}
+
+	return body.split(';').map((text) => ({ code: Number.parseInt(text, 10) || 0, text }));
 }
 
 /**
