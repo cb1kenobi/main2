@@ -246,12 +246,12 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	minHeight: { inherits: false, initial: AUTO, parse: parseLength },
 	// `none`, not `auto`. "No maximum" and "size to content" are different
 	// questions, and one sentinel for both makes `max-width: none` unwritable
-	maxWidth: { inherits: false, initial: NONE, parse: parseLength },
-	maxHeight: { inherits: false, initial: NONE, parse: parseLength },
-	paddingTop: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding') },
-	paddingRight: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding') },
-	paddingBottom: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding') },
-	paddingLeft: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding') },
+	maxWidth: { inherits: false, initial: NONE, parse: (v) => parseLength(v, { none: true }) },
+	maxHeight: { inherits: false, initial: NONE, parse: (v) => parseLength(v, { none: true }) },
+	paddingTop: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-top') },
+	paddingRight: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-right') },
+	paddingBottom: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-bottom') },
+	paddingLeft: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-left') },
 	// margins take a length rather than a count, because `auto` is how a box is
 	// centred and how it is pushed to one end -- the one place a negative or
 	// automatic value earns itself
@@ -345,6 +345,15 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	},
 };
 
+// the definitions and the table are frozen too. The initial values already were,
+// and leaving the slots holding them writable is the same TypeScript fiction one
+// level up: `PROPERTIES.width.initial = cells(7)` changed what `declare()`
+// returns for every style in the process
+for (const definition of Object.values(PROPERTIES)) {
+	Object.freeze(definition);
+}
+Object.freeze(PROPERTIES);
+
 /** Every property name, for anything that has to walk the whole set. */
 export const PROPERTY_NAMES: readonly PropertyName[] = Object.keys(PROPERTIES) as PropertyName[];
 
@@ -358,16 +367,23 @@ export const INHERITED: readonly PropertyName[] = PROPERTY_NAMES.filter(
  * property. Rather than refuse the familiar one, these map onto it.
  */
 const WEIGHT_TO_FLAG: Record<string, PropertyName> = {
+	__proto__: null,
 	bold: 'bold',
 	dim: 'dim',
-};
+} as unknown as Record<string, PropertyName>;
 
 /**
  * Properties whose CSS name is not a simple kebab-case of the property, or that
  * are spelled differently here because the terminal version is a different idea.
  */
-const ALIASES: Record<string, PropertyName | ((value: string) => [PropertyName, string][])> = {
-	'font-weight': (value) => {
+const ALIASES = {
+	// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
+	// object `constructor` and `toString` read back truthy and answer a lookup
+	// nothing declared, so `isKnownProperty('constructor')` was true and
+	// `declare({ constructor: 'red' })` was a TypeError rather than an error
+	// anybody could act on
+	__proto__: null,
+	'font-weight': (value: string) => {
 		const key = value.trim().toLowerCase();
 		if (key === 'normal') {
 			return [
@@ -375,15 +391,26 @@ const ALIASES: Record<string, PropertyName | ((value: string) => [PropertyName, 
 				['dim', 'false'],
 			];
 		}
-		const flagName = WEIGHT_TO_FLAG[key];
+		const flagName = Object.hasOwn(WEIGHT_TO_FLAG, key) ? WEIGHT_TO_FLAG[key] : undefined;
 		if (!flagName) {
 			throw new StyleError(
 				`Invalid font-weight "${value}": a terminal has bold, dim, and normal, and no axis between them`
 			);
 		}
-		return [[flagName, 'true']];
+		// one CSS property over two longhands, so it has to reset the other -- the
+		// same rule `border` and `flex-flow` follow. `font-weight: normal` did and
+		// `font-weight: bold` did not
+		return flagName === 'bold'
+			? [
+					['bold', 'true'],
+					['dim', 'false'],
+				]
+			: [
+					['bold', 'false'],
+					['dim', 'true'],
+				];
 	},
-	'font-style': (value) => {
+	'font-style': (value: string) => {
 		const key = value.trim().toLowerCase();
 		if (key === 'normal') {
 			return [['italic', 'false']];
@@ -393,7 +420,7 @@ const ALIASES: Record<string, PropertyName | ((value: string) => [PropertyName, 
 		}
 		throw new StyleError(`Invalid font-style "${value}": expected normal or italic`);
 	},
-	'text-decoration': (value) => {
+	'text-decoration': (value: string) => {
 		const wanted = new Set(value.trim().toLowerCase().split(/\s+/));
 		const known: [PropertyName, string][] = [
 			['underline', String(wanted.has('underline'))],
@@ -407,7 +434,7 @@ const ALIASES: Record<string, PropertyName | ((value: string) => [PropertyName, 
 		}
 		return known;
 	},
-};
+} as unknown as Record<string, PropertyName | ((value: string) => [PropertyName, string][])>;
 
 /**
  * Whether a name is a property this table holds, in either spelling and in any
@@ -417,7 +444,34 @@ const ALIASES: Record<string, PropertyName | ((value: string) => [PropertyName, 
  * @returns Whether it is known.
  */
 export function isProperty(name: string): boolean {
-	return name.trim().toLowerCase() in ALIASES || resolveName(name) !== undefined;
+	return aliasFor(name) !== undefined || resolveName(name) !== undefined;
+}
+
+/**
+ * The alias entry for a name, in either spelling.
+ *
+ * `fontWeight` is how a props object spells it and `font-weight` is how a
+ * stylesheet does; both are written, so both resolve. `Object.hasOwn` rather
+ * than `in`, for the reason the registries give.
+ *
+ * @param name - The property name.
+ * @returns The alias, if there is one.
+ */
+function aliasFor(
+	name: string
+): PropertyName | ((value: string) => [PropertyName, string][]) | undefined {
+	const trimmed = name.trim();
+	for (const candidate of [trimmed.toLowerCase(), kebabOf(trimmed).toLowerCase()]) {
+		if (Object.hasOwn(ALIASES, candidate)) {
+			return ALIASES[candidate];
+		}
+	}
+	return undefined;
+}
+
+/** `fontWeight` -> `font-weight`, leaving an already-kebab name alone. */
+function kebabOf(name: string): string {
+	return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
 
 /**
@@ -435,13 +489,16 @@ export function isProperty(name: string): boolean {
 function resolveName(name: string): PropertyName | undefined {
 	const trimmed = name.trim();
 
-	const asWritten = camel(trimmed) as PropertyName;
-	if (asWritten in PROPERTIES) {
-		return asWritten;
+	// as written first, which is what keeps `backgroundColor` working; then
+	// lowercased, which is what a case-insensitive kebab lookup needs and exactly
+	// what would destroy the camelCase one. `Object.hasOwn` rather than `in`,
+	// because `constructor` and `toString` are truthy on a plain object
+	for (const candidate of [camel(trimmed), camel(trimmed.toLowerCase())] as PropertyName[]) {
+		if (Object.hasOwn(PROPERTIES, candidate)) {
+			return candidate;
+		}
 	}
-
-	const lowered = camel(trimmed.toLowerCase()) as PropertyName;
-	return lowered in PROPERTIES ? lowered : undefined;
+	return undefined;
 }
 
 /** `background-color` -> `backgroundColor`. */
@@ -465,7 +522,7 @@ export function kebab(name: PropertyName): string {
  * @returns The longhand properties and their parsed values.
  */
 export function parseDeclaration(name: string, value: string): [PropertyName, unknown][] {
-	const alias = ALIASES[name.trim().toLowerCase()];
+	const alias = aliasFor(name);
 	if (alias) {
 		const pairs: [PropertyName, string][] =
 			typeof alias === 'function' ? alias(value) : [[alias, value]];

@@ -72,6 +72,11 @@ const INSET: Edges = ['top', 'right', 'bottom', 'left'];
 type Expander = (values: string[]) => [PropertyName, string][];
 
 const SHORTHANDS: Record<string, Expander> = {
+	// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
+	// object `__proto__` and `constructor` read back truthy, so `isShorthand`
+	// answered yes and the expander lookup then handed back something that is not
+	// a function
+	__proto__: null,
 	padding: (v) => edges(v, PADDING, 'padding'),
 	margin: (v) => edges(v, MARGIN, 'margin'),
 	inset: (v) => edges(v, INSET, 'inset'),
@@ -160,36 +165,124 @@ const SHORTHANDS: Record<string, Expander> = {
 		if (v.length === 0 || v.length > 3) {
 			throw new StyleError('Invalid flex: expected one to three values');
 		}
-		if (v.length === 1 && v[0].toLowerCase() === 'none') {
-			return [
-				['flexGrow', '0'],
-				['flexShrink', '0'],
-				['flexBasis', 'auto'],
-			];
+
+		if (v.length === 1) {
+			const keyword = v[0].toLowerCase();
+			if (keyword === 'none') {
+				return [
+					['flexGrow', '0'],
+					['flexShrink', '0'],
+					['flexBasis', 'auto'],
+				];
+			}
+			if (keyword === 'initial') {
+				return [
+					['flexGrow', '0'],
+					['flexShrink', '1'],
+					['flexBasis', 'auto'],
+				];
+			}
 		}
+
+		// CSS is `none | [ <grow> <shrink>? || <basis> ]`, so a part that is a
+		// length rather than a plain number is the basis wherever it sits.
+		// `flex: auto` is the second most typed value after `flex: 1` and used to
+		// throw as an invalid grow factor
+		const numbers: string[] = [];
+		let basis: string | undefined;
+
+		for (const part of v) {
+			if (NUMBER.test(part)) {
+				numbers.push(part);
+				continue;
+			}
+			if (basis === undefined && accepts('flexBasis', part)) {
+				basis = part;
+				continue;
+			}
+			throw new StyleError(`Invalid flex "${v.join(' ')}"`);
+		}
+
 		return [
-			['flexGrow', v[0]],
-			['flexShrink', v[1] ?? '1'],
-			['flexBasis', v[2] ?? '0'],
+			['flexGrow', numbers[0] ?? '1'],
+			['flexShrink', numbers[1] ?? '1'],
+			// a bare `<number>` sets the basis to zero, which is the well-known
+			// "why doesn't flex: 1 behave the way I think" gotcha and is what
+			// everybody's muscle memory expects
+			['flexBasis', basis ?? (numbers.length > 0 ? '0' : 'auto')],
 		];
 	},
 
+	/**
+	 * `<flex-direction> || <flex-wrap>` -- either alone, in either order, which is
+	 * what CSS says and what the error message already promised. Only the
+	 * positional form was read, so `flex-flow: wrap` was rejected as an invalid
+	 * direction.
+	 */
 	'flex-flow': (v) => {
 		if (v.length === 0 || v.length > 2) {
 			throw new StyleError('Invalid flex-flow: expected a direction, a wrap, or both');
 		}
+
+		let direction: string | undefined;
+		let wrap: string | undefined;
+
+		for (const part of v) {
+			if (direction === undefined && accepts('flexDirection', part)) {
+				direction = part;
+				continue;
+			}
+			if (wrap === undefined && accepts('flexWrap', part)) {
+				wrap = part;
+				continue;
+			}
+			throw new StyleError(`Invalid flex-flow "${v.join(' ')}"`);
+		}
+
 		// the omitted half is reset rather than left alone, for the same reason
 		// `border` resets its colour
 		return [
-			['flexDirection', v[0]],
-			['flexWrap', v[1] ?? 'nowrap'],
+			['flexDirection', direction ?? 'row'],
+			['flexWrap', wrap ?? 'nowrap'],
 		];
 	},
-};
+} as unknown as Record<string, Expander>;
+
+/** A plain `<number>`, for telling a flex factor from a basis. */
+const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+
+/**
+ * Whether a property would accept a value, used to tell one part of a shorthand
+ * from another without duplicating either one's grammar.
+ *
+ * @param property - The longhand to ask.
+ * @param value - The part.
+ * @returns Whether it parses.
+ */
+function accepts(property: PropertyName, value: string): boolean {
+	try {
+		PROPERTIES[property].parse(value);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** The shorthand a name refers to, in either spelling and any case. */
+function shorthandFor(name: string): Expander | undefined {
+	const trimmed = name.trim();
+	const kebab = trimmed.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+	for (const candidate of [trimmed.toLowerCase(), kebab.toLowerCase()]) {
+		if (Object.hasOwn(SHORTHANDS, candidate)) {
+			return SHORTHANDS[candidate];
+		}
+	}
+	return undefined;
+}
 
 /** Whether a name is a shorthand rather than a property. */
 export function isShorthand(name: string): boolean {
-	return name.trim().toLowerCase() in SHORTHANDS;
+	return shorthandFor(name) !== undefined;
 }
 
 /** Every shorthand, for documentation and for tests that walk them. */
@@ -205,7 +298,7 @@ export const SHORTHAND_NAMES: readonly string[] = Object.keys(SHORTHANDS);
  * @returns The longhand declarations.
  */
 export function expandShorthand(name: string, value: string): [PropertyName, string][] {
-	const expander = SHORTHANDS[name.trim().toLowerCase()];
+	const expander = shorthandFor(name);
 	if (!expander) {
 		throw new StyleError(`"${name}" is not a shorthand`);
 	}

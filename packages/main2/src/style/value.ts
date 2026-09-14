@@ -83,7 +83,7 @@ function blank(text: string): boolean {
  * deliberately, for CLI arguments, and it should not leak in here by accident of
  * reaching for the same function.
  */
-const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+const NUMBER = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i;
 
 /**
  * Reads a number, refusing what `Number()` would quietly accept or quietly get
@@ -109,7 +109,9 @@ function readNumber(text: string): number | undefined {
 	if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
 		return undefined;
 	}
-	return value;
+	// `-0` is a number nobody writes on purpose, and it compares unequal to `0`
+	// under `Object.is` -- which is what a deep-equality assertion uses
+	return value + 0;
 }
 
 /**
@@ -159,6 +161,10 @@ export class StyleError extends Error {
  * specific RGB would override a choice the user already made.
  */
 const NAMED: Record<string, number> = {
+	// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
+	// object `constructor` reads back truthy, so `parseColor('constructor')`
+	// reached `palette()` with the Object constructor
+	__proto__: null,
 	black: 0,
 	red: 1,
 	green: 2,
@@ -177,7 +183,7 @@ const NAMED: Record<string, number> = {
 	brightmagenta: 13,
 	brightcyan: 14,
 	brightwhite: 15,
-};
+} as unknown as Record<string, number>;
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const RGB_FN = /^rgb\(\s*(-?\d+)[\s,]+(-?\d+)[\s,]+(-?\d+)\s*\)$/i;
@@ -200,7 +206,7 @@ export function parseColor(input: string): Color {
 		return DEFAULT_COLOR;
 	}
 
-	if (lower in NAMED) {
+	if (Object.hasOwn(NAMED, lower)) {
 		return palette(NAMED[lower]);
 	}
 
@@ -250,19 +256,26 @@ export function parseColor(input: string): Color {
  * @param input - The source text.
  * @returns The length.
  */
-export function parseLength(input: string): Length {
+export function parseLength(input: string, opts: { none?: boolean } = {}): Length {
 	const text = input.trim().toLowerCase();
 
 	if (text === 'auto') {
 		return AUTO;
 	}
 
-	if (text === 'none') {
+	// only where "no limit" is a thing to say. Accepting it everywhere made
+	// `width: none` and `margin: none` parse and then behave as `auto` or as zero,
+	// which is not CSS and is not anything the author meant
+	if (text === 'none' && opts.none) {
 		return NONE;
 	}
 
 	if (text.endsWith('%')) {
+		// not trimmed: `50 %` is two tokens in CSS, not a percentage
 		const digits = text.slice(0, -1);
+		if (digits !== digits.trimEnd()) {
+			throw new StyleError(`Invalid percentage "${input}"`);
+		}
 		const share = blank(digits) ? undefined : readNumber(digits);
 		if (share === undefined) {
 			throw new StyleError(`Invalid percentage "${input}"`);

@@ -410,11 +410,14 @@ false` rethrows instead; a function replaces the handler.
   The text decorations do inherit here, which CSS reaches by propagating lines
   across descendants rather than by inheritance -- a cell grid has no box
   structure to do that with, so this is the deliberate simplification.
-- **A property name resolves in both spellings and any case.** `background-color`
-  in a stylesheet and `backgroundColor` in a props object are both written.
-  Lowercasing first is what a case-insensitive kebab lookup needs and exactly
-  what destroys the camelCase one, so the two are tried separately rather than
-  funnelled through one normalization that cannot serve both.
+- **A property name resolves in both spellings, and in any case for the kebab
+  one.** `background-color` in a stylesheet and `backgroundColor` in a props
+  object are both written; aliases and shorthands resolve both ways too, which
+  they did not at first. Lowercasing is what a case-insensitive kebab lookup
+  needs and exactly what destroys the camelCase one, so the two are tried
+  separately rather than funnelled through one normalization that cannot serve
+  both. `BackgroundColor` is not recognised and is not meant to be -- the
+  camelCase spelling is a JavaScript identifier, and identifiers have a case.
 - **One unit, and it is a cell.** A bare number is cells; `ch` is accepted as a
   synonym because people type it. A fractional length is _refused_ rather than
   rounded: rounding silently is how a layout ends up a column out with nobody
@@ -436,7 +439,26 @@ false` rethrows instead; a function replaces the handler.
 - **A shorthand reports against the longhand that could not take the value.**
   Shorthands expand to source text and the longhand parsers do the reading, so
   `padding: 1 nonsense` fails at `padding-right` rather than at `padding` -- the
-  shorthand could not have said which part was wrong.
+  shorthand could not have said which part was wrong. That means each longhand
+  has to carry its _own_ name; the padding parsers all said "padding", which is
+  the message the shorthand would have given anyway.
+- **Every lookup table here is null-prototype, and every lookup uses
+  `Object.hasOwn`.** The same entry Conventions already carries for the parser's
+  registries, rediscovered: on a plain object `constructor` and `toString` read
+  back truthy, so `isKnownProperty('constructor')` was true and
+  `declare({ constructor: 'red' })` was a `TypeError` from somewhere inside
+  rather than an error anybody could act on.
+- **A CSS property that maps onto two longhands resets both.** `font-weight:
+normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
+  standing. Same rule as `border` and `flex-flow`, and the same bug in a third
+  place.
+- **`none` parses only where "no limit" is a thing to say.** Accepting it on all
+  fourteen length properties made `width: none` and `margin: none` parse and then
+  behave as `auto` or as zero -- not CSS, and not what the author meant.
+- **The property table is frozen, definitions included.** The initial values were
+  frozen and the slots holding them were not, which is the same TypeScript
+  fiction one level up: `PROPERTIES.width.initial = cells(7)` changed what
+  `declare()` returned for every style in the process.
 - **Margins take a length and paddings take a count.** `auto` is how a box is
   centred and how it is pushed to one end, and a negative margin is a real
   thing; neither is true of padding.

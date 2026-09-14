@@ -8,7 +8,6 @@ import {
 	inheritFrom,
 	initialStyle,
 	isKnownProperty,
-	isProperty,
 	isShorthand,
 	kebab,
 	NONE,
@@ -41,11 +40,12 @@ describe('the property table', () => {
 		// disagrees with itself, and nothing else would catch it
 		for (const name of PROPERTY_NAMES) {
 			const { initial, parse } = PROPERTIES[name];
+			// no skipping: a value this helper cannot write is a property the
+			// self-check quietly stops covering, and the two it stopped covering
+			// were the two the last commit changed
 			const written = writeValue(initial);
-			if (written === undefined) {
-				continue;
-			}
-			expect(parse(written), `${name} does not round-trip through "${written}"`).toEqual(initial);
+			expect(written, `${name} has an initial value the test cannot write`).toBeDefined();
+			expect(parse(written!), `${name} does not round-trip through "${written}"`).toEqual(initial);
 		}
 	});
 
@@ -116,6 +116,9 @@ function writeValue(value: unknown): string | undefined {
 		const length = value as { type: string; value?: number };
 		if (length.type === 'auto') {
 			return 'auto';
+		}
+		if (length.type === 'none') {
+			return 'none';
 		}
 		if (length.type === 'cells') {
 			return String(length.value);
@@ -319,12 +322,23 @@ describe('declarations', () => {
 	});
 
 	it('should map font-weight onto the attributes a terminal has', () => {
-		expect(parseDeclaration('font-weight', 'bold')).toEqual([['bold', true]]);
-		expect(parseDeclaration('font-weight', 'dim')).toEqual([['dim', true]]);
+		// one CSS property over two longhands, so every value resets the other --
+		// the same rule `border` and `flex-flow` follow. `normal` did and `bold`
+		// did not, so `font-weight: bold` left a `dim` from an earlier declaration
+		// standing
+		expect(parseDeclaration('font-weight', 'bold')).toEqual([
+			['bold', true],
+			['dim', false],
+		]);
+		expect(parseDeclaration('font-weight', 'dim')).toEqual([
+			['bold', false],
+			['dim', true],
+		]);
 		expect(parseDeclaration('font-weight', 'normal')).toEqual([
 			['bold', false],
 			['dim', false],
 		]);
+		expect(declare({ dim: 'true', 'font-weight': 'bold' }).dim).toBe(false);
 	});
 
 	it('should refuse a numeric font-weight', () => {
@@ -531,10 +545,15 @@ describe('inheritFrom', () => {
 		expect(child.width).toEqual(AUTO);
 	});
 
-	it('should not share objects with the parent', () => {
+	it('should give a child the initial value for what it does not inherit', () => {
+		// this used to claim it proved no object was shared. It did not: the parent
+		// was `cells(10)` and the child `AUTO`, so they differ because `width` is
+		// not inherited, not because anything was copied. Sharing a frozen `AUTO`
+		// is fine and is what actually happens
 		const parent = declare({ width: '10' });
 		const child = inheritFrom(parent);
-		expect(child.width).not.toBe(parent.width);
+		expect(child.width).toEqual(AUTO);
+		expect(inheritFrom(declare()).width).toBe(AUTO);
 	});
 });
 
@@ -557,5 +576,129 @@ describe('readDeclarations', () => {
 	it('should return only what was declared', () => {
 		const read = readDeclarations({ color: 'red', gap: '1 2' });
 		expect(Object.keys(read).sort()).toEqual(['color', 'columnGap', 'rowGap']);
+	});
+});
+
+describe('prototype-named properties', () => {
+	it('should not recognise a name that only exists on Object.prototype', () => {
+		// AGENTS.md has an entry about exactly this for the parser's registries:
+		// on a plain object `constructor` and `toString` read back truthy and answer
+		// a lookup nothing declared
+		for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+			expect(isKnownProperty(name), name).toBe(false);
+			expect(isShorthand(name), name).toBe(false);
+		}
+	});
+
+	it('should refuse to declare one, with an error rather than a crash', () => {
+		for (const name of ['constructor', 'toString', '__proto__']) {
+			expect(() => declare({ [name]: 'red' }), name).toThrow(StyleError);
+		}
+	});
+
+	it('should not read a prototype member as a colour or a weight', () => {
+		expect(() => parseColor('constructor')).toThrow(StyleError);
+		expect(() => parseDeclaration('font-weight', 'constructor')).toThrow(StyleError);
+	});
+});
+
+describe('names in both spellings', () => {
+	it('should resolve an alias written either way', () => {
+		for (const name of ['font-weight', 'fontWeight', 'font-style', 'fontStyle']) {
+			expect(isKnownProperty(name), name).toBe(true);
+		}
+		expect(declare({ fontWeight: 'bold' }).bold).toBe(true);
+	});
+
+	it('should resolve a shorthand written either way', () => {
+		expect(isShorthand('flexFlow')).toBe(true);
+		expect(declare({ flexFlow: 'column' }).flexDirection).toBe('column');
+	});
+});
+
+describe('flex-flow', () => {
+	it('should take a wrap on its own, which its own error message promised', () => {
+		expect(declare({ 'flex-flow': 'wrap' })).toMatchObject({
+			flexDirection: 'row',
+			flexWrap: 'wrap',
+		});
+	});
+
+	it('should take them in either order', () => {
+		expect(declare({ 'flex-flow': 'wrap column' })).toMatchObject({
+			flexDirection: 'column',
+			flexWrap: 'wrap',
+		});
+	});
+
+	it('should still refuse nonsense', () => {
+		expect(() => declare({ 'flex-flow': 'sideways' })).toThrow(StyleError);
+	});
+});
+
+describe('flex keywords', () => {
+	it('should read flex: auto', () => {
+		// the second most typed value after `flex: 1`, and it used to throw as an
+		// invalid grow factor
+		expect(declare({ flex: 'auto' })).toMatchObject({
+			flexBasis: AUTO,
+			flexGrow: 1,
+			flexShrink: 1,
+		});
+	});
+
+	it('should read flex: initial', () => {
+		expect(declare({ flex: 'initial' })).toMatchObject({
+			flexBasis: AUTO,
+			flexGrow: 0,
+			flexShrink: 1,
+		});
+	});
+
+	it('should read a basis given with a factor', () => {
+		expect(declare({ flex: '2 auto' })).toMatchObject({ flexBasis: AUTO, flexGrow: 2 });
+		expect(declare({ flex: '1 50%' })).toMatchObject({ flexBasis: percent(50), flexGrow: 1 });
+	});
+});
+
+describe('none is only where it means something', () => {
+	it('should refuse it on a property that has no "no limit"', () => {
+		for (const property of ['width', 'min-width', 'flex-basis', 'margin-top', 'top']) {
+			expect(() => parseDeclaration(property, 'none'), property).toThrow(StyleError);
+		}
+	});
+
+	it('should take it on max-width and max-height', () => {
+		expect(declare({ 'max-width': 'none' }).maxWidth).toEqual(NONE);
+		expect(declare({ 'max-height': 'none' }).maxHeight).toEqual(NONE);
+	});
+});
+
+describe('the table itself is frozen', () => {
+	it('should refuse an edit to a definition', () => {
+		// the initial values were frozen and the slots holding them were not, which
+		// is the same TypeScript fiction one level up
+		expect(() => {
+			(PROPERTIES.width as { initial: unknown }).initial = cells(7);
+		}).toThrow();
+		expect(declare().width).toEqual(AUTO);
+	});
+});
+
+describe('number grammar edges', () => {
+	it('should refuse a trailing dot, which CSS does not have', () => {
+		expect(() => parseLength('5.')).toThrow(StyleError);
+	});
+
+	it('should refuse a space before the percent sign', () => {
+		expect(() => parseLength('50 %')).toThrow(StyleError);
+	});
+
+	it('should normalise negative zero', () => {
+		// it compares unequal to zero under Object.is, which is what a deep-equality
+		// assertion uses
+		const zero = parseLength('-0');
+		expect(zero).toEqual(cells(0));
+		expect(Object.is((zero as { value: number }).value, 0)).toBe(true);
 	});
 });
