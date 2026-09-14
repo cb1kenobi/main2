@@ -151,7 +151,9 @@ describe('@main2/cli', () => {
 			expect(built().startsWith('#!/usr/bin/env node')).toBe(true);
 		});
 
-		it('should be executable', () => {
+		// NTFS has no execute bit and npm does not rely on one there -- it writes
+		// a `.cmd` shim instead -- so the question only means something on POSIX
+		it.skipIf(process.platform === 'win32')('should be executable', () => {
 			// npm preserves the mode it was packed with, so a bin that lost its
 			// executable bit here is a bin nobody can run after installing
 			expect(statSync(bin).mode & 0o111).not.toBe(0);
