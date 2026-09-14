@@ -80,6 +80,21 @@ let notifying = false;
  */
 let computing = false;
 
+/**
+ * Option key marking a `Computed` as an effect body.
+ *
+ * An effect is a computed nobody reads for its value, and unlike a real
+ * derivation it is allowed to write: reacting to a change by setting something
+ * else is most of what an effect is for -- focus moving, a resize landing on a
+ * width, a dirty bit going up. The write ban exists because a *derivation* that
+ * writes makes its answer depend on evaluation order, and an effect has no
+ * answer to depend on it.
+ *
+ * Not part of the proposal, and not exported past this module: `effect()` is
+ * the only thing that may set it.
+ */
+export const effectBody: unique symbol = Symbol('main2.effectBody');
+
 /** Option key for the callback fired when a signal gains its first watcher. */
 export const watched: unique symbol = Symbol('Signal.subtle.watched');
 
@@ -99,6 +114,8 @@ export interface SignalOptions<T> {
 	[watched]?: () => void;
 	/** Called when this signal stops being reachable from any watcher. */
 	[unwatched]?: () => void;
+	/** @internal Marks an effect body, which may write. */
+	[effectBody]?: boolean;
 }
 
 /**
@@ -326,6 +343,7 @@ export class Computed<T> implements Producer, Consumer {
 	#thrown: Thrown | undefined;
 	#evaluating = false;
 	#everRun = false;
+	#writes: boolean;
 	#watchedCallback: (() => void) | undefined;
 	#unwatchedCallback: (() => void) | undefined;
 
@@ -347,6 +365,7 @@ export class Computed<T> implements Producer, Consumer {
 		this.#equals = options.equals ?? Object.is;
 		this.#watchedCallback = options[watched];
 		this.#unwatchedCallback = options[unwatched];
+		this.#writes = options[effectBody] === true;
 	}
 
 	/** @internal */
@@ -412,7 +431,7 @@ export class Computed<T> implements Producer, Consumer {
 		// here, which is what makes dependency tracking automatic
 		// eslint-disable-next-line typescript/no-this-alias
 		currentConsumer = this;
-		computing = true;
+		computing = !this.#writes;
 		this.#evaluating = true;
 
 		let next: T | undefined;
@@ -457,6 +476,30 @@ export class Computed<T> implements Producer, Consumer {
 		if (changed) {
 			this.version++;
 		}
+	}
+
+	/**
+	 * Drops every dependency, so that nothing upstream keeps this alive.
+	 *
+	 * Not part of the proposal, which leaves this to garbage collection -- and
+	 * would be right to, if the edges pointed the other way. They do not: a
+	 * source holds its sinks in a `Set`, so a long-lived signal keeps every
+	 * computed that ever read it reachable forever. An effect that is disposed,
+	 * or one whose first run threw before a disposer could be handed back, has to
+	 * say so or it is never collected.
+	 *
+	 * Reading it again recomputes from scratch, so this is a release rather than
+	 * a destruction.
+	 */
+	dispose(): void {
+		// a copy: `removeEdge` can fire an `unwatched` callback, and user code
+		// there is free to touch this graph
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const source of [...this.sources.keys()]) {
+			removeEdge(source, this);
+		}
+		this.sources.clear();
+		this.state = DIRTY;
 	}
 
 	/**
@@ -581,6 +624,32 @@ export class Watcher implements Consumer {
 			}
 		}
 		return pending;
+	}
+}
+
+/**
+ * Runs a function as work a notify callback *scheduled*, rather than as part of
+ * the callback itself.
+ *
+ * A watcher's callback may not touch the graph, and that rule is worth keeping:
+ * reading or writing from inside it is how re-entrant propagation starts. But a
+ * scheduler is allowed to run its flush synchronously -- a frame loop driving
+ * its own timing does exactly that -- and the flush is not the callback. Without
+ * this, a synchronous scheduler threw out of the `set()` that triggered it and
+ * left the watcher disarmed for the life of the process.
+ *
+ * Not part of the proposal, and not exported past this package.
+ *
+ * @param fn - What to run.
+ * @returns Whatever it returned.
+ */
+export function outsideNotify<T>(fn: () => T): T {
+	const previous = notifying;
+	notifying = false;
+	try {
+		return fn();
+	} finally {
+		notifying = previous;
 	}
 }
 

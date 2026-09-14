@@ -45,7 +45,17 @@ export {
 	Watcher,
 	watched,
 };
-export { effect, type Flush, type Scheduler, flush, setScheduler } from './effect.js';
+export {
+	createEffects,
+	effect,
+	type EffectErrorHandler,
+	type Effects,
+	type Flush,
+	flush,
+	type Scheduler,
+	setErrorHandler,
+	setScheduler,
+} from './effect.js';
 
 /**
  * The parts of the API the proposal marks as sharp: introspection, the manual

@@ -784,8 +784,10 @@ sits next to everything else that was printed, and rules around it are noise.
 ### `main2/signals`
 
 The reactive core, shaped like the [TC39 Signals proposal][signals] (stage 1)
-rather than invented here — so switching to the native `Signal` when it lands is
-an import change, and anyone who has used signals anywhere already knows this.
+rather than invented here — so `Signal.State` and `Signal.Computed` can be
+swapped for the native ones when they land, and anyone who has used signals
+anywhere already knows them. `effect()`, `flush()`, and the scheduler are main2's
+own: the proposal deliberately leaves scheduling out.
 
 ```js
 import { Signal, effect } from 'main2/signals';
@@ -806,7 +808,12 @@ reads never runs however often its inputs change. Dependencies are recorded on
 every run, so a branch that stops reading a signal stops depending on it.
 
 An `effect()` runs immediately and again whenever something it read changed. It
-may return a cleanup, which runs before each re-run and once more on dispose:
+**may write signals** — reacting to a change by setting something else is most
+of what an effect is for — and a flush keeps draining until nothing is left
+dirty, so an effect that another effect's write dirtied still settles in the same
+pass.
+
+It may return a cleanup, which runs before each re-run and once more on dispose:
 
 ```js
 const stop = effect(() => {
@@ -830,6 +837,20 @@ setScheduler(previous);
 Coalescing is about how many times an effect runs, not whether it runs: a signal
 written to `1` and back to `0` before the flush re-runs its effects once, with
 the value it settled on.
+
+An effect created inside another effect's body belongs to it, and is disposed
+when the parent re-runs or is disposed. That is what keeps a component from
+leaking an effect per render.
+
+An error thrown by an effect goes to `setErrorHandler()` rather than out of the
+flush. Under the default scheduler a rethrow would land in a microtask nobody
+catches, which kills the process with a raw stack and skips every bit of error
+handling the framework has. The default handler writes the message and sets the
+exit code; the renderer replaces it with the real one.
+
+`createEffects()` gives an independent scope — its own watcher, scheduler, queue,
+and error handler — for when one global is not enough: two canvases with
+different frame loops, or a test that wants isolation.
 
 #### `Signal.subtle`
 
@@ -871,6 +892,15 @@ A `Computed` may not write a signal, may not read itself, and a `Watcher`'s
 notify callback may not touch the graph at all. Each throws rather than being
 merely discouraged: all three make the result depend on evaluation order, and
 laziness is exactly what makes evaluation order unpredictable.
+
+An **effect** is exempt from the first of those. A derivation has an answer and a
+write would make that answer depend on who read it first; an effect has no
+answer. `untrack()` is not the escape hatch here — it hides a read, not a write.
+
+An effect may not be `async`. Tracking stops at the first `await`, so nothing
+read after it would be a dependency, and the returned promise would be stored as
+the cleanup and called on the next run. It throws rather than failing a run
+later.
 
 An error thrown by a `Computed` is cached the way a value is, rethrown on every
 read until something it depends on changes.

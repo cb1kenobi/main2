@@ -369,8 +369,8 @@ false` rethrows instead; a function replaces the handler.
   refreshes and then calls `track()`, because what a consumer records is the
   producer's _version_ and a computed being read for the first time is about to
   change it. Recording first stored a version the producer had already left
-  behind, so the consumer compared unequal on every later check and re-ran
-  forever -- a dependent that could never settle. It looks like an ordering
+  behind, so the dependent re-ran once spuriously after every first read -- the
+  cache off by one rather than exact. It looks like an ordering
   nicety and it is the difference between caching and not. Pinned by "should not
   re-run a dependent when its own value did not change" in
   `test/signals/signals.test.ts`.
@@ -393,11 +393,56 @@ false` rethrows instead; a function replaces the handler.
   order, and laziness is precisely what makes evaluation order unpredictable --
   the same program gives different answers depending on who read what first.
   Merely discouraging them means the bug surfaces later, somewhere else.
-- **`flush()` re-arms the watcher even when an effect throws.** The first error
-  is rethrown once every other pending effect has run. Letting the throw escape
-  before the re-arm would leave the watcher disarmed, which silently ends all
-  future reactivity for the whole process -- one bad effect turning into a dead
-  UI is a far worse failure than a loud one.
+- **An effect may write a signal; a `Computed` still may not.** Reacting to a
+  change by setting something else is most of what an effect is _for_ -- focus
+  moving, a resize landing on a width, a dirty bit going up -- and banning it
+  would have made the whole layer useless to the renderer. The ban on a
+  _derivation_ writing stands, because a derivation has an answer and a write
+  makes that answer depend on evaluation order. An effect has no answer. An
+  effect body is a `Computed` carrying an internal `effectBody` marker, which is
+  the only thing that lifts the ban.
+- **A flush drains until nothing is dirty, not once.** It follows from the
+  above: an effect that writes can dirty an effect that already ran this pass,
+  and stopping after one pass would leave that one a frame behind. The watcher is
+  re-armed _before_ each pass, so a write made during one schedules the next.
+  There is a bound, because two effects each writing what the other reads would
+  otherwise spin forever with nothing said about which two.
+- **An error in an effect is reported, never rethrown.** Under the default
+  microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
+  a raw stack and kills the process, skipping `main2()`'s error handling, the
+  `beforeError` hooks, and any chance of putting the terminal back -- the exact
+  opposite of the rule that a CLI shows a message and not a stack. Errors go to
+  `setErrorHandler()`, whose default writes the message and sets the exit code,
+  and which the renderer replaces with the real handler. The watcher is re-armed
+  either way: one bad effect silently ending all future reactivity is worse than
+  a loud failure.
+- **A `flush()` run from inside a notify callback is allowed; a read from the
+  callback itself is not.** A scheduler may run its flush synchronously, which is
+  what a frame loop driving its own timing does. That is only compatible with the
+  callback's ban on touching the graph because the flush is the work the callback
+  _scheduled_ rather than the callback -- which is what `outsideNotify()` marks.
+  Without it a synchronous scheduler threw out of the `set()` that triggered it
+  and left the watcher disarmed for the life of the process.
+- **An effect created inside another effect's body dies with it.** Otherwise a
+  component that creates an effect while rendering leaks one per render, and
+  nothing above can see them to clean up. The initial run is `untrack`ed for the
+  same reason: without it the child registers as a dependency of the parent.
+- **`Computed.dispose()` exists and the proposal has no such thing.** Garbage
+  collection would be enough if the edges pointed the other way, but a source
+  holds its sinks in a `Set`, so a long-lived signal keeps every computed that
+  ever read it reachable. An effect that is disposed has to say so.
+- **An effect that returns a promise throws; any other non-cleanup return is
+  ignored.** A promise stored as the cleanup is called on the _next_ run and
+  fails with "previous is not a function", one run later and nowhere near the
+  mistake -- and tracking stopped at the first `await` anyway. Everything else is
+  let through, because `effect(() => a.set(b.get()))` is the spelling worth
+  encouraging and a concise arrow body returns whatever its last call did.
+- **Effects come in scopes, and the module-level ones are a default scope.**
+  `createEffects()` gives an independent watcher, scheduler, queue, and error
+  handler. One global scheduler is a trap the moment there is more than one thing
+  driving frames -- two canvases with different loops, a library using main2
+  inside a host that also does, or two tests in one file where the first leaves a
+  scheduler that never ran and the second is dead before it starts.
 - **Coalescing is about how many times an effect runs, not whether it runs.** A
   signal written to `1` and back to `0` before the flush still re-runs its
   effects, once, with the value it settled on. Nothing records what a signal held
