@@ -335,19 +335,37 @@ build` reads as `name: '--target'` and leaves `x` stranded. Putting the
 > bound as they are read, which is also what lets `--name build` treat a
 > command name as a plain value.
 
-An option that reaches step 3 gets an empty string, which its data type then
-coerces — `''` for `string`, `0` for `number` and `int`. A **required** option
-that reaches step 3, or that is handed an explicitly empty value, throws
-instead:
+An option that reaches step 3 **throws**, required or not:
+
+```
+Missing value for option --name
+```
+
+`<>` and `[]` say whether the _option_ has to appear — `[value]` is an optional
+option that **takes a value** — and neither says the value may be left out.
 
 | Input                 | `--name <v>` (required) | `--name [v]` (optional) |
 | --------------------- | ----------------------- | ----------------------- |
 | `--name chris`        | `'chris'`               | `'chris'`               |
 | `--name=chris`        | `'chris'`               | `'chris'`               |
-| `--name`              | throws                  | `''`                    |
-| `--name=`             | throws                  | `''`                    |
-| `--name --declared`   | throws                  | `''`                    |
+| `--name`              | throws                  | throws                  |
+| `--name=`             | `''`                    | `''`                    |
+| `--name --declared`   | throws                  | throws                  |
 | `--name --undeclared` | `'--undeclared'`        | `'--undeclared'`        |
+
+`--name=` is different from `--name`: it **gave** a value, an empty one. Whether
+that is allowed is the data type's question, and an empty value is a value only
+where the type has one — `string` does, `bool` and `count` read it as off, and
+every other type rejects it the way `date` and `json` always did. So `--port=`
+on an `int` option throws `Invalid integer`, and `--name=` on a `<value>` string
+option is `''`: requiredness is about the option appearing, not about what it
+was given.
+
+> [!NOTE]
+> An empty **environment** variable is read as unset. `PORT=` in a shell or a
+> `.env` file almost always means "not configured", so it falls through to
+> `default` rather than failing the parse on a value most types reject.
+> `--port=` remains the deliberate way to say empty, and is not second-guessed.
 
 An attached value is taken exactly as it was typed. Only the name is trimmed,
 so `--sep=` followed by a space is the one-space value `' '` and not `''` —
@@ -563,7 +581,7 @@ retried once more contexts are known.
 | `bool`   | `true`/`t`/`yes`/`y`/`on`/`1` and negations  | `boolean` |
 | `yesno`  | `y`, `yes`, `n`, `no` (case-insensitive)     | `boolean` |
 | `int`    | `-?\d+` or `0x…`, within the safe range      | `number`  |
-| `number` | anything `Number()` accepts but whitespace   | `number`  |
+| `number` | anything `Number()` accepts but blank        | `number`  |
 | `date`   | `YYYY-MM-DD`, ISO 8601, or 13-digit epoch ms | `Date`    |
 | `json`   | valid JSON                                   | `unknown` |
 | `count`  | flags only; counts occurrences               | `number`  |
@@ -576,10 +594,9 @@ Flags accept only `bool`, `count`, `yesno`, and `auto`; the last two are
 normalized to `bool`. `count` is rejected on non-flags, and with `multiple`. A
 string value that reaches a counter — from the environment, or from a string
 `default` — is coerced like an `int`, and an empty one is `0`, the same way `bool`
-reads an empty value as false. `int` reads an empty value as `0` too, since
-`number` already does and one integer type failing a parse where the other
-returns zero is not a distinction worth having; whitespace still throws for
-both. A counter reached with an explicit value — `-v=3` — is **set** to it
+reads an empty value as false. `int` rejects an empty value, and so does
+`number`: `Number('')` and `Number(' ')` are both `0`, and neither is a number
+somebody wrote. Only `string` and the two flag types have a reading of empty. A counter reached with an explicit value — `-v=3` — is **set** to it
 rather than incremented, the way an explicit `--flag=false` beats the name a
 bool flag was reached by, so `-v -v=5 -v` is `6`. A counter is never wrapped in
 an array. What a counter does not escape is what no type escapes: a non-string
@@ -590,10 +607,8 @@ accepts `yes` and `no` too.
 An `int` outside the safe integer range throws rather than returning a value
 that is not the one written: `Number('9007199254740993')` is `...992`, and an
 id that comes back as a different id is the one failure a caller cannot see.
-`number` throws on a value that is only whitespace, since `Number(' ')` is `0`
-and `int`, `count`, and `bool` all reject it — an _empty_ value is `0` for all
-of them, but a space is not empty, and space around a real number is still that
-number.
+Space around a real number is still that number, since `Number()` trims — only
+a value with nothing else in it is empty.
 
 A `date` has its calendar checked before the `Date` is built, because `Date`
 overflows rather than refusing: `2024-02-30` used to come back as March 1st. A

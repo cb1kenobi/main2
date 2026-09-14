@@ -41,6 +41,9 @@ trace, because the caller is a bin script.
 semantics, precedence, and every place this parser deliberately differs from
 Commander and yargs. This README is the API tour.
 
+**[demos/](demos/)** is the same material as runnable files — one idea each,
+plain JavaScript, with the commands worth trying at the top of every one.
+
 ---
 
 ## Contents
@@ -53,7 +56,7 @@ Commander and yargs. This README is the API tour.
 - [Hooks](#hooks)
 - [Help](#help)
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `paths`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `paths`, `updates`
 
 ---
 
@@ -662,6 +665,121 @@ cursor down rather than walking up a number it cannot trust.
 
 Creating a second region evicts the first, through the same claim the terminal
 hands out.
+
+### `main2/components`
+
+Prompts, a spinner, a progress bar, and a table. Plain functions that render
+strings into a live region — no virtual DOM and no reconciler, because the
+render target is text: re-rendering a frame and diffing lines _is_ the diff.
+
+#### Prompts
+
+```js
+import { text, password, confirm, select, multiselect } from 'main2/components';
+
+const name = await text({ message: 'Project name', default: 'my-app' });
+const secret = await password({ message: 'Token' });
+const ok = await confirm({ message: 'Continue?' });
+
+const target = await select({
+  message: 'Target',
+  choices: ['esm', 'cjs', { label: 'Both', value: 'both', hint: 'slower' }],
+});
+
+const features = await multiselect({
+  message: 'Features',
+  choices: [{ label: 'TypeScript', selected: true }, { label: 'Tests' }],
+  required: true,
+});
+```
+
+`text()` takes `default`, `placeholder`, `mask`, and a `validate` that may be
+async — return a string to reject the answer with that message. Editing keys
+are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
+arrives as one chunk and is read as the keys it carries, not just the first.
+
+> [!IMPORTANT]
+> A prompt **throws rather than hangs** when there is no terminal — in a
+> pipeline, a CI job, or a `cron` entry. Waiting on a stdin that will never
+> produce a keystroke is a hung build with no explanation, so `PromptError`
+> names the question that went unanswered. `err.aborted` tells the two cases
+> apart: `true` is Ctrl-C, `false` is nobody there to ask.
+
+#### Spinner
+
+```js
+import { createSpinner } from 'main2/components';
+
+const spinner = createSpinner({ text: 'Resolving' }).start();
+
+spinner.text = 'Compiling';
+spinner.write('compiled foo.js'); // stays, above the spinner
+spinner.succeed('Compiled 2 files');
+```
+
+`succeed`, `fail`, `warn`, and `info` each stop and leave one marked line.
+`stop()` erases and leaves nothing.
+
+#### Progress
+
+```js
+import { createProgress } from 'main2/components';
+
+const bar = createProgress({ text: 'Copying', total: files.length });
+
+for (const file of files) {
+  await copy(file);
+  bar.tick();
+}
+
+bar.done('Copied');
+```
+
+The bar sizes itself to a third of the terminal, between 10 and 40 columns,
+unless given a `barWidth`.
+
+Both degrade the same way. Piped, there is nothing to animate, so a spinner
+writes one line per **change** and a bar one line every `step` percent — not
+one per tick:
+
+```
+Resolving
+Compiling
+compiled foo.js
+✔ Compiled 2 files
+Copying 0%
+Copying 50%
+Copying 100%
+```
+
+#### Table
+
+```js
+import { table } from 'main2/components';
+
+table(rows, {
+  columns: [
+    { header: 'File', key: 'file', maxWidth: 20 },
+    { header: 'Size', key: 'size', align: 'right' },
+  ],
+});
+```
+
+```
+File          Size
+index.js    1.2 kB
+日本語.js    48 kB
+🙂emoji.js    3 kB
+```
+
+Every one of those lines is exactly 18 columns wide. Columns are sized and
+padded with `stringWidth()`, so CJK text and emoji line up where counting
+characters would not, and `maxWidth` truncates on grapheme clusters rather
+than slicing a surrogate pair in half. No borders — a table in a build log
+sits next to everything else that was printed, and rules around it are noise.
+
+`main2/components` also exports `decodeKeys()` and the `padCell()`,
+`truncateCell()`, and `renderBar()` helpers the above are built from.
 
 ### `main2/paths`
 

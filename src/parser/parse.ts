@@ -442,7 +442,13 @@ function validates(
  */
 function envValue(state: ParseState, envs: Set<string>): string | undefined {
 	for (const env of envs) {
-		if (state.env[env] !== undefined) {
+		// an empty variable is read as unset rather than as an empty value.
+		// `PORT=` in a shell or a `.env` file is how a variable gets left blank,
+		// and almost always means "not configured" -- while an empty value is one
+		// most data types reject, so honoring it literally would fail the parse
+		// over a variable nobody meant to set. `--port=` is still the way to give
+		// an empty value deliberately, and that one is not second-guessed
+		if (state.env[env]) {
 			return state.env[env];
 		}
 	}
@@ -693,14 +699,12 @@ async function parseArgv(state: ParseState): Promise<void> {
 					inputs.push(value as string);
 					$.splice(j + 1, 1);
 				} else {
-					// the option was typed but nothing followed it that could be
-					// its value, so the declared data type decides what nothing
-					// means: '' for a string, 0 for a number, and so on
-					value = '';
-				}
-
-				if (option.required && !value) {
-					throw new Error(`Missing value for required option ${label}`);
+					// an option that takes a value was given none. Required or not is a
+					// question about the *option* -- `<value>` means the option itself
+					// must appear, `[value]` means it need not -- and neither says the
+					// value may be left out. `--port=` is the way to give an empty one,
+					// and then the data type decides whether empty is a value it has
+					throw new Error(`Missing value for option ${label}`);
 				}
 			}
 

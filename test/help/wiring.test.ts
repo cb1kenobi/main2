@@ -201,7 +201,7 @@ describe('short-circuiting', () => {
 	it('should not rescue a missing option value', async () => {
 		const required: Schema = { name: 'mycli', options: { '--name <value>': 'A name' } };
 		await expect(parse({ argv: ['--name', '--help'], schema: required })).rejects.toThrow(
-			/Missing value for required option/
+			/Missing value for option/
 		);
 	});
 
