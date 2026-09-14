@@ -39,6 +39,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/terminal/`          | Terminal wrapper, live region, sequences             |
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
+| `src/canvas/`            | Cell buffer, style interning, and the paint diff     |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -59,7 +60,7 @@ sets its own `outDir`.
 `packages/cli/src/` is a skeleton — the bin, `--version`, and the schema the
 filesystem router will replace. Its commands are not written yet.
 
-`src/canvas/` and `src/i18n/` are empty placeholders.
+`src/i18n/` is an empty placeholder.
 
 `src/width/east-asian-width.ts` is generated. Regenerate it with
 `node scripts/generate-east-asian-width.mjs <unicode-version>` from inside
@@ -362,6 +363,58 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Canvas
+
+- **A canvas is a rect plus an anchor, and it does not know its anchor.** The
+  original ticket asked whether it owns the alternate screen or draws inline;
+  that is the wrong question. Every coordinate is relative to the canvas's own
+  top-left and every movement the diff emits is relative to where the cursor
+  started, so the same grid works parked at the bottom of a scrolling log or at
+  the origin of the alternate screen. Absolute positioning would have forced the
+  inline case to know a screen row it has no way to learn.
+- **A wide cluster leaves a continuation, and overwriting either half takes the
+  other with it.** Without the marker there is no answer to "what is in column
+  40" for a row containing one wide character, and every clip, overwrite, and
+  diff is off by one from there rightwards. Left alone, a survivor is half a
+  glyph. A zero-width cluster is refused a cell rather than given one, because
+  `graphemes()` has already attached it to what it modifies.
+- **A run never starts on a continuation cell.** Writing at that column would put
+  the cursor in the middle of a glyph, so a run that would begin there starts at
+  the lead instead -- even when the lead itself did not change.
+- **The diff starts every frame from the default style, not from the previous
+  frame's cell.** A frame ends by resetting, so the terminal's SGR state at the
+  start of the next one is default. Diffing against what the old cell looked like
+  would emit closing codes for attributes that are not open.
+- **An unchanged gap shorter than a cursor move is painted through.** A move
+  costs about four bytes, so skipping a two-cell gap is more expensive than
+  writing it -- and it avoids a move, which some terminals handle worse than a
+  write.
+- **Cells hold a style index, not a style.** A grid repeats a handful of styles
+  across thousands of cells and the diff's inner loop asks "same style?" once per
+  cell. Interning makes that an integer comparison and lets the grid keep its
+  styles in a typed array. The table copies what it interns, so a caller reusing
+  one object to paint many cells cannot retroactively change what a cell was
+  painted with.
+- **Extended colours are emitted in the colon form.** `38:2::255:128:0` is what
+  ITU T.416 specifies; the semicolon form is the widespread misreading, and it
+  cannot be told apart from a run of separate parameters -- which is the bug
+  `reopen()` in the styler and `createSgrState()` in the wrapper each had to
+  learn about separately.
+- **A resize discards both buffers.** The layout is about to run again at the new
+  size and repaint everything, and a grid that described a terminal that no
+  longer exists is not something to diff against -- keeping it only gives the
+  diff something wrong to compare with.
+- **`present()` copies the frame forward rather than swapping buffers.**
+  Swapping saves an allocation and leaves `back` holding the frame before last,
+  which is what the canvas reports as its current contents. A `toString()` that
+  lies is a debugging trap worth more than the allocation.
+- **The diff is tested by replaying its output against a model terminal, not by
+  asserting on its bytes.** Asserting on bytes pins one implementation; replaying
+  pins the claim, which is "these bytes turn what is on screen into what should
+  be". The model throws if the diff ever writes past the right edge or starts a
+  cluster where one would be split, so those are caught by every test rather than
+  by the one that thought to look. See `test/canvas/diff.test.ts`.
 
 ### Signals
 
