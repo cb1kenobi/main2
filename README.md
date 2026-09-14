@@ -611,6 +611,58 @@ claim.release();
 Nothing is installed on the process until there is something to put back, so
 importing this does not give every CLI a signal handler.
 
+#### The live region
+
+`createLiveRegion()` repaints the last few rows in place while everything above
+them keeps scrolling — what a spinner, a progress bar, or a prompt draws on.
+
+```js
+import { createLiveRegion } from 'main2/terminal';
+
+const region = createLiveRegion();
+
+for (const frame of ['|', '/', '-', '\\']) {
+  region.render(`${frame} Building`, 'Building');
+}
+
+region.write('compiled foo.js'); // stays, and lands above the spinner
+region.done('✔ Built in 1.2s'); // last frame stays, region released
+```
+
+`render()` takes a second argument for what the frame _means_, used when the
+output is not a terminal. Piped into a file or a CI log there is no cursor to
+move, so frames are not repainted — one line is written per change instead of
+one per tick:
+
+```
+Building
+compiled foo.js
+Linking
+✔ Built in 1.2s
+```
+
+That is the whole of the non-TTY handling: a component animates into `render()`
+and does not have to know where it is running. `region.isLive` says which case
+it is, for anything that wants to skip the work.
+
+|                         |                                                               |
+| ----------------------- | ------------------------------------------------------------- |
+| `render(frame, plain?)` | draw, replacing the last frame                                |
+| `write(text)`           | output that stays, above the region                           |
+| `clear()`               | erase the region, keep the claim                              |
+| `done(final?)`          | leave a last frame, release                                   |
+| `stop()`                | erase and release                                             |
+| `active`, `isLive`      | whether it still holds the region, and whether it can repaint |
+
+A frame's height is measured in **displayed rows** — `stringWidth()` against
+the live width, not a count of newlines — so a wrapped line or a CJK label
+still walks the cursor up by the right amount. On a resize the previous
+frame's height is no longer knowable, so the next repaint cleans from the
+cursor down rather than walking up a number it cannot trust.
+
+Creating a second region evicts the first, through the same claim the terminal
+hands out.
+
 ### `main2/paths`
 
 XDG base directories, per-platform, with `~` expanded.

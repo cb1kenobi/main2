@@ -142,6 +142,31 @@ describe('restoring in a real process', () => {
 		expect(stderr).to.contain('left-raw');
 	});
 
+	// the path CI actually takes: no TTY, so nothing can be repainted, and an
+	// animating spinner must not become a line per tick in the build log
+	it('should degrade to plain lines when the output is a pipe', async () => {
+		const file = fixture(
+			'live.mjs',
+			`
+			import { createTerminal, createLiveRegion } from <TERMINAL>;
+			const term = createTerminal();
+			const region = createLiveRegion({ terminal: term });
+			for (const spin of ['|', '/', '-', '\\\\']) {
+				region.render(spin + ' Building', 'Building');
+			}
+			region.write('compiled foo.js');
+			region.render('/ Linking', 'Linking');
+			region.done('Built');
+			`
+		);
+
+		const { stdout } = await run(file);
+
+		expect(stdout).to.equal('Building\ncompiled foo.js\nLinking\nBuilt\n');
+		// eslint-disable-next-line no-control-regex
+		expect(stdout, 'wrote an escape sequence into a pipe').to.not.match(/\u001b/);
+	});
+
 	// `mycli --help | head -1` kills a CLI that did nothing wrong, because an
 	// `error` event with no listener is an uncaught exception
 	it('should survive the reader closing the pipe', async () => {

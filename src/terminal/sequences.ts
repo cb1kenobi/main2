@@ -24,6 +24,15 @@ export const ERASE_LINE_END: string = `${ESC}[K`;
 /** Erases the whole line the cursor is on, leaving the cursor put. */
 export const ERASE_LINE: string = `${ESC}[2K`;
 
+/**
+ * Erases from the cursor to the end of the screen.
+ *
+ * What a repaint clears: the cursor goes to the first row of the live region
+ * and everything from there down goes, which is one sequence rather than an
+ * erase per row and does not care how many rows the last frame wrapped to.
+ */
+export const ERASE_DOWN: string = `${ESC}[0J`;
+
 /** Moves the cursor to column one of the line it is on. */
 export const CURSOR_HOME: string = `\r`;
 

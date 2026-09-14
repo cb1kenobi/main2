@@ -1,10 +1,12 @@
 import { DEFAULT_WIDTH, terminalWidth } from '../wrap/index.js';
 import { HIDE_CURSOR, SHOW_CURSOR } from './sequences.js';
 
+export { createLiveRegion, frameHeight, type LiveRegion, type LiveRegionOptions } from './live.js';
 export {
 	CURSOR_HOME,
 	cursorDown,
 	cursorUp,
+	ERASE_DOWN,
 	ERASE_LINE,
 	ERASE_LINE_END,
 	HIDE_CURSOR,
