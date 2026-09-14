@@ -10,16 +10,13 @@ import { main2 } from 'main2';
  * Note that `--help` lists the commands by name alone: their descriptions live
  * in modules nothing has read yet. `help deploy` loads that one and describes it.
  */
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
+import { join } from 'node:path';
 
 await main2({
 	argv: process.argv.length > 2 ? undefined : ['deploy', 'staging', '--dry-run'],
 	schema: {
 		name: 'lazy',
 		desc: 'Commands read from a directory',
-		commands: join(here, 'commands'),
+		commands: join(import.meta.dirname, 'commands'),
 	},
 });

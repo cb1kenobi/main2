@@ -9,6 +9,25 @@ import {
 import { setup, tick } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
+/**
+ * Starts a prompt and reports how it settled.
+ *
+ * The handler is attached before any key is sent, which matters: a prompt can
+ * reject while `type()` is still awaiting, and a promise that rejects before
+ * anything is listening is an unhandled rejection -- which vitest reports as an
+ * error even when every test passes. Awaiting the prompt only after the keys are
+ * sent is the natural way to write these and the wrong one.
+ *
+ * @param promise - The prompt.
+ * @returns Its answer, or the error it rejected with.
+ */
+function settle<T>(promise: Promise<T>): Promise<{ error?: PromptError; value?: T }> {
+	return promise.then(
+		(value) => ({ value }),
+		(error: PromptError) => ({ error })
+	);
+}
+
 /** Sends keys one at a time, letting the prompt act on each. */
 async function type(stdin: { send(chunk: string): void }, ...chunks: string[]) {
 	for (const chunk of chunks) {
@@ -334,20 +353,22 @@ describe('giving up', () => {
 		['ctrl-d', '\u0004'],
 	])('should reject on %s', async (_name, keys) => {
 		const { ansi, region, stdin } = setup();
-		const answer = text({ ansi, message: 'Name?', region });
+		const answer = settle(text({ ansi, message: 'Name?', region }));
 
 		await type(stdin, 'part', keys);
 
-		await expect(answer).rejects.toThrow('Cancelled');
-		await answer.catch((err: PromptError) => expect(err.aborted).to.equal(true));
+		const { error } = await answer;
+		expect(error).toBeInstanceOf(PromptError);
+		expect(error?.message).to.equal('Cancelled');
+		expect(error?.aborted).to.equal(true);
 	});
 
 	it('should erase the prompt when it is cancelled', async () => {
 		const { ansi, region, stdin } = setup();
-		const answer = text({ ansi, message: 'Name?', region });
+		const answer = settle(text({ ansi, message: 'Name?', region }));
 
 		await type(stdin, 'x', '\u0003');
-		await answer.catch(() => {});
+		await answer;
 
 		expect(region.active).to.equal(false);
 	});
@@ -360,9 +381,9 @@ describe('giving up', () => {
 		await answered;
 		expect(stdin.rawMode).to.equal(false);
 
-		const cancelled = text({ ansi, message: 'Name?', region });
+		const cancelled = settle(text({ ansi, message: 'Name?', region }));
 		await type(stdin, '\u0003');
-		await cancelled.catch(() => {});
+		await cancelled;
 		expect(stdin.rawMode).to.equal(false);
 	});
 
@@ -420,10 +441,10 @@ describe('leaving stdin alone', () => {
 
 	it('should not destroy stdin when a prompt is cancelled', async () => {
 		const { ansi, region, stdin } = setup();
-		const answer = text({ ansi, message: 'Name?', region });
+		const answer = settle(text({ ansi, message: 'Name?', region }));
 
 		await type(stdin, '\u0003');
-		await answer.catch(() => {});
+		await answer;
 
 		expect(stdin.destroyed).to.equal(false);
 	});
