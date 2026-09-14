@@ -24,6 +24,32 @@ import { DEFAULT_STYLE, type Style, StyleTable } from './style.js';
 /** What a cell holds when nothing has been painted into it. */
 export const BLANK = ' ';
 
+/**
+ * How many cells a cluster occupies, which is one or two and never more.
+ *
+ * `graphemeWidth()` sums the widths of what a cluster contains, and a cluster
+ * can contain more than two columns' worth -- a CJK character followed by a
+ * spacing mark, two leading Hangul jamo. A cell grid has no third cell to put
+ * that in: the cluster went into one cell, the cursor advanced by three, and the
+ * cells in between were never drawn while still holding content nothing would
+ * paint over. Two is the most a grid can represent, so two is what it gets.
+ *
+ * @param cluster - One grapheme cluster.
+ * @returns Zero, one, or two.
+ */
+export function cellWidth(cluster: string): number {
+	return Math.min(2, graphemeWidth(cluster));
+}
+
+/**
+ * The C0 and C1 control characters, tab included.
+ *
+ * None of them has a cell. A tab is not an exception: its width depends on where
+ * it lands and on a tab stop the grid does not model, so expanding it here would
+ * be guessing and painting it would put a hole in the row.
+ */
+const CONTROL = /[\u0000-\u001F\u007F-\u009F]/;
+
 /** The right-hand half of a wide cluster. Never painted, never drawn. */
 export const CONTINUATION = '';
 
@@ -37,7 +63,8 @@ export class CellBuffer {
 		this.#width = Math.max(0, Math.trunc(width));
 		this.#height = Math.max(0, Math.trunc(height));
 		const size = this.#width * this.#height;
-		this.#chars = Array.from({ length: size }, () => BLANK);
+		// eslint-disable-next-line unicorn/no-new-array
+		this.#chars = new Array<string>(size).fill(BLANK);
 		this.#styles = new Int32Array(size);
 	}
 
@@ -154,7 +181,7 @@ export class CellBuffer {
 			return;
 		}
 
-		if (graphemeWidth(this.#chars[index]) === 2) {
+		if (cellWidth(this.#chars[index]) === 2) {
 			// this is the lead; its continuation follows
 			const tail = this.#at(x + 1, y);
 			if (tail >= 0) {
@@ -179,7 +206,7 @@ export class CellBuffer {
 	 * painted.
 	 */
 	put(x: number, y: number, cluster: string, styleIndex: number): number {
-		const width = graphemeWidth(cluster);
+		const width = cellWidth(cluster);
 		if (width === 0) {
 			return 0;
 		}
@@ -235,12 +262,26 @@ export class CellBuffer {
 		// builds strings like that, so the first one moved onto a canvas would
 		// render junk. Stripped rather than refused: the text is what was meant,
 		// and the style belongs in `styleIndex`.
-		for (const cluster of graphemes(strip(text))) {
+		const plain = strip(text);
+
+		// a control character is refused rather than dropped. `\n` is zero width,
+		// so it took no cell and `put()` returned 0 -- and `write()` only stopped
+		// on a *positive*-width cluster that failed to land, so a wrapped paragraph
+		// painted as one concatenated line with no complaint. A grid has one row
+		// per call by construction; the caller has to say which row
+		const control = CONTROL.exec(plain);
+		if (control) {
+			throw new RangeError(
+				`Cannot paint control character U+${control[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}: a row is painted one call at a time`
+			);
+		}
+
+		for (const cluster of graphemes(plain)) {
 			if (column >= this.#width) {
 				break;
 			}
 			const consumed = this.put(column, y, cluster, styleIndex);
-			if (consumed === 0 && graphemeWidth(cluster) > 0) {
+			if (consumed === 0 && cellWidth(cluster) > 0) {
 				// off the grid rather than zero-width: nothing further will land
 				break;
 			}
@@ -269,7 +310,7 @@ export class CellBuffer {
 		cluster: string,
 		styleIndex: number
 	): void {
-		const step = graphemeWidth(cluster);
+		const step = cellWidth(cluster);
 		if (step === 0) {
 			// nothing to fill with, and a loop that never advances would not end
 			return;
@@ -299,7 +340,8 @@ export class CellBuffer {
 		if (other.#width !== this.#width || other.#height !== this.#height) {
 			this.#width = other.#width;
 			this.#height = other.#height;
-			this.#chars = Array.from({ length: other.#chars.length }, () => BLANK);
+			// eslint-disable-next-line unicorn/no-new-array
+			this.#chars = new Array<string>(other.#chars.length).fill(BLANK);
 			this.#styles = new Int32Array(other.#styles.length);
 		}
 		for (let i = 0; i < this.#chars.length; i++) {
@@ -367,7 +409,7 @@ export class Painter {
 	 * @param style - How it looks. The terminal's own, if omitted.
 	 * @returns How many columns were consumed.
 	 */
-	text(x: number, y: number, text: string, style: Style = DEFAULT_STYLE): number {
+	text(x: number, y: number, text: string, style: Partial<Style> = DEFAULT_STYLE): number {
 		return this.#buffer.write(x, y, text, this.#styles.intern(style));
 	}
 
@@ -386,7 +428,7 @@ export class Painter {
 		y: number,
 		width: number,
 		height: number,
-		style: Style = DEFAULT_STYLE,
+		style: Partial<Style> = DEFAULT_STYLE,
 		cluster: string = BLANK
 	): void {
 		this.#buffer.fill(x, y, width, height, cluster, this.#styles.intern(style));

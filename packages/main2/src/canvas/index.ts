@@ -20,7 +20,7 @@ import { CellBuffer, Painter } from './buffer.js';
 import { diff, type DiffResult } from './diff.js';
 import { StyleTable } from './style.js';
 
-export { BLANK, CellBuffer, CONTINUATION, Painter } from './buffer.js';
+export { BLANK, CellBuffer, cellWidth, CONTINUATION, Painter } from './buffer.js';
 export { diff, type DiffOptions, type DiffResult } from './diff.js';
 export {
 	ATTR,

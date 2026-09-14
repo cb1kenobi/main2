@@ -412,8 +412,23 @@ false` rethrows instead; a function replaces the handler.
 - **A partial style is filled and a nonsense one is refused.** A style arrives as
   `Partial<Style>`, so a missing field is `undefined`, and `undefined` reaches
   the terminal as `38;5;undefined` -- output it drops and nobody can trace back.
-  The styler takes the same line in `assertByte()`. Interned styles are frozen,
-  so inspecting one cannot rewrite what every cell holding that index looks like.
+  `palette()` and `rgb()` refuse out-of-range channels for the same reason rather
+  than clamping them, which is the line `assertByte()` takes in the styler.
+  Interned styles are frozen, `DEFAULT_STYLE` included -- it is index zero, which
+  is what every cell starts with, so handing back the mutable object meant one
+  write could make the diff start every frame from a "default" that was not one.
+- **A cluster occupies one cell or two, never more.** `graphemeWidth()` sums what
+  a cluster contains and can exceed two -- a CJK character with a spacing mark,
+  two leading Hangul jamo -- and a grid has no third cell to put that in. Left
+  alone, the cluster went into one cell, the cursor advanced by three, and the
+  cells between were never drawn while still holding content nothing would paint
+  over. `cellWidth()` is the only width the grid asks about.
+- **A control character is refused, not dropped.** `\n` is zero width, so it took
+  no cell and `put()` returned `0` -- and `write()` only stopped on a
+  _positive_-width cluster that failed to land, so a wrapped paragraph painted as
+  one concatenated line with no complaint. A grid paints one row per call by
+  construction, so the caller has to say which row. Tab is refused too: its width
+  depends on a tab stop the grid does not model.
 - **`Painter.text()` strips escape sequences rather than painting them.** A cell
   grid expresses styling as a style per cell, so a string carrying its own has
   nowhere to put them -- and painting cluster by cluster puts `[31m` on screen as
@@ -451,9 +466,12 @@ false` rethrows instead; a function replaces the handler.
 - **The diff is tested by replaying its output against a model terminal, not by
   asserting on its bytes.** Asserting on bytes pins one implementation; replaying
   pins the claim, which is "these bytes turn what is on screen into what should
-  be". The model throws if the diff ever writes past the right edge or starts a
-  cluster where one would be split, so those are caught by every test rather than
-  by the one that thought to look. See `test/canvas/diff.test.ts`.
+  be". The model refuses a write past the right edge, and checks after every
+  frame that no wide cluster lost its continuation and no continuation lost its
+  lead -- _after_, not during, because replacing `漢` with `ab` legitimately
+  splits it and the second write is what puts the row back together. What is
+  never legitimate is a frame ending with half a glyph on screen. See
+  `test/canvas/diff.test.ts`.
 
 ### Signals
 

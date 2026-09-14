@@ -1,6 +1,5 @@
 import { cursorDown, cursorRight, cursorUp } from '../terminal/sequences.js';
-import { graphemeWidth } from '../width/index.js';
-import { type CellBuffer, CONTINUATION } from './buffer.js';
+import { type CellBuffer, cellWidth, CONTINUATION } from './buffer.js';
 import { DEFAULT_STYLE, RESET, type Style, StyleTable, transition } from './style.js';
 
 /**
@@ -194,7 +193,7 @@ export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions):
 			}
 
 			// never stop in the middle of a wide cluster
-			if (next.charAt(runEnd, y) !== CONTINUATION && graphemeWidth(next.charAt(runEnd, y)) === 2) {
+			if (next.charAt(runEnd, y) !== CONTINUATION && cellWidth(next.charAt(runEnd, y)) === 2) {
 				runEnd++;
 			}
 
@@ -211,7 +210,7 @@ export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions):
 				useStyle(next.styleAt(column, y));
 				output += cell;
 
-				const consumed = Math.max(1, graphemeWidth(cell));
+				const consumed = Math.max(1, cellWidth(cell));
 				cursorColumn += consumed;
 				column += consumed;
 			}

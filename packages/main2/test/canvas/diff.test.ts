@@ -137,6 +137,38 @@ class FakeTerminal {
 	toLines(): string[] {
 		return this.rows.map((row) => row.join(''));
 	}
+
+	/**
+	 * Every wide cluster still has its continuation, and no continuation has lost
+	 * its lead.
+	 *
+	 * Checked after the whole frame rather than at each write: replacing `漢` with
+	 * `ab` legitimately splits it, and the second write is what puts the row back
+	 * together. What is never legitimate is a frame *ending* with half a glyph on
+	 * screen, which is what the diff's cluster handling exists to prevent -- and
+	 * what this harness claimed to catch while catching nothing.
+	 */
+	checkClusters(): void {
+		for (let y = 0; y < this.height; y++) {
+			for (let x = 0; x < this.width; x++) {
+				const cell = this.rows[y][x];
+
+				if (cell === '') {
+					const lead = x > 0 ? this.rows[y][x - 1] : undefined;
+					if (lead === undefined || graphemeWidth(lead) !== 2) {
+						throw new Error(`orphaned continuation at ${x},${y}`);
+					}
+					continue;
+				}
+
+				if (graphemeWidth(cell) === 2) {
+					if (x + 1 >= this.width || this.rows[y][x + 1] !== '') {
+						throw new Error(`wide cluster at ${x},${y} lost its continuation`);
+					}
+				}
+			}
+		}
+	}
 }
 
 /**
@@ -162,6 +194,7 @@ function replay(previous: CellBuffer, next: CellBuffer, styles: StyleTable, full
 	}
 
 	terminal.apply(result.output, (params) => byParams.get(params) ?? 0);
+	terminal.checkClusters();
 	return { lines: terminal.toLines(), output: result.output, result, styles: terminal.styles };
 }
 

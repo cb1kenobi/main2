@@ -27,7 +27,10 @@ const RGB_BASE = 0x100;
  * @returns The colour.
  */
 export function palette(index: number): Color {
-	return Math.max(0, Math.min(255, Math.trunc(index)));
+	if (!Number.isInteger(index) || index < 0 || index > 255) {
+		throw new TypeError(`Invalid palette index ${String(index)}: expected a whole number 0-255`);
+	}
+	return index;
 }
 
 /**
@@ -40,8 +43,26 @@ export function palette(index: number): Color {
  * @returns The colour.
  */
 export function rgb(r: number, g: number, b: number): Color {
-	const byte = (n: number) => Math.max(0, Math.min(255, Math.trunc(n)));
-	return RGB_BASE + ((byte(r) << 16) | (byte(g) << 8) | byte(b));
+	return RGB_BASE + ((byte(r, 'red') << 16) | (byte(g, 'green') << 8) | byte(b, 'blue'));
+}
+
+/**
+ * A colour channel, refused rather than clamped.
+ *
+ * Clamping is how `rgb(NaN, 0, 0)` becomes black and `rgb(256, -1, 1.9)` becomes
+ * something near-but-not-what-was-asked-for. `assertByte()` in the styler takes
+ * the same line, for the reason this module's own validation gives: quietly
+ * rendering as something else is worse than a thrown error.
+ *
+ * @param value - The channel.
+ * @param name - Which channel, for the message.
+ * @returns The channel.
+ */
+function byte(value: number, name: string): number {
+	if (!Number.isInteger(value) || value < 0 || value > 255) {
+		throw new TypeError(`Invalid ${name} channel ${String(value)}: expected a whole number 0-255`);
+	}
+	return value;
 }
 
 /** Whether a colour is 24-bit rather than a palette index. */
@@ -93,11 +114,11 @@ export interface Style {
 }
 
 /** What a cell looks like when nothing has styled it. */
-export const DEFAULT_STYLE: Style = {
+export const DEFAULT_STYLE: Style = Object.freeze({
 	attrs: ATTR.none,
 	bg: DEFAULT_COLOR,
 	fg: DEFAULT_COLOR,
-};
+});
 
 /**
  * Interns styles so a cell holds a number rather than an object.
@@ -160,7 +181,7 @@ export class StyleTable {
  *
  * Validated rather than trusted. A style is reached through `Partial<Style>`, so
  * a missing field is `undefined`, and `undefined` propagates silently all the
- * way to an SGR sequence reading `38:5:undefined` -- output the terminal drops
+ * way to an SGR sequence reading `38;5;undefined` -- output the terminal drops
  * and nobody can trace back. The styler takes the same line in `assertByte()`:
  * quietly rendering as something else is worse than a thrown error.
  *
@@ -202,8 +223,10 @@ function assertColor(color: Color, which: string): void {
  * `Number.MAX_SAFE_INTEGER` and the low bits -- the attributes -- are rounded
  * away. Bold truecolor text then interns as the same style as plain truecolor
  * text and silently renders unstyled, and two unrelated colour pairs collide
- * into one entry. A string is slower to build and is built once per *distinct*
- * style rather than once per cell.
+ * into one entry.
+ *
+ * A string is slower to build, and is built once per `intern()` call -- once per
+ * `text()` or `fill()`, not once per cell.
  *
  * @param style - The style to key.
  * @returns The key.

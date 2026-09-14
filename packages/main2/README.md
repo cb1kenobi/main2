@@ -841,10 +841,14 @@ buffer.charAt(0, 0); // '漢'
 buffer.charAt(1, 0); // '' — the continuation
 ```
 
-`Painter.text()` takes **plain text**. A cell grid expresses styling as a style
-per cell, so a string carrying its own escape sequences has nowhere to put them
-— they are stripped rather than painted, because painting them writes `[31m` on
-the screen as visible text.
+`Painter.text()` takes **plain text**, one row per call. A cell grid expresses
+styling as a style per cell, so a string carrying its own escape sequences has
+nowhere to put them — they are stripped rather than painted, because painting
+them writes `[31m` on the screen as visible text.
+
+A control character is refused rather than dropped. A newline has no cell, so
+dropping it painted a wrapped paragraph as one concatenated line; the caller has
+to say which row each line goes on.
 
 Overwriting either half takes the other with it. Left alone, the survivor is
 half a glyph and every column after it on that row is shifted. A zero-width

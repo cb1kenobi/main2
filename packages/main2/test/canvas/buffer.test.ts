@@ -2,6 +2,7 @@ import {
 	ATTR,
 	BLANK,
 	CellBuffer,
+	cellWidth,
 	CONTINUATION,
 	DEFAULT_COLOR,
 	DEFAULT_STYLE,
@@ -64,6 +65,27 @@ describe('StyleTable', () => {
 		const table = new StyleTable();
 		const index = table.intern({ fg: palette(4) });
 		expect(table.get(index)).toEqual({ attrs: 0, bg: DEFAULT_COLOR, fg: palette(4) });
+	});
+
+	it('should freeze the default style, which is index zero', () => {
+		// index 0 is what every cell starts with, and `get()` handed back the
+		// exported object itself -- so one write made the diff start every frame
+		// from a "default" that was not one
+		const table = new StyleTable();
+		expect(Object.isFrozen(table.get(0))).toBe(true);
+		expect(Object.isFrozen(DEFAULT_STYLE)).toBe(true);
+	});
+
+	it('should refuse a colour channel rather than clamping it', () => {
+		// clamping is how `rgb(NaN, 0, 0)` becomes black and `rgb(256, -1, 1.9)`
+		// becomes near-but-not-what-was-asked-for. The styler refuses; so does this
+		expect(() => rgb(Number.NaN, 0, 0)).toThrow(TypeError);
+		expect(() => rgb(256, 0, 0)).toThrow(TypeError);
+		expect(() => rgb(0, -1, 0)).toThrow(TypeError);
+		expect(() => rgb(0, 0, 1.9)).toThrow(TypeError);
+		expect(() => palette(300)).toThrow(TypeError);
+		expect(() => palette(-5)).toThrow(TypeError);
+		expect(() => palette(1.9)).toThrow(TypeError);
 	});
 
 	it('should refuse a style that is not one', () => {
@@ -212,6 +234,54 @@ describe('CellBuffer', () => {
 			const buffer = new CellBuffer(3, 1);
 			buffer.write(0, 0, 'a漢b', 0);
 			expect(buffer.toLines()).toEqual(['a漢']);
+		});
+	});
+
+	describe('a cluster wider than two columns', () => {
+		it('should be held in two cells, not in one with a gap after it', () => {
+			// `graphemeWidth()` sums what a cluster contains, and a CJK character
+			// with a spacing mark comes to three. A grid has no third cell: the
+			// cluster went into one, the cursor advanced by three, and the cells in
+			// between were never drawn while still holding content nothing painted
+			// over
+			const buffer = new CellBuffer(8, 1);
+			expect(buffer.put(0, 0, '\u6F22\u0903', 0)).toBe(2);
+			expect(buffer.charAt(1, 0)).toBe(CONTINUATION);
+			expect(buffer.charAt(2, 0)).toBe(BLANK);
+		});
+
+		it('should leave the rest of a string where the grid can draw it', () => {
+			const buffer = new CellBuffer(8, 1);
+			buffer.write(0, 0, '\u6F22\u0903x', 0);
+			expect(buffer.charAt(2, 0)).toBe('x');
+		});
+
+		it('should report two from cellWidth', () => {
+			expect(cellWidth('\u6F22\u0903')).toBe(2);
+			expect(cellWidth('a')).toBe(1);
+			expect(cellWidth('\u0301')).toBe(0);
+		});
+	});
+
+	describe('control characters', () => {
+		it('should refuse a newline rather than dropping it', () => {
+			// zero width, so it took no cell and `put()` returned 0 -- and `write()`
+			// only stopped on a positive-width cluster that failed to land, so a
+			// wrapped paragraph painted as one concatenated line with no complaint
+			const buffer = new CellBuffer(10, 2);
+			expect(() => buffer.write(0, 0, 'ab\ncd', 0)).toThrow(/control character/);
+		});
+
+		it('should refuse a tab, a carriage return, and a C1', () => {
+			const buffer = new CellBuffer(10, 1);
+			for (const control of ['a\tb', 'a\rb', 'a\u0085b', 'a\u0000b']) {
+				expect(() => buffer.write(0, 0, control, 0)).toThrow(RangeError);
+			}
+		});
+
+		it('should name the character it refused', () => {
+			const buffer = new CellBuffer(10, 1);
+			expect(() => buffer.write(0, 0, 'a\tb', 0)).toThrow(/U\+0009/);
 		});
 	});
 
