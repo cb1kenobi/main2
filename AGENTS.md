@@ -387,6 +387,15 @@ false` rethrows instead; a function replaces the handler.
   assertion that prints two grids says what went wrong; one that prints
   `{ x: 3, y: 0, width: 11, height: 2 }` does not, and there is enough arithmetic
   here for the difference to matter.
+- **`order` changes where a child is placed, not where it lives.**
+  `result.children[i]` still answers for `node.children[i]` whatever the ordering
+  did, because everything above needs to match a box back to its element. Only
+  the placement walk is sorted, and stably, so equal orders keep source sequence.
+- **A property the layout engine ignores is worse than one that does not exist**,
+  because it parses and then silently lies. `box-sizing`, `order`, and
+  `align-content` were added to the table and are honoured here for that reason.
+  `visibility` and `overflow` are deliberately _not_ layout's: hidden content
+  still takes its space, and clipping is M2-64's.
 - **A percentage of an unknown size is `auto`.** What CSS does, and what keeps a
   column layout from resolving heights against nothing.
 - **`min` wins over `max` where they conflict**, as in CSS, which is what stops a

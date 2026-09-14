@@ -353,6 +353,110 @@ describe('wrapping', () => {
 	});
 });
 
+describe('order', () => {
+	it('should change where a child is placed', () => {
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '2', height: '1', order: '2' }),
+			box({ width: '2', height: '1', order: '1' })
+		);
+
+		// `b` is first in the tree and second on screen
+		expect(picture(tree, 4, 1)).toBe('ccbb');
+	});
+
+	it('should leave the results in tree order', () => {
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '2', height: '1', order: '2' }),
+			box({ width: '2', height: '1', order: '1' })
+		);
+
+		// `result.children[i]` still answers for `node.children[i]`, whatever the
+		// placement did -- otherwise nothing above can match a box to its element
+		const result = layout(tree, { height: 1, width: 4 });
+		expect(result.children[0].node).toBe(tree.children?.[0]);
+		expect(result.children[0].box.x).toBe(2);
+		expect(result.children[1].box.x).toBe(0);
+	});
+
+	it('should be stable for equal orders', () => {
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '1', height: '1' }),
+			box({ width: '1', height: '1' }),
+			box({ width: '1', height: '1' })
+		);
+
+		expect(picture(tree, 3, 1)).toBe('bcd');
+	});
+});
+
+describe('align-content', () => {
+	const wrapped = (declarations: Record<string, string>) =>
+		box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap', ...declarations },
+			box({ width: '3', height: '1' }),
+			box({ width: '3', height: '1' })
+		);
+
+	it('should stretch the lines to fill the cross space by default', () => {
+		const result = layout(wrapped({}), { height: 4, width: 4 });
+		// the *lines* share the four rows, two each, so the second starts halfway
+		// down. The items keep their declared height -- stretching a line is not
+		// stretching what is on it
+		expect(result.children[0].box.y).toBe(0);
+		expect(result.children[1].box.y).toBe(2);
+		expect(result.children.map((child) => child.box.height)).toEqual([1, 1]);
+	});
+
+	it('should stretch an item with no declared cross size to its line', () => {
+		const tall = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+			box({ width: '3' }),
+			box({ width: '3' })
+		);
+		const result = layout(tall, { height: 4, width: 4 });
+		expect(result.children.map((child) => child.box.height)).toEqual([2, 2]);
+	});
+
+	it('should pack the lines at the start', () => {
+		const result = layout(wrapped({ 'align-content': 'flex-start' }), { height: 4, width: 4 });
+		expect(result.children[0].box.y).toBe(0);
+		expect(result.children[1].box.y).toBe(1);
+	});
+
+	it('should pack the lines at the end', () => {
+		const result = layout(wrapped({ 'align-content': 'flex-end' }), { height: 4, width: 4 });
+		expect(result.children[1].box.y).toBe(3);
+	});
+
+	it('should centre the lines', () => {
+		const result = layout(wrapped({ 'align-content': 'center' }), { height: 4, width: 4 });
+		expect(result.children[0].box.y).toBe(1);
+	});
+});
+
+describe('box-sizing', () => {
+	it('should take a declared width as the outer box by default', () => {
+		const tree = box({ 'flex-direction': 'row' }, box({ width: '6', padding: '1', height: '3' }));
+		const result = layout(tree, { height: 3, width: 10 });
+		// six columns on screen, which is what `width: 6` means in a terminal
+		expect(result.children[0].box.width).toBe(6);
+		expect(result.children[0].content.width).toBe(4);
+	});
+
+	it('should add the padding on for content-box', () => {
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '6', padding: '1', height: '3', 'box-sizing': 'content-box' })
+		);
+		const result = layout(tree, { height: 3, width: 10 });
+		expect(result.children[0].box.width).toBe(8);
+		expect(result.children[0].content.width).toBe(6);
+	});
+});
+
 describe('nesting', () => {
 	it('should lay out a tree several levels deep', () => {
 		const tree = box(
