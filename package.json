@@ -28,6 +28,10 @@
       "types": "./dist/ansi.d.mts",
       "default": "./dist/ansi.mjs"
     },
+    "./components": {
+      "types": "./dist/components.d.mts",
+      "default": "./dist/components.mjs"
+    },
     "./error-handler": {
       "types": "./dist/error-handler.d.mts",
       "default": "./dist/error-handler.mjs"

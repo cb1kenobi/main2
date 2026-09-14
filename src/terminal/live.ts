@@ -65,6 +65,8 @@ export interface LiveRegion {
 	render(frame: string, plain?: string): void;
 	/** Erases the region and gives it up, leaving nothing behind. */
 	stop(): void;
+	/** The terminal being drawn through, for anything that sizes itself to it. */
+	readonly terminal: Terminal;
 	/**
 	 * Writes output that stays, above the region rather than through it.
 	 *
@@ -247,6 +249,8 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
 			}
 			finish();
 		},
+
+		terminal,
 
 		write(text: string): void {
 			const line = text.endsWith('\n') ? text : `${text}\n`;

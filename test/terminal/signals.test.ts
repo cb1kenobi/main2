@@ -84,8 +84,8 @@ function run(
 	});
 }
 
-const SHOW = '[?25h';
-const HIDE = '[?25l';
+const SHOW = '\u001b[?25h';
+const HIDE = '\u001b[?25l';
 
 describe.skipIf(windows)('restoring in a real process', () => {
 	it('should show the cursor again on a normal exit', async () => {
@@ -179,6 +179,32 @@ describe.skipIf(windows)('restoring in a real process', () => {
 		expect(stdout).to.equal('Building\ncompiled foo.js\nLinking\nBuilt\n');
 		// eslint-disable-next-line no-control-regex
 		expect(stdout, 'wrote an escape sequence into a pipe').to.not.match(/\u001b/);
+	});
+
+	// the failure mode this is built to avoid: a prompt reached in a pipeline or a
+	// CI job waits forever on a stdin that will never produce a keystroke, and a
+	// hung build says nothing about which question went unanswered
+	it('should refuse to prompt with no terminal rather than hang', async () => {
+		const file = fixture(
+			'prompt.mjs',
+			`
+			import { text } from ${JSON.stringify(join(root, 'dist', 'components.mjs'))};
+			try {
+				await text({ message: 'Your name' });
+				process.stderr.write('RETURNED');
+			} catch (err) {
+				process.stderr.write(err.name + ': ' + err.message + ' aborted=' + err.aborted);
+			}
+			`
+		);
+
+		const { stderr } = await run(file);
+
+		expect(stderr).to.contain('PromptError');
+		expect(stderr).to.contain('Your name');
+		// not an abort: nobody pressed anything, there was nobody there at all
+		expect(stderr).to.contain('aborted=false');
+		expect(stderr).to.not.contain('RETURNED');
 	});
 
 	// `mycli --help | head -1` kills a CLI that did nothing wrong, because an
