@@ -1,3 +1,4 @@
+import { strip } from '../ansi/strip.js';
 import { graphemes, graphemeWidth } from '../width/index.js';
 import { DEFAULT_STYLE, type Style, StyleTable } from './style.js';
 
@@ -11,9 +12,13 @@ import { DEFAULT_STYLE, type Style, StyleTable } from './style.js';
  * "what is in column 40" for a screen containing a single wide character, and
  * every clip, overwrite, and diff would be off by one from there rightwards.
  *
- * Two parallel arrays rather than an array of cell objects: the diff's inner
- * loop compares a style per cell, and comparing integers out of a typed array
- * is most of what makes that loop cheap.
+ * Two parallel arrays rather than an array of cell objects: the diff compares a
+ * style per cell, and an integer out of a typed array is the cheapest form that
+ * comparison takes.
+ *
+ * Named `CellBuffer` rather than `Buffer` because the shorter name is Node's,
+ * and a file that forgets the import gets a byte buffer and a deprecation
+ * warning instead of a type error.
  */
 
 /** What a cell holds when nothing has been painted into it. */
@@ -22,7 +27,7 @@ export const BLANK = ' ';
 /** The right-hand half of a wide cluster. Never painted, never drawn. */
 export const CONTINUATION = '';
 
-export class Buffer {
+export class CellBuffer {
 	#chars: string[];
 	#styles: Int32Array;
 	#width: number;
@@ -32,7 +37,7 @@ export class Buffer {
 		this.#width = Math.max(0, Math.trunc(width));
 		this.#height = Math.max(0, Math.trunc(height));
 		const size = this.#width * this.#height;
-		this.#chars = new Array<string>(size).fill(BLANK);
+		this.#chars = Array.from({ length: size }, () => BLANK);
 		this.#styles = new Int32Array(size);
 	}
 
@@ -56,7 +61,7 @@ export class Buffer {
 	 * @param height - The new height.
 	 */
 	resize(width: number, height: number): void {
-		const next = new Buffer(width, height);
+		const next = new CellBuffer(width, height);
 		this.#chars = next.#chars;
 		this.#styles = next.#styles;
 		this.#width = next.#width;
@@ -223,7 +228,14 @@ export class Buffer {
 	 */
 	write(x: number, y: number, text: string, styleIndex: number): number {
 		let column = x;
-		for (const cluster of graphemes(text)) {
+		// A cell grid expresses styling as a style per cell, so a string that
+		// carries its own escape sequences has nowhere to put them -- and painting
+		// them cluster by cluster writes `[31m` on the screen as text, because the
+		// ESC itself is zero width and the rest is not. Every existing component
+		// builds strings like that, so the first one moved onto a canvas would
+		// render junk. Stripped rather than refused: the text is what was meant,
+		// and the style belongs in `styleIndex`.
+		for (const cluster of graphemes(strip(text))) {
 			if (column >= this.#width) {
 				break;
 			}
@@ -268,11 +280,11 @@ export class Buffer {
 	 *
 	 * @param other - The buffer to copy from. Must be the same size.
 	 */
-	copyFrom(other: Buffer): void {
+	copyFrom(other: CellBuffer): void {
 		if (other.#width !== this.#width || other.#height !== this.#height) {
 			this.#width = other.#width;
 			this.#height = other.#height;
-			this.#chars = new Array<string>(other.#chars.length);
+			this.#chars = Array.from({ length: other.#chars.length }, () => BLANK);
 			this.#styles = new Int32Array(other.#styles.length);
 		}
 		for (let i = 0; i < this.#chars.length; i++) {
@@ -323,10 +335,10 @@ export class Buffer {
  * one place that converts.
  */
 export class Painter {
-	#buffer: Buffer;
+	#buffer: CellBuffer;
 	#styles: StyleTable;
 
-	constructor(buffer: Buffer, styles: StyleTable) {
+	constructor(buffer: CellBuffer, styles: StyleTable) {
 		this.#buffer = buffer;
 		this.#styles = styles;
 	}

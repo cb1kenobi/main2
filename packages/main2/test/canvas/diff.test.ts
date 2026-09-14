@@ -1,6 +1,6 @@
 import {
 	ATTR,
-	Buffer,
+	CellBuffer,
 	createCanvas,
 	DEFAULT_STYLE,
 	diff,
@@ -8,6 +8,7 @@ import {
 	rgb,
 	type Style,
 	StyleTable,
+	transition,
 } from '../../src/canvas/index.js';
 import { graphemes, graphemeWidth, stringWidth } from '../../src/width/index.js';
 import { describe, expect, it } from 'vitest';
@@ -55,12 +56,12 @@ class FakeTerminal {
 		public width: number,
 		public height: number
 	) {
-		this.rows = Array.from({ length: height }, () => new Array<string>(width).fill(' '));
-		this.styles = Array.from({ length: height }, () => new Array<number>(width).fill(0));
+		this.rows = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '));
+		this.styles = Array.from({ length: height }, () => Array.from({ length: width }, () => 0));
 	}
 
 	/** Paints a buffer onto the model directly, standing in for a prior frame. */
-	prime(buffer: Buffer): void {
+	prime(buffer: CellBuffer): void {
 		for (let y = 0; y < this.height; y++) {
 			for (let x = 0; x < this.width; x++) {
 				const cell = buffer.charAt(x, y);
@@ -142,40 +143,33 @@ class FakeTerminal {
  * Diffs two buffers, replays the output against a model terminal, and returns
  * what the model ends up showing.
  */
-function replay(previous: Buffer, next: Buffer, styles: StyleTable, full = false) {
+function replay(previous: CellBuffer, next: CellBuffer, styles: StyleTable, full = false) {
 	const terminal = new FakeTerminal(next.width, next.height);
 	terminal.prime(previous);
 
 	const result = diff(previous, next, { full, styles });
 
-	// the model needs to map an SGR parameter list back to a style index, which
-	// the real terminal does by rendering. Every style the diff can emit is in
-	// the table, so matching on the emitted parameters is enough
+	// The model maps an SGR parameter list back to a style index, which a real
+	// terminal does by rendering. Built from the emitter itself rather than from
+	// a second copy of the SGR rules: a helper that knows only the attributes --
+	// which is what this was -- cannot recognise a colour, so every coloured cell
+	// reads back as the default style and a `colorParams()` that emitted a
+	// background for a foreground would pass every replay test.
 	const byParams = new Map<string, number>();
 	for (let i = 0; i < styles.size; i++) {
-		const sgr = transitionParams(styles.get(i));
-		byParams.set(sgr, i);
+		const sgr = transition(DEFAULT_STYLE, styles.get(i));
+		byParams.set(sgr.replace(ESC + '[', '').replace(/m$/, ''), i);
 	}
 
 	terminal.apply(result.output, (params) => byParams.get(params) ?? 0);
-	return { lines: terminal.toLines(), output: result.output, result };
-}
-
-/** The parameters a full transition from default to `to` would emit. */
-function transitionParams(to: Style): string {
-	const params: string[] = [];
-	if (to.attrs & ATTR.bold) params.push('1');
-	if (to.attrs & ATTR.dim) params.push('2');
-	if (to.attrs & ATTR.italic) params.push('3');
-	if (to.attrs & ATTR.underline) params.push('4');
-	return params.join(';');
+	return { lines: terminal.toLines(), output: result.output, result, styles: terminal.styles };
 }
 
 describe('diff', () => {
 	it('should write nothing when nothing changed', () => {
 		const styles = new StyleTable();
-		const a = new Buffer(10, 2);
-		const b = new Buffer(10, 2);
+		const a = new CellBuffer(10, 2);
+		const b = new CellBuffer(10, 2);
 		a.write(0, 0, 'hello', 0);
 		b.write(0, 0, 'hello', 0);
 
@@ -184,8 +178,8 @@ describe('diff', () => {
 
 	it('should write everything on a full repaint', () => {
 		const styles = new StyleTable();
-		const a = new Buffer(5, 1);
-		const b = new Buffer(5, 1);
+		const a = new CellBuffer(5, 1);
+		const b = new CellBuffer(5, 1);
 		b.write(0, 0, 'hi', 0);
 
 		const { lines } = replay(a, b, styles, true);
@@ -194,8 +188,8 @@ describe('diff', () => {
 
 	it('should reconcile a one-cell change', () => {
 		const styles = new StyleTable();
-		const a = new Buffer(10, 1);
-		const b = new Buffer(10, 1);
+		const a = new CellBuffer(10, 1);
+		const b = new CellBuffer(10, 1);
 		a.write(0, 0, 'hello', 0);
 		b.write(0, 0, 'hallo', 0);
 
@@ -207,8 +201,8 @@ describe('diff', () => {
 
 	it('should reach a later row without repainting the ones between', () => {
 		const styles = new StyleTable();
-		const a = new Buffer(10, 4);
-		const b = new Buffer(10, 4);
+		const a = new CellBuffer(10, 4);
+		const b = new CellBuffer(10, 4);
 		for (const buffer of [a, b]) {
 			buffer.write(0, 0, 'row zero', 0);
 			buffer.write(0, 1, 'row one', 0);
@@ -223,8 +217,8 @@ describe('diff', () => {
 
 	it('should paint through a gap too short to be worth a cursor move', () => {
 		const styles = new StyleTable();
-		const a = new Buffer(20, 1);
-		const b = new Buffer(20, 1);
+		const a = new CellBuffer(20, 1);
+		const b = new CellBuffer(20, 1);
 		a.write(0, 0, 'aXbbbbbbXc', 0);
 		b.write(0, 0, 'aYbbbbbbYc', 0);
 
@@ -237,8 +231,8 @@ describe('diff', () => {
 
 	it('should leave the cursor where it says it did', () => {
 		const styles = new StyleTable();
-		const a = new Buffer(10, 3);
-		const b = new Buffer(10, 3);
+		const a = new CellBuffer(10, 3);
+		const b = new CellBuffer(10, 3);
 		b.write(2, 1, 'hi', 0);
 
 		const terminal = new FakeTerminal(10, 3);
@@ -256,8 +250,8 @@ describe('diff', () => {
 		it('should emit a style only when it changes', () => {
 			const styles = new StyleTable();
 			const bold = styles.intern(style({ attrs: ATTR.bold }));
-			const a = new Buffer(10, 1);
-			const b = new Buffer(10, 1);
+			const a = new CellBuffer(10, 1);
+			const b = new CellBuffer(10, 1);
 			b.write(0, 0, 'abcd', bold);
 
 			const { output } = replay(a, b, styles);
@@ -268,8 +262,8 @@ describe('diff', () => {
 		it('should carry styles across the replayed frame', () => {
 			const styles = new StyleTable();
 			const bold = styles.intern(style({ attrs: ATTR.bold }));
-			const a = new Buffer(6, 1);
-			const b = new Buffer(6, 1);
+			const a = new CellBuffer(6, 1);
+			const b = new CellBuffer(6, 1);
 			b.write(0, 0, 'ab', bold);
 			b.write(2, 0, 'cd', 0);
 
@@ -289,8 +283,8 @@ describe('diff', () => {
 		it('should reset before handing the terminal back', () => {
 			const styles = new StyleTable();
 			const red = styles.intern(style({ fg: palette(1) }));
-			const a = new Buffer(4, 1);
-			const b = new Buffer(4, 1);
+			const a = new CellBuffer(4, 1);
+			const b = new CellBuffer(4, 1);
 			b.write(0, 0, 'x', red);
 
 			// the next thing written is the app's own output, and it did not ask to
@@ -301,32 +295,48 @@ describe('diff', () => {
 		it('should repaint a cell whose only change is its style', () => {
 			const styles = new StyleTable();
 			const red = styles.intern(style({ fg: palette(1) }));
-			const a = new Buffer(4, 1);
-			const b = new Buffer(4, 1);
+			const a = new CellBuffer(4, 1);
+			const b = new CellBuffer(4, 1);
 			a.write(0, 0, 'ab', 0);
 			b.write(0, 0, 'ab', red);
 
 			expect(diff(a, b, { styles }).output).not.toBe('');
 		});
 
-		it('should use the colon form for extended colours', () => {
+		it('should emit colours the way the styler does', () => {
 			const styles = new StyleTable();
-			const truecolor = styles.intern(style({ fg: rgb(255, 128, 0) }));
-			const a = new Buffer(4, 1);
-			const b = new Buffer(4, 1);
-			b.write(0, 0, 'x', truecolor);
+			const a = new CellBuffer(8, 1);
+			const b = new CellBuffer(8, 1);
+			b.write(0, 0, 'x', styles.intern(style({ fg: rgb(255, 128, 0) })));
+			b.write(2, 0, 'y', styles.intern(style({ bg: palette(200) })));
 
-			// the colon form cannot be mistaken for a run of separate parameters,
-			// which is the bug the styler and the wrapper both had to learn about
-			expect(diff(a, b, { styles }).output).toContain('38:2::255:128:0');
+			// the semicolon form, which is what every terminal that does 256 or
+			// 24-bit colour accepts. The colon form is what the specification says
+			// and a strict subset of terminals implement
+			const output = diff(a, b, { styles }).output;
+			expect(output).toContain('38;2;255;128;0');
+			expect(output).toContain('48;5;200');
+		});
+
+		it('should use the short codes for the basic sixteen', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(8, 1);
+			const b = new CellBuffer(8, 1);
+			b.write(0, 0, 'x', styles.intern(style({ fg: palette(1) })));
+			b.write(2, 0, 'y', styles.intern(style({ fg: palette(9) })));
+
+			// understood by terminals that do not do 256 colour at all
+			const output = diff(a, b, { styles }).output;
+			expect(output).toContain('31');
+			expect(output).toContain('91');
 		});
 
 		it('should reopen an attribute a shared closing code took down', () => {
 			const styles = new StyleTable();
 			const both = styles.intern(style({ attrs: ATTR.bold | ATTR.dim }));
 			const dimOnly = styles.intern(style({ attrs: ATTR.dim }));
-			const a = new Buffer(6, 1);
-			const b = new Buffer(6, 1);
+			const a = new CellBuffer(6, 1);
+			const b = new CellBuffer(6, 1);
 			// two adjacent runs in one frame: the transition is between them, not
 			// between frames. A frame always starts from the default style, because
 			// the one before it handed the terminal back reset
@@ -341,8 +351,8 @@ describe('diff', () => {
 			const styles = new StyleTable();
 			const bold = styles.intern(style({ attrs: ATTR.bold }));
 			const italic = styles.intern(style({ attrs: ATTR.italic }));
-			const a = new Buffer(4, 1);
-			const b = new Buffer(4, 1);
+			const a = new CellBuffer(4, 1);
+			const b = new CellBuffer(4, 1);
 			a.write(0, 0, 'xy', bold);
 			b.write(0, 0, 'xy', italic);
 
@@ -357,8 +367,8 @@ describe('diff', () => {
 	describe('wide characters', () => {
 		it('should redraw the whole cluster when only its continuation changed', () => {
 			const styles = new StyleTable();
-			const a = new Buffer(6, 1);
-			const b = new Buffer(6, 1);
+			const a = new CellBuffer(6, 1);
+			const b = new CellBuffer(6, 1);
 			a.write(0, 0, '漢', 0);
 			b.write(0, 0, '漢', styles.intern(style({ attrs: ATTR.bold })));
 
@@ -368,8 +378,8 @@ describe('diff', () => {
 
 		it('should never start a run on a continuation cell', () => {
 			const styles = new StyleTable();
-			const a = new Buffer(8, 1);
-			const b = new Buffer(8, 1);
+			const a = new CellBuffer(8, 1);
+			const b = new CellBuffer(8, 1);
 			a.write(0, 0, 'ab漢cd', 0);
 			b.write(0, 0, 'ab漢cd', 0);
 			// change only the continuation's style, which is the second half
@@ -383,8 +393,8 @@ describe('diff', () => {
 
 		it('should clear the orphan when a wide cluster becomes narrow', () => {
 			const styles = new StyleTable();
-			const a = new Buffer(6, 1);
-			const b = new Buffer(6, 1);
+			const a = new CellBuffer(6, 1);
+			const b = new CellBuffer(6, 1);
 			a.write(0, 0, '漢字', 0);
 			b.write(0, 0, 'ab', 0);
 
@@ -394,8 +404,8 @@ describe('diff', () => {
 
 		it('should never write past the right edge', () => {
 			const styles = new StyleTable();
-			const a = new Buffer(5, 1);
-			const b = new Buffer(5, 1);
+			const a = new CellBuffer(5, 1);
+			const b = new CellBuffer(5, 1);
 			b.write(0, 0, '漢字', 0);
 			// the fifth column cannot hold half of a third wide cluster
 			b.write(4, 0, '漢', 0);

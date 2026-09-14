@@ -16,11 +16,11 @@
  * ```
  */
 
-import { Buffer, Painter } from './buffer.js';
+import { CellBuffer, Painter } from './buffer.js';
 import { diff, type DiffResult } from './diff.js';
 import { StyleTable } from './style.js';
 
-export { BLANK, Buffer, CONTINUATION, Painter } from './buffer.js';
+export { BLANK, CellBuffer, CONTINUATION, Painter } from './buffer.js';
 export { diff, type DiffOptions, type DiffResult } from './diff.js';
 export {
 	ATTR,
@@ -86,8 +86,8 @@ export interface Canvas {
  */
 export function createCanvas(opts: CanvasOptions): Canvas {
 	const styles = new StyleTable();
-	let back = new Buffer(opts.width, opts.height);
-	let front = new Buffer(opts.width, opts.height);
+	let back = new CellBuffer(opts.width, opts.height);
+	let front = new CellBuffer(opts.width, opts.height);
 	let painter = new Painter(back, styles);
 
 	// set after a resize, so the next present repaints rather than diffing

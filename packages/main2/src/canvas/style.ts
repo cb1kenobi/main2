@@ -109,49 +109,38 @@ export const DEFAULT_STYLE: Style = {
  */
 export class StyleTable {
 	#styles: Style[] = [DEFAULT_STYLE];
-	#index = new Map<number, number>([[0, 0]]);
+	#index = new Map<string, number>([[key(DEFAULT_STYLE), 0]]);
 
 	/** The index of the default style, which is always zero. */
 	static readonly DEFAULT = 0;
 
 	/**
-	 * A key that is unique per style and cheap to compute.
-	 *
-	 * The two colours and the attribute bits do not fit in 32 bits together, so
-	 * this multiplies rather than shifts -- the result stays an exact integer
-	 * well inside `Number.MAX_SAFE_INTEGER` for every representable style.
-	 *
-	 * @param style - The style to key.
-	 * @returns The key.
-	 */
-	static key(style: Style): number {
-		const fg = style.fg + 1;
-		const bg = style.bg + 1;
-		return (fg * 0x100_0001 + bg) * 0x100 + (style.attrs & 0xff);
-	}
-
-	/**
 	 * The index for a style, adding it if this is the first time it is seen.
+	 *
+	 * A partial style is filled from the defaults, so `{ fg: palette(4) }` means
+	 * what it looks like it means.
 	 *
 	 * @param style - The style to intern.
 	 * @returns Its index.
 	 */
-	intern(style: Style): number {
-		const key = StyleTable.key(style);
-		const existing = this.#index.get(key);
+	intern(style: Partial<Style>): number {
+		const full = normalize(style);
+		const k = key(full);
+		const existing = this.#index.get(k);
 		if (existing !== undefined) {
 			return existing;
 		}
 		const index = this.#styles.length;
-		// copied, so a caller reusing one object to paint many cells cannot
-		// retroactively change what a cell was painted with
-		this.#styles.push({ attrs: style.attrs & 0xff, bg: style.bg, fg: style.fg });
-		this.#index.set(key, index);
+		this.#styles.push(full);
+		this.#index.set(k, index);
 		return index;
 	}
 
 	/**
 	 * The style at an index.
+	 *
+	 * Frozen, so a caller inspecting one cannot rewrite what every cell holding
+	 * that index looks like.
 	 *
 	 * @param index - The index.
 	 * @returns The style, or the default for an index nothing interned.
@@ -167,14 +156,79 @@ export class StyleTable {
 }
 
 /**
+ * A complete, valid, frozen style from whatever was handed in.
+ *
+ * Validated rather than trusted. A style is reached through `Partial<Style>`, so
+ * a missing field is `undefined`, and `undefined` propagates silently all the
+ * way to an SGR sequence reading `38:5:undefined` -- output the terminal drops
+ * and nobody can trace back. The styler takes the same line in `assertByte()`:
+ * quietly rendering as something else is worse than a thrown error.
+ *
+ * @param style - What the caller wrote.
+ * @returns The style, complete and frozen.
+ */
+function normalize(style: Partial<Style>): Style {
+	const fg = style.fg ?? DEFAULT_COLOR;
+	const bg = style.bg ?? DEFAULT_COLOR;
+	const attrs = style.attrs ?? ATTR.none;
+
+	assertColor(fg, 'fg');
+	assertColor(bg, 'bg');
+	if (!Number.isInteger(attrs) || attrs < 0 || attrs > 0xff) {
+		throw new TypeError(`Invalid style attrs ${String(attrs)}`);
+	}
+
+	return Object.freeze({ attrs, bg, fg });
+}
+
+/**
+ * Refuses a colour that is not one.
+ *
+ * @param color - The candidate.
+ * @param which - Which field, for the message.
+ */
+function assertColor(color: Color, which: string): void {
+	if (!Number.isInteger(color) || color < DEFAULT_COLOR || color > RGB_BASE + 0xff_ff_ff) {
+		throw new TypeError(`Invalid style ${which} ${String(color)}`);
+	}
+}
+
+/**
+ * A key that is unique per style.
+ *
+ * A string rather than arithmetic. The obvious packing multiplies the two
+ * colours and the attributes into one number, and it does not fit: two 25-bit
+ * colours and eight attribute bits are 58 bits, so the product runs past
+ * `Number.MAX_SAFE_INTEGER` and the low bits -- the attributes -- are rounded
+ * away. Bold truecolor text then interns as the same style as plain truecolor
+ * text and silently renders unstyled, and two unrelated colour pairs collide
+ * into one entry. A string is slower to build and is built once per *distinct*
+ * style rather than once per cell.
+ *
+ * @param style - The style to key.
+ * @returns The key.
+ */
+function key(style: Style): string {
+	return `${style.fg},${style.bg},${style.attrs}`;
+}
+
+/**
  * The SGR parameters that set a foreground or background colour.
  *
- * The colon form is used for 24-bit and 256 colour, which is what ITU T.416
- * actually specifies; the semicolon form is the widespread misreading of it.
- * Both are understood everywhere that understands either, and the colon form
- * cannot be mistaken for a run of separate parameters -- which is the bug
- * `reopen()` in the styler and `createSgrState()` in the wrapper both had to
- * learn about the hard way.
+ * The semicolon form, which is what `src/ansi/style.ts` emits and what every
+ * terminal that does 256 or 24-bit colour accepts. ITU T.416 does specify a
+ * colon form and the semicolon form is a misreading of it, but the misreading
+ * is what was implemented everywhere; the colon form is a strict subset of
+ * terminals and the six-element `38:2::r:g:b` spelling narrower still.
+ *
+ * The ambiguity the colon form avoids -- a run of parameters that cannot be
+ * told apart from separate attributes -- is a problem for *parsers inside this
+ * library*, which is why `reopen()` and `createSgrState()` both had to learn
+ * about it. Nothing here passes through either: the terminal is the only reader
+ * of this output.
+ *
+ * Degrading a colour the terminal cannot show is M2-61's, not this module's.
+ * What is emitted here is whatever it was handed.
  *
  * @param color - The colour to set.
  * @param background - Whether this is the background.
@@ -192,7 +246,7 @@ function colorParams(color: Color, background: boolean): string {
 		const r = (value >> 16) & 0xff;
 		const g = (value >> 8) & 0xff;
 		const b = value & 0xff;
-		return `${base + 8}:2::${r}:${g}:${b}`;
+		return `${base + 8};2;${r};${g};${b}`;
 	}
 
 	// the basic eight and the bright eight have their own codes, which are
@@ -204,7 +258,7 @@ function colorParams(color: Color, background: boolean): string {
 		return String((background ? 100 : 90) + color - 8);
 	}
 
-	return `${base + 8}:5:${color}`;
+	return `${base + 8};5;${color}`;
 }
 
 /**

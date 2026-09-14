@@ -1,6 +1,6 @@
-import { ESC } from '../ansi/codes.js';
+import { cursorDown, cursorRight, cursorUp } from '../terminal/sequences.js';
 import { graphemeWidth } from '../width/index.js';
-import { BLANK, type Buffer, CONTINUATION } from './buffer.js';
+import { BLANK, type CellBuffer, CONTINUATION } from './buffer.js';
 import { DEFAULT_STYLE, RESET, type Style, StyleTable, transition } from './style.js';
 
 /**
@@ -16,20 +16,15 @@ import { DEFAULT_STYLE, RESET, type Style, StyleTable, transition } from './styl
  * it at the bottom of a scrolling log and the full-screen backend puts it at the
  * origin -- so everything here is expressed as "from the top-left of the canvas"
  * and the backend is what decides where that is.
+ *
+ * That relativity carries a precondition the backend has to meet: **every row
+ * of the canvas must already exist below the cursor.** Downward movement is CUD,
+ * which stops at the bottom margin and never scrolls, so a canvas rendered with
+ * the cursor on the last row of the screen paints every one of its rows onto
+ * that one line. The inline backend's first frame is exactly that case, and its
+ * recipe is to write `height - 1` newlines and then walk back up before the
+ * first present.
  */
-
-/** Moves the cursor right, which is cheaper than repainting what it skips. */
-function right(n: number): string {
-	return n > 0 ? `${ESC}[${n}C` : '';
-}
-
-function down(n: number): string {
-	return n > 0 ? `${ESC}[${n}B` : '';
-}
-
-function up(n: number): string {
-	return n > 0 ? `${ESC}[${n}A` : '';
-}
 
 /**
  * How many cells of skipped-but-unchanged content are worth redrawing rather
@@ -56,12 +51,28 @@ export interface DiffOptions {
 
 /** Where the cursor is left, so the caller can put it somewhere sensible. */
 export interface DiffResult {
-	/** The column, relative to the canvas's left edge. */
+	/**
+	 * The column, relative to the canvas's left edge, and never past the last
+	 * one. A terminal writing the final column does not advance the cursor past
+	 * it -- it sets a pending-wrap flag instead and stays put -- so reporting
+	 * `width` would name a column that does not exist and put any backend
+	 * computing a relative move one out.
+	 */
 	column: number;
 	/** The row, relative to the canvas's top edge. */
 	row: number;
 	/** The sequence that reconciles the two grids. Empty when nothing changed. */
 	output: string;
+	/**
+	 * Whether the last thing written was the final column of a row, leaving the
+	 * terminal's deferred wrap armed.
+	 *
+	 * It is cleared by any cursor movement, so a backend that repositions before
+	 * writing anything can ignore this. One that writes straight after -- a
+	 * newline, or the app's own output -- cannot: on a terminal that wraps
+	 * immediately rather than deferring, that write lands on the next row.
+	 */
+	wrapPending: boolean;
 }
 
 /**
@@ -76,7 +87,7 @@ export interface DiffResult {
  * @param index - The cell.
  * @returns Whether it changed.
  */
-function changed(a: Buffer, b: Buffer, index: number): boolean {
+function changed(a: CellBuffer, b: CellBuffer, index: number): boolean {
 	return (
 		a.rawChars()[index] !== b.rawChars()[index] || a.rawStyles()[index] !== b.rawStyles()[index]
 	);
@@ -94,7 +105,7 @@ function changed(a: Buffer, b: Buffer, index: number): boolean {
  * @param y - The row.
  * @returns The column the cluster starts at.
  */
-function clusterStart(buffer: Buffer, x: number, y: number): number {
+function clusterStart(buffer: CellBuffer, x: number, y: number): number {
 	return x > 0 && buffer.charAt(x, y) === CONTINUATION ? x - 1 : x;
 }
 
@@ -109,7 +120,7 @@ function clusterStart(buffer: Buffer, x: number, y: number): number {
  * @param opts - The style table, and whether to ignore the previous frame.
  * @returns The sequence and the final cursor position.
  */
-export function diff(previous: Buffer, next: Buffer, opts: DiffOptions): DiffResult {
+export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions): DiffResult {
 	const { styles } = opts;
 	const width = next.width;
 	const height = next.height;
@@ -124,7 +135,7 @@ export function diff(previous: Buffer, next: Buffer, opts: DiffOptions): DiffRes
 	/** Moves the cursor to a cell, by the shortest route. */
 	const moveTo = (row: number, column: number): void => {
 		if (row !== cursorRow) {
-			output += row > cursorRow ? down(row - cursorRow) : up(cursorRow - row);
+			output += row > cursorRow ? cursorDown(row - cursorRow) : cursorUp(cursorRow - row);
 			cursorRow = row;
 		}
 		if (column !== cursorColumn) {
@@ -134,7 +145,7 @@ export function diff(previous: Buffer, next: Buffer, opts: DiffOptions): DiffRes
 				output += '\r';
 				cursorColumn = 0;
 			}
-			output += right(column - cursorColumn);
+			output += cursorRight(column - cursorColumn);
 			cursorColumn = column;
 		}
 	};
@@ -217,5 +228,11 @@ export function diff(previous: Buffer, next: Buffer, opts: DiffOptions): DiffRes
 		styleIndex = StyleTable.DEFAULT;
 	}
 
-	return { column: cursorColumn, output, row: cursorRow };
+	const wrapPending = cursorColumn >= width && width > 0;
+	return {
+		column: wrapPending ? width - 1 : cursorColumn,
+		output,
+		row: cursorRow,
+		wrapPending,
+	};
 }

@@ -396,11 +396,44 @@ false` rethrows instead; a function replaces the handler.
   styles in a typed array. The table copies what it interns, so a caller reusing
   one object to paint many cells cannot retroactively change what a cell was
   painted with.
-- **Extended colours are emitted in the colon form.** `38:2::255:128:0` is what
-  ITU T.416 specifies; the semicolon form is the widespread misreading, and it
-  cannot be told apart from a run of separate parameters -- which is the bug
-  `reopen()` in the styler and `createSgrState()` in the wrapper each had to
-  learn about separately.
+- **Extended colours are emitted in the semicolon form**, matching the styler.
+  `38:2::255:128:0` is what ITU T.416 specifies and the semicolon form is the
+  widespread misreading of it, but the misreading is what got implemented: the
+  colon form is a strict subset of terminals and the six-element spelling
+  narrower still. The ambiguity the colon form avoids is a problem for _parsers
+  inside this library_ -- which is why `reopen()` and `createSgrState()` each had
+  to learn about it -- and nothing here passes through either, since the terminal
+  is the only reader of the diff's output.
+- **A style is interned under a string key.** Packing two colours and the
+  attributes into one number is 58 bits: it runs past `Number.MAX_SAFE_INTEGER`
+  and rounds the attributes away, so bold truecolor text interned as plain
+  truecolor text and rendered unstyled, and unrelated colour pairs collided. The
+  string is built once per _distinct_ style rather than once per cell.
+- **A partial style is filled and a nonsense one is refused.** A style arrives as
+  `Partial<Style>`, so a missing field is `undefined`, and `undefined` reaches
+  the terminal as `38;5;undefined` -- output it drops and nobody can trace back.
+  The styler takes the same line in `assertByte()`. Interned styles are frozen,
+  so inspecting one cannot rewrite what every cell holding that index looks like.
+- **`Painter.text()` strips escape sequences rather than painting them.** A cell
+  grid expresses styling as a style per cell, so a string carrying its own has
+  nowhere to put them -- and painting cluster by cluster puts `[31m` on screen as
+  text, because the ESC is zero width and the rest is not. Every existing
+  component builds strings like that.
+- **A backend must give the canvas its rows before presenting.** Movement is
+  relative and downward movement is CUD, which stops at the bottom margin and
+  never scrolls -- so a canvas rendered with the cursor on the last row of the
+  screen paints every row onto that line. The inline backend's first frame is
+  exactly that case; its recipe is `height - 1` newlines then walk back up.
+  `DiffResult.column` is never past the last column and `wrapPending` says
+  whether the deferred wrap is armed.
+- **The cell class is `CellBuffer`, not `Buffer`.** The shorter name is Node's
+  global, and a file that forgets the import gets a byte buffer and a
+  deprecation warning rather than a type error.
+- **`paint()` clears and redraws the whole frame; there are no damage rects.**
+  That settles the question the ticket left open. The diff already reduces a
+  whole-frame repaint to the cells that changed, so damage tracking would buy
+  back only the painting, and it needs paint and diff to agree about who owns
+  invalidation. Revisit when a profile says the painting is the cost.
 - **A resize discards both buffers.** The layout is about to run again at the new
   size and repaint everything, and a grid that described a terminal that no
   longer exists is not something to diff against -- keeping it only gives the

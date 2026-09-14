@@ -813,7 +813,7 @@ against the frame before it and emits only what differs:
 
 ```js
 canvas.paint((p) => p.text(0, 0, 'hello'));
-canvas.present().output; // writes "hello"
+canvas.present().output; // the first frame is always full: "hello" and the blanks after it
 
 canvas.paint((p) => p.text(0, 0, 'hallo'));
 canvas.present().output; // moves the cursor and writes "a"
@@ -831,10 +831,20 @@ emoji — occupies its own cell and leaves a **continuation** in the next one, s
 the grid stays addressable by column even where the text is not:
 
 ```js
-buffer.put(0, 0, '漢', styleIndex);
+import { CellBuffer, StyleTable } from 'main2/canvas';
+
+const styles = new StyleTable();
+const buffer = new CellBuffer(10, 1);
+
+buffer.put(0, 0, '漢', styles.intern({}));
 buffer.charAt(0, 0); // '漢'
 buffer.charAt(1, 0); // '' — the continuation
 ```
+
+`Painter.text()` takes **plain text**. A cell grid expresses styling as a style
+per cell, so a string carrying its own escape sequences has nowhere to put them
+— they are stripped rather than painted, because painting them writes `[31m` on
+the screen as visible text.
 
 Overwriting either half takes the other with it. Left alone, the survivor is
 half a glyph and every column after it on that row is shifted. A zero-width
@@ -856,16 +866,31 @@ Styles are interned: a cell holds an index into a `StyleTable` rather than an
 object, because a grid repeats a handful of styles across thousands of cells and
 the diff asks "same style?" once per cell.
 
-Extended colours are emitted in the colon form (`38:2::255:128:0`), which is what
-ITU T.416 actually specifies and which cannot be mistaken for a run of separate
-parameters — the bug both the styler and the wrapper had to learn about.
+Extended colours are emitted in the semicolon form (`38;2;255;128;0`), matching
+`main2/ansi`. That is the spelling every terminal that does 256 or 24-bit colour
+accepts; the colon form the specification actually describes is implemented by a
+strict subset.
+
+Degrading a colour a terminal cannot show is not this module's job — what it is
+handed is what it emits.
 
 #### Reading a frame
 
-`canvas.toString()` and `buffer.toLines()` give the frame as plain text, with no
-styling and with continuations contributing nothing — so a line reads the way it
-renders. That is what snapshots want, and what makes a failing layout test
-readable as a picture.
+`canvas.toString()` and `CellBuffer.toLines()` give the frame as plain text, with
+no styling and with continuations contributing nothing — so a line reads the way
+it renders. That is what snapshots want, and what makes a failing layout test
+readable as a picture. `toString()` trims trailing blanks; `toLines()` does not,
+for when the exact width matters.
+
+#### What a backend owes it
+
+Movement is relative, and downward movement never scrolls — so **every row of the
+canvas has to exist below the cursor before `present()`'s output is written.** A
+canvas rendered with the cursor on the last row of the screen paints all of its
+rows onto that one line. `DiffResult` also reports `wrapPending`, set when the
+last thing written was a row's final column and the terminal's deferred wrap is
+armed; any cursor movement clears it, so only a backend that writes immediately
+afterwards has to care.
 
 ### `main2/signals`
 
