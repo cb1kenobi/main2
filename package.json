@@ -18,15 +18,16 @@
   "scripts": {
     "build": "turbo run build",
     "check": "pnpm type-check && pnpm lint && pnpm fmt:check",
-    "coverage": "turbo run coverage",
+    "coverage": "turbo run build && vitest --coverage",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
     "ncu": "ncu  -c 1d --",
-    "test": "turbo run test",
+    "test": "turbo run build && vitest",
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
+    "@main2/cli": "workspace:*",
     "@types/node": "26.5.1",
     "@vitest/coverage-v8": "5.0.0",
     "lefthook": "2.1.12",

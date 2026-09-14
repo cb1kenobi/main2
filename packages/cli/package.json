@@ -30,9 +30,13 @@
     },
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "rimraf dist && tsdown -c tsdown.config.ts",
     "coverage": "vitest --coverage",
+    "prepublishOnly": "pnpm run build",
     "test": "vitest",
     "type-check": "tsc --noEmit"
   },

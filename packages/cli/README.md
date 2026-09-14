@@ -1,7 +1,8 @@
 # @main2/cli
 
-The main2 toolchain. Compiles templates and stylesheets, resolves the command
-tree, and packages a CLI app into something that ships with no dependencies.
+The main2 toolchain. It will compile templates and stylesheets, resolve the
+command tree, and package a CLI app into something that ships with no
+dependencies. Today it is a skeleton — see Status below.
 
 This package may depend on whatever it needs — rollup and friends — because it
 is a devDependency of the app, not part of what the app ships. The runtime it

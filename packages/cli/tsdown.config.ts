@@ -2,7 +2,8 @@ import { defineConfig, type UserConfig } from 'tsdown';
 
 const config: UserConfig = defineConfig({
 	// Every entry here must have a matching subpath in the package's `exports`
-	// map or its `bin`; `test/exports.test.ts` asserts they stay in sync.
+	// map or its `bin`; the "package wiring" tests in `test/cli.test.ts` assert
+	// they stay in sync, and "the built bin" tests assert the output is real.
 	entry: {
 		index: './src/index.ts',
 		main2: './src/main2.ts',

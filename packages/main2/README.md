@@ -41,7 +41,7 @@ trace, because the caller is a bin script.
 semantics, precedence, and every place this parser deliberately differs from
 Commander and yargs. This README is the API tour.
 
-**[demos/](demos/)** is the same material as runnable files — one idea each,
+**[demos/](../../demos/)** is the same material as runnable files — one idea each,
 plain JavaScript, with the commands worth trying at the top of every one.
 
 ---

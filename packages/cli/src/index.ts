@@ -7,9 +7,13 @@ const require = createRequire(import.meta.url);
  * The toolchain's version, read from its own manifest.
  *
  * Read rather than inlined at build time so a globally linked checkout reports
- * what is actually on disk. `createRequire` rather than `readFileSync` off
- * `import.meta.url` because the built entry and the source entry sit at
- * different depths and only one of them would get the path right.
+ * what is actually on disk.
+ *
+ * `../package.json` resolves from both `src/index.ts` and the built
+ * `dist/index.mjs` because both sit exactly one directory below the package
+ * root. That symmetry is load-bearing: moving either entry a level deeper
+ * breaks this for one of them and not the other, which is the kind of thing
+ * only the published package would notice.
  */
 export function version(): string {
 	return require('../package.json').version as string;

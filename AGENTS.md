@@ -17,8 +17,7 @@ bearing.
 
 **Zero production dependencies in `main2` is a hard constraint.** Anything the
 runtime needs — ANSI handling, text wrapping, dotenv, `which`, debug logging,
-and now the layout engine and the template compiler — gets written there and
-bundled. Do not add a runtime dependency to `packages/main2`; if one seems
+and everything the 2.0 stack adds on top — gets written there and bundled. Do not add a runtime dependency to `packages/main2`; if one seems
 necessary, raise it rather than adding it.
 
 `@main2/cli` is the opposite: it is a devDependency of the app rather than part
@@ -78,8 +77,17 @@ pnpm build         # tsdown -> packages/*/dist
 pnpm fmt           # oxfmt --write
 ```
 
+`pnpm test <path>`, `pnpm test -t <name>`, and `pnpm test --watch` all work
+from the root: tests run through one vitest over both packages rather than
+through turbo, so a path argument means what it says. Turbo drives `build` and
+`type-check` only.
+
 `pnpm --filter main2 test` scopes to one package, as does running the script
-from inside its directory.
+from inside its directory. **`@main2/cli` needs a build first** -- its source
+and its tests import `main2` through that package's `exports` map, which points
+at `dist/`, so on a fresh clone `pnpm --filter @main2/cli test` and the editor's
+type-checking both fail until `pnpm build` has run once. Testing across the real
+package boundary is the point; paying for it with a build is the price.
 
 Run `pnpm check` before considering work finished. Formatting is oxfmt with
 tabs, single quotes, and a 100-column width — run `pnpm fmt` rather than
@@ -517,6 +525,13 @@ false` rethrows instead; a function replaces the handler.
 
 ## Known bugs
 
+- **`afterParse` fires before `state.argv` exists.** The hook runs at the end of
+  `parseArgv()`, which is before `processArgs()` and `processOptions()` write
+  anything, so `state.argv` is `{}` inside it while `state.$` is populated. The
+  one thing a hook named "after parse" is for is the one thing it cannot do.
+  Found while writing `--version` for `@main2/cli`, which reads the state
+  `main2()` returns instead. Do not reach for `afterParse` to read a parsed
+  value until this is fixed.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,

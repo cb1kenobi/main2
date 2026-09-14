@@ -1,6 +1,7 @@
 import { run, schema, version } from '../src/index.js';
 import config from '../tsdown.config.js';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -124,17 +125,67 @@ describe('@main2/cli', () => {
 			}
 		});
 
-		it('should give the bin entry a shebang', () => {
-			// without it the published bin is not executable by a shell, and
-			// nothing else in the build would notice
-			const entry = config.entry as Record<string, string>;
-			const source = readFileSync(resolve(root, entry.main2), 'utf-8');
-			expect(source.startsWith('#!/usr/bin/env node\n')).toBe(true);
-		});
-
 		it('should depend on the runtime rather than bundling it', () => {
 			expect(pkg.dependencies).toEqual({ main2: 'workspace:*' });
 			expect(config.external).toContain('main2');
+		});
+	});
+
+	describe('the built bin', () => {
+		// these read `dist/`, which the root `pnpm test` builds first. Asserting
+		// against `src/` instead would be worse than no test: the shebang and the
+		// bundling are things only the *build* can get wrong, so a check that
+		// never opens the build output cannot fail for the reason it exists.
+		const bin = resolve(root, 'dist/main2.mjs');
+
+		function built(): string {
+			if (!existsSync(bin)) {
+				throw new Error(`${bin} is missing -- run \`pnpm build\` before these tests`);
+			}
+			return readFileSync(bin, 'utf-8');
+		}
+
+		it('should lead with a shebang', () => {
+			// without it the published bin is not executable by a shell, and nothing
+			// else in the build would notice
+			expect(built().startsWith('#!/usr/bin/env node')).toBe(true);
+		});
+
+		it('should be executable', () => {
+			// npm preserves the mode it was packed with, so a bin that lost its
+			// executable bit here is a bin nobody can run after installing
+			expect(statSync(bin).mode & 0o111).not.toBe(0);
+		});
+
+		it('should leave the runtime as an import rather than inlining it', () => {
+			// `main2` is a real dependency, and inlining it would ship a second copy
+			// of the framework to anyone who also depends on it directly. The import
+			// lands in whichever chunk tsdown puts the entry's code in, so this asks
+			// the build as a whole rather than guessing at a file
+			const chunks = readdirSync(dirname(bin))
+				.filter((name) => name.endsWith('.mjs'))
+				.map((name) => readFileSync(resolve(dirname(bin), name), 'utf-8'));
+
+			expect(chunks.some((chunk) => /from\s*["']main2["']/.test(chunk))).toBe(true);
+		});
+
+		it('should answer --version when run as a real process', () => {
+			const result = spawnSync(process.execPath, [bin, '--version'], { encoding: 'utf-8' });
+			expect(result.status).toBe(0);
+			expect(result.stdout.trim()).toBe(pkg.version);
+		});
+
+		it('should answer --help when run as a real process', () => {
+			const result = spawnSync(process.execPath, [bin, '--help'], { encoding: 'utf-8' });
+			expect(result.status).toBe(0);
+			expect(result.stdout).toContain('main2');
+			expect(result.stdout).toContain('--version');
+		});
+
+		it('should fail loudly on an argument it does not understand', () => {
+			const result = spawnSync(process.execPath, [bin, 'nonsense'], { encoding: 'utf-8' });
+			expect(result.status).not.toBe(0);
+			expect(result.stderr).not.toBe('');
 		});
 	});
 });
