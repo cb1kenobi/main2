@@ -426,6 +426,12 @@ false` rethrows instead; a function replaces the handler.
   exactly that case; its recipe is `height - 1` newlines then walk back up.
   `DiffResult.column` is never past the last column and `wrapPending` says
   whether the deferred wrap is armed.
+- **`fill()` steps by what its cluster consumes and leaves the rectangle short
+  rather than overrunning it.** Advancing one column regardless made each
+  iteration break the continuation the last one left, so only the final column
+  kept its glyph -- and the last `put()` wrote its continuation one column _past_
+  the rectangle, over whatever else was painted there. Three columns cannot hold
+  two wide clusters, and half of one is worse than a gap.
 - **The cell class is `CellBuffer`, not `Buffer`.** The shorter name is Node's
   global, and a file that forgets the import gets a byte buffer and a
   deprecation warning rather than a type error.

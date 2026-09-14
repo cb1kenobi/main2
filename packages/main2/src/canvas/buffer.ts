@@ -256,7 +256,9 @@ export class CellBuffer {
 	 * @param y - The top row.
 	 * @param width - How many columns.
 	 * @param height - How many rows.
-	 * @param cluster - What to fill with. One column wide.
+	 * @param cluster - What to fill with. A wide cluster is laid two columns at
+	 * a time and the rectangle is left short rather than overrun when its width is
+	 * odd.
 	 * @param styleIndex - The interned style.
 	 */
 	fill(
@@ -267,8 +269,21 @@ export class CellBuffer {
 		cluster: string,
 		styleIndex: number
 	): void {
+		const step = graphemeWidth(cluster);
+		if (step === 0) {
+			// nothing to fill with, and a loop that never advances would not end
+			return;
+		}
+
+		const right = x + width;
 		for (let row = y; row < y + height; row++) {
-			for (let column = x; column < x + width; column++) {
+			// stepped by what the cluster actually consumes, and stopped before one
+			// would cross the caller's own right edge. Advancing by one regardless
+			// made each iteration break the continuation the last one left, so only
+			// the final column kept its glyph -- and the last `put()` wrote its
+			// continuation one column *past* the rectangle, over whatever else was
+			// painted there
+			for (let column = x; column + step <= right; column += step) {
 				this.put(column, row, cluster, styleIndex);
 			}
 		}

@@ -231,6 +231,29 @@ describe('CellBuffer', () => {
 		});
 	});
 
+	it('should lay a wide cluster two columns at a time when filling', () => {
+		const buffer = new CellBuffer(10, 1);
+		buffer.fill(2, 0, 4, 1, '漢', 0);
+		expect(buffer.toLines()).toEqual(['  漢漢    ']);
+	});
+
+	it('should leave a rectangle short rather than overrun it', () => {
+		const buffer = new CellBuffer(10, 1);
+		buffer.write(0, 0, '..........', 0);
+		// three columns cannot hold two wide clusters, and half of one is worse
+		// than a gap -- the old loop wrote its continuation past the rectangle,
+		// over whatever else had been painted there
+		buffer.fill(2, 0, 3, 1, '漢', 0);
+		expect(buffer.charAt(5, 0)).toBe('.');
+		expect(buffer.toLines()).toEqual(['..漢......']);
+	});
+
+	it('should not loop forever on a zero-width fill cluster', () => {
+		const buffer = new CellBuffer(4, 1);
+		buffer.fill(0, 0, 4, 1, '\u0301', 0);
+		expect(buffer.toLines()).toEqual(['    ']);
+	});
+
 	it('should fill a rectangle, clipped to the grid', () => {
 		const buffer = new CellBuffer(4, 3);
 		buffer.fill(1, 1, 10, 10, '#', 0);

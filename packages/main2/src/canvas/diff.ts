@@ -1,6 +1,6 @@
 import { cursorDown, cursorRight, cursorUp } from '../terminal/sequences.js';
 import { graphemeWidth } from '../width/index.js';
-import { BLANK, type CellBuffer, CONTINUATION } from './buffer.js';
+import { type CellBuffer, CONTINUATION } from './buffer.js';
 import { DEFAULT_STYLE, RESET, type Style, StyleTable, transition } from './style.js';
 
 /**
@@ -209,7 +209,7 @@ export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions):
 				}
 
 				useStyle(next.styleAt(column, y));
-				output += cell === '' ? BLANK : cell;
+				output += cell;
 
 				const consumed = Math.max(1, graphemeWidth(cell));
 				cursorColumn += consumed;
