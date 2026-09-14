@@ -1,4 +1,4 @@
-import { distribute, layout } from '../../src/layout/index.js';
+import { distribute, layout, measureNode } from '../../src/layout/index.js';
 import { declare } from '../../src/style/index.js';
 import { box, boxes, checkInvariants, picture, text } from './helpers.js';
 import { describe, expect, it } from 'vitest';
@@ -279,15 +279,30 @@ describe('align-items', () => {
 });
 
 describe('display: none', () => {
-	it('should take no space and place nothing', () => {
+	it('should take no space', () => {
 		const tree = box(
 			{ 'flex-direction': 'row' },
 			box({ width: '3', height: '1', display: 'none' }),
 			box({ width: '3', height: '1' })
 		);
 
-		// the hidden child is not in the tree at all, so the visible one is `b`
-		expect(picture(tree, 6, 1)).toBe('bbbaaa');
+		// the hidden child is `b` and paints nothing; the visible one is `c` and
+		// starts at column zero
+		expect(picture(tree, 6, 1)).toBe('cccaaa');
+	});
+
+	it('should still get a result, so the children line up with the tree', () => {
+		const hidden = box({ width: '3', height: '1', display: 'none' });
+		const shown = box({ width: '3', height: '1' });
+		const tree = box({ 'flex-direction': 'row' }, hidden, shown);
+
+		// everything above this matches a box back to its element by index, and a
+		// gap in that correspondence is a caveat nobody will remember
+		const result = layout(tree, { height: 1, width: 6 });
+		expect(result.children).toHaveLength(2);
+		expect(result.children[0].node).toBe(hidden);
+		expect(result.children[0].box).toMatchObject({ height: 0, width: 0 });
+		expect(result.children[1].node).toBe(shown);
 	});
 });
 
@@ -658,5 +673,201 @@ describe('auto margins', () => {
 			box({ width: '2', height: '1', 'margin-left': 'auto', 'margin-right': 'auto' })
 		);
 		expect(picture(tree, 10, 1)).toBe('aaaabbaaaa');
+	});
+});
+
+describe('flexing from the basis', () => {
+	it('should give two flex:1 columns the same width whatever their minimums', () => {
+		// growing from the *clamped* size pays the minimum twice: the last fix
+		// started there, so a column with a bigger min-content came out wider than
+		// its equal-flex sibling
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ flex: '1', 'min-width': '2', height: '1' }),
+			box({ flex: '1', 'min-width': '6', height: '1' })
+		);
+
+		expect(layout(tree, { height: 1, width: 20 }).children.map((c) => c.box.width)).toEqual([
+			10, 10,
+		]);
+	});
+
+	it('should still keep an inflexible min-width sibling inside the container', () => {
+		// the case the last fix was for, which the correct version also has to keep
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ 'flex-grow': '1', height: '1' }),
+			box({ 'min-width': '4', 'flex-grow': '0', height: '1' })
+		);
+
+		const result = layout(tree, { height: 1, width: 10 });
+		expect(result.children.map((c) => c.box.width)).toEqual([6, 4]);
+		checkInvariants(result);
+	});
+
+	it('should let a declared-size box with children shrink', () => {
+		// the automatic minimum is `min(content-based, specified)`. Reporting the
+		// declared size flat meant every real panel -- one with children -- could
+		// not shrink at all
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '8', height: '1' }, box({ width: '1', height: '1' })),
+			box({ width: '8', height: '1' }, box({ width: '1', height: '1' }))
+		);
+
+		const result = layout(tree, { height: 1, width: 10 });
+		expect(result.children.map((c) => c.box.width)).toEqual([5, 5]);
+		checkInvariants(result);
+	});
+});
+
+describe('reversed directions', () => {
+	it('should pack a row-reverse from the right', () => {
+		const tree = box(
+			{ 'flex-direction': 'row-reverse' },
+			box({ width: '2', height: '1' }),
+			box({ width: '2', height: '1' })
+		);
+
+		// reversing the items moves main-start to the other edge, and the
+		// justification has to move with it
+		expect(picture(tree, 8, 1)).toBe('aaaaccbb');
+	});
+
+	it('should send flex-end to the left in a row-reverse', () => {
+		const tree = box(
+			{ 'flex-direction': 'row-reverse', 'justify-content': 'flex-end' },
+			box({ width: '2', height: '1' }),
+			box({ width: '2', height: '1' })
+		);
+		expect(picture(tree, 8, 1)).toBe('ccbbaaaa');
+	});
+
+	it('should pack wrap-reverse lines from the bottom', () => {
+		const tree = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap-reverse', 'align-content': 'flex-start' },
+			box({ width: '3', height: '1' }),
+			box({ width: '3', height: '1' })
+		);
+
+		const result = layout(tree, { height: 4, width: 4 });
+		const ys = result.children.map((c) => c.box.y).sort((a, b) => a - b);
+		expect(ys[1]).toBe(3);
+	});
+});
+
+describe('align-content shares its remainder', () => {
+	it('should put the last line flush to the far edge for space-between', () => {
+		const tree = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap', 'align-content': 'space-between' },
+			box({ width: '3', height: '1' }),
+			box({ width: '3', height: '1' }),
+			box({ width: '3', height: '1' })
+		);
+
+		const result = layout(tree, { height: 8, width: 4 });
+		const last = result.children[2].box;
+		expect(last.y + last.height).toBe(8);
+	});
+});
+
+describe('measurement', () => {
+	it('should not count a border twice when measuring an empty box', () => {
+		// `declaredWidth` is already the border box, and the empty branch added the
+		// insets again -- so a bordered `width: 17` measured nineteen
+		expect(measureNode(box({ width: '17', border: 'single', height: '3' }), 40)).toMatchObject({
+			height: 3,
+			width: 17,
+		});
+	});
+
+	it('should measure a content-box declaration as its outer size', () => {
+		expect(
+			measureNode(box({ width: '10', height: '3', padding: '2', 'box-sizing': 'content-box' }), 40)
+		).toMatchObject({ height: 7, width: 14 });
+	});
+
+	it('should apply padding to the axis it belongs to', () => {
+		// `insets()` already answers for the axis and `makeItem()` swapped them
+		// again, so a row container read the vertical inset as its main one
+		const tree = box(
+			{ 'flex-direction': 'row', 'align-items': 'flex-start' },
+			box({ width: '6', height: '1', 'padding-left': '2', 'box-sizing': 'content-box' })
+		);
+		expect(layout(tree, { height: 5, width: 20 }).children[0].box).toMatchObject({
+			height: 1,
+			width: 8,
+		});
+	});
+
+	it('should give text the height its resolved width needs', () => {
+		// the first measure happens at the whole content box, before any flexing --
+		// two texts sharing twenty columns each measured twenty wide and one row
+		// tall, then got ten each and stayed one row
+		const tree = box(
+			{ 'flex-direction': 'row', 'align-items': 'flex-start' },
+			text('aaaa bbbb cccc dddd'),
+			text('eeee ffff gggg hhhh')
+		);
+
+		const result = layout(tree, { height: 5, width: 20 });
+		expect(result.children.map((c) => c.box.height)).toEqual([2, 2]);
+	});
+});
+
+describe('wrapping counts margins', () => {
+	it('should break a line when a margin is what makes it too wide', () => {
+		const tree = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+			box({ width: '5', height: '1', 'margin-left': '2', 'flex-shrink': '0' }),
+			box({ width: '5', height: '1', 'margin-left': '2', 'flex-shrink': '0' })
+		);
+
+		const result = layout(tree, { height: 4, width: 10 });
+		// on a second line, wherever `align-content` put it -- the point is that
+		// seven and seven do not share a ten-wide line
+		expect(result.children[1].box.y).toBeGreaterThan(0);
+		checkInvariants(result);
+	});
+});
+
+describe('a line is as tall as its items can be', () => {
+	it('should take a min-height into account when sizing a line', () => {
+		// a line took the *unclamped* cross size, so it came out too short for an
+		// item with a min-height and the next line started on top of it
+		const tree = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap', 'max-width': '6' },
+			box({ 'min-height': '5', flex: '1' }),
+			box({ width: '6', height: '2' })
+		);
+
+		checkInvariants(layout(tree, { height: 10, width: 6 }));
+	});
+});
+
+describe('the same node used twice', () => {
+	it('should get a result each', () => {
+		// the results were rebuilt by node identity, so two appearances of one node
+		// collapsed into a single entry
+		const shared = box({ width: '2', height: '1' });
+		const tree = box({ 'flex-direction': 'row' }, shared, box({ width: '1', height: '1' }), shared);
+
+		const result = layout(tree, { height: 1, width: 8 });
+		expect(result.children).toHaveLength(3);
+		expect(result.children.map((c) => c.box.x)).toEqual([0, 2, 3]);
+	});
+});
+
+describe('percentage margins', () => {
+	it('should resolve against the width on both axes', () => {
+		// CSS resolves every percentage margin against the containing block's
+		// width. Using the main axis made one declaration mean two things -- one at
+		// measure time and another at placement
+		const tree = box(
+			{ 'flex-direction': 'column', width: '10' },
+			box({ height: '2', 'margin-top': '50%' })
+		);
+
+		expect(layout(tree, { height: 20, width: 10 }).children[0].box.y).toBe(5);
 	});
 });

@@ -28,6 +28,8 @@ import {
 interface Axis {
 	/** Whether the main axis runs down the screen rather than across it. */
 	column: boolean;
+	/** Whether the cross axis runs backwards, which is what `wrap-reverse` means. */
+	crossReverse: boolean;
 	/** Whether items are placed from the far end back. */
 	reverse: boolean;
 }
@@ -35,6 +37,7 @@ interface Axis {
 function axisOf(style: Style): Axis {
 	return {
 		column: style.flexDirection === 'column' || style.flexDirection === 'column-reverse',
+		crossReverse: style.flexWrap === 'wrap-reverse',
 		reverse: style.flexDirection === 'row-reverse' || style.flexDirection === 'column-reverse',
 	};
 }
@@ -227,16 +230,18 @@ function measureUncached(
 
 	const children = (node.children ?? []).filter((c) => c.style.display !== 'none');
 	if (children.length === 0) {
+		// `declaredWidth` is already the border box, so adding the insets again
+		// counted them twice -- a bordered `width: 17` measured nineteen wide and
+		// escaped a seventeen-column parent. The height goes through `outerSize()`
+		// for the same reason rather than being read raw
+		const declaredHeight = outerSize(style, resolve(style.height, undefined), vertical);
 		// the automatic minimum is content-based, and a box with no children has no
-		// content -- so it is the insets and nothing more. Reporting the declared
-		// height as the minimum froze the item at that height and pushed it out of
-		// a container too short to hold it, which is the one thing shrinking exists
-		// to prevent
+		// content -- so it is the insets and nothing more
 		return {
-			height: (resolve(style.height, undefined) ?? 0) + vertical,
+			height: declaredHeight ?? vertical,
 			minHeight: vertical,
 			minWidth: horizontal,
-			width: (declaredWidth ?? 0) + horizontal,
+			width: declaredWidth ?? horizontal,
 		};
 	}
 
@@ -294,12 +299,17 @@ function measureUncached(
 	const minWidth = axis.column ? minCrossMax + inset.cross : minMainTotal + inset.main;
 	const minHeight = axis.column ? minMainTotal + inset.main : minCrossMax + inset.cross;
 
-	const declaredHeight = resolve(style.height, undefined);
+	const declaredHeight = outerSize(style, resolve(style.height, undefined), vertical);
 
+	// CSS's automatic minimum is `min(content-based, specified)`. Reporting the
+	// declared size flat meant a box with any children could not shrink at all --
+	// two `width: 8` panels in ten columns stayed eight wide and the second one
+	// left the container. The empty case was fixed last time; this is the same bug
+	// in the branch that has children, which is every real panel
 	return {
 		height: declaredHeight ?? height,
-		minHeight: declaredHeight ?? minHeight,
-		minWidth: declaredWidth ?? minWidth,
+		minHeight: declaredHeight === undefined ? minHeight : Math.min(minHeight, declaredHeight),
+		minWidth: declaredWidth === undefined ? minWidth : Math.min(minWidth, declaredWidth),
 		width: declaredWidth ?? width,
 	};
 }
@@ -357,13 +367,29 @@ function layoutNode(
 		y: y + inset.border + style.paddingTop,
 	};
 
-	const children = (node.children ?? []).filter((c) => c.style.display !== 'none');
-	if (children.length === 0) {
+	const all = node.children ?? [];
+	const visible = all.filter((child) => child.style.display !== 'none');
+	if (all.length === 0) {
 		return { box, children: [], content, node };
 	}
 
-	const placed = layoutChildren(node, children, content, axis, cache);
-	return { box, children: placed, content, node };
+	const placed = layoutChildren(node, visible, content, axis, cache);
+
+	// a hidden child still gets a result, so `result.children[i]` answers for
+	// `node.children[i]` without a caveat -- which is what everything above this
+	// needs to match a box back to its element, and what AGENTS.md promises.
+	// Walked in step rather than keyed by node: the same node can appear twice in
+	// one `children` list, and identity collapses the two
+	let taken = 0;
+	const children = all.map((child) => {
+		if (child.style.display === 'none') {
+			const nothing: Box = { height: 0, width: 0, x: content.x, y: content.y };
+			return { box: nothing, children: [], content: { ...nothing }, node: child };
+		}
+		return placed[taken++];
+	});
+
+	return { box, children, content, node };
 }
 
 /**
@@ -394,9 +420,10 @@ function layoutChildren(
 	// orders keep their source sequence
 	const items = children.map((child, index) => makeItem(child, axis, content, index, cache));
 	const ordered = [...items].sort((a, b) => a.style.order - b.style.order);
-	const lines = style.flexWrap === 'nowrap' ? [ordered] : wrapIntoLines(ordered, mainSpace, gap);
+	const lines =
+		style.flexWrap === 'nowrap' ? [ordered] : wrapIntoLines(ordered, mainSpace, gap, axis);
 
-	const placed: LayoutResult[] = [];
+	const placed: { index: number; result: LayoutResult }[] = [];
 	const lineCrossSizes: number[] = [];
 
 	for (const line of lines) {
@@ -419,40 +446,30 @@ function layoutChildren(
 	}
 
 	const free = Math.max(0, crossSpace - lineCrossSizes.reduce((a, b) => a + b, 0) - crossGaps);
-	let crossCursor = 0;
-	let betweenLines = crossGap;
 
-	if (lines.length > 1) {
-		switch (style.alignContent) {
-			case 'flex-end':
-				crossCursor = free;
-				break;
-			case 'center':
-				crossCursor = Math.floor(free / 2);
-				break;
-			case 'space-between':
-				betweenLines = crossGap + Math.floor(free / (lines.length - 1));
-				break;
-			case 'space-around':
-				betweenLines = crossGap + Math.floor(free / lines.length);
-				crossCursor = Math.floor(free / lines.length / 2);
-				break;
-			case 'stretch': {
-				// shared out rather than handed to the last line, so the lines
-				// together fill the cross space exactly
-				const shares = distribute(
-					free,
-					lineCrossSizes.map(() => 1)
-				);
-				for (const [index, share] of shares.entries()) {
-					lineCrossSizes[index] += share;
-				}
-				break;
-			}
-			default:
-				break;
+	// `stretch` grows the lines themselves; everything else spaces them, through
+	// the same function `justify-content` uses. Dividing by hand here was the
+	// remainder bug the main axis had already been fixed for -- `space-around`
+	// gave a trailing gap three times the others, in a file whose own rule is that
+	// every division goes through `distribute()`
+	if (lines.length > 1 && style.alignContent === 'stretch') {
+		const shares = distribute(
+			free,
+			lineCrossSizes.map(() => 1)
+		);
+		for (const [index, share] of shares.entries()) {
+			lineCrossSizes[index] += share;
 		}
 	}
+
+	const lineGaps =
+		lines.length > 1 && style.alignContent !== 'stretch'
+			? mainGaps(lines.length, free, crossGap, alignToJustify(style.alignContent, axis))
+			: Array.from({ length: lines.length + 1 }, (_, i) =>
+					i === 0 || i === lines.length ? 0 : crossGap
+				);
+
+	let crossCursor = lineGaps[0];
 
 	for (const [index, line] of lines.entries()) {
 		const lineCross = lineCrossSizes[index];
@@ -467,12 +484,14 @@ function layoutChildren(
 			results: placed,
 			style,
 		});
-		crossCursor += lineCross + betweenLines;
+		crossCursor += lineCross + lineGaps[index + 1];
 	}
 
-	// tree order, not placement order
-	const byNode = new Map(placed.map((result) => [result.node, result]));
-	return children.map((child) => byNode.get(child)).filter((r): r is LayoutResult => !!r);
+	// tree order, not placement order -- by index rather than by node, because the
+	// same node can legitimately appear twice in one `children` list and keying on
+	// identity collapsed the two into one result
+	const byIndex = new Map(placed.map((entry) => [entry.index, entry.result]));
+	return items.map((item) => byIndex.get(item.index)).filter((r): r is LayoutResult => !!r);
 }
 
 /** The main-axis size an item occupies including its margins. */
@@ -496,12 +515,18 @@ function makeItem(
 	cache: MeasureCache
 ): Item {
 	const style = node.style;
-	const margin = margins(style, axis.column ? content.height : content.width);
+	// against the width, whichever axis this is: that is what CSS does, and
+	// resolving against the main axis made the same declaration mean one thing at
+	// measure time and another at placement
+	const margin = margins(style, content.width);
 	const measured = measure(node, Math.max(0, content.width - margin.left - margin.right), cache);
 
+	// `insets()` already answers for this axis, so these are its answers. Swapping
+	// them again gave a row container the *vertical* inset as its main one, and a
+	// `content-box` child with `padding-left` came out three rows tall
 	const inset = insets(style, axis);
-	const mainInset = axis.column ? inset.main : inset.cross;
-	const crossInset = axis.column ? inset.cross : inset.main;
+	const mainInset = inset.main;
+	const crossInset = inset.cross;
 
 	const declaredMain = outerSize(
 		style,
@@ -541,20 +566,26 @@ function makeItem(
 	);
 	const contentCross = axis.column ? measured.width : measured.height;
 
+	const minCross = axis.column
+		? outerSize(style, resolve(style.minWidth, content.width), crossInset)
+		: outerSize(style, resolve(style.minHeight, content.height), crossInset);
+	const maxCross = axis.column
+		? outerSize(style, resolve(style.maxWidth, content.width), crossInset)
+		: outerSize(style, resolve(style.maxHeight, content.height), crossInset);
+
 	return {
 		basis,
-		crossSize: declaredCross ?? contentCross,
+		// the *hypothetical* cross size, clamped. A line's size is the largest of
+		// these, and reading the unclamped value made a line too short for an item
+		// with a `min-height` -- so the next line started on top of it
+		crossSize: clamp(declaredCross ?? contentCross, minCross, maxCross),
 		frozen: false,
 		index,
 		mainSize: basis,
 		margin,
-		maxCross: axis.column
-			? outerSize(style, resolve(style.maxWidth, content.width), crossInset)
-			: outerSize(style, resolve(style.maxHeight, content.height), crossInset),
+		maxCross,
 		maxMain,
-		minCross: axis.column
-			? outerSize(style, resolve(style.minWidth, content.width), crossInset)
-			: outerSize(style, resolve(style.minHeight, content.height), crossInset),
+		minCross,
 		minMain,
 		node,
 		style,
@@ -562,13 +593,17 @@ function makeItem(
 }
 
 /** Breaks items into lines that fit, for `flex-wrap`. */
-function wrapIntoLines(items: Item[], mainSpace: number, gap: number): Item[][] {
+function wrapIntoLines(items: Item[], mainSpace: number, gap: number, axis: Axis): Item[][] {
 	const lines: Item[][] = [];
 	let current: Item[] = [];
 	let used = 0;
 
 	for (const item of items) {
-		const size = clamp(item.basis, item.minMain, item.maxMain);
+		// margins included: a five-wide item with a two-wide margin takes seven, and
+		// deciding on five put two of them on a ten-wide line
+		const size =
+			clamp(item.basis, item.minMain, item.maxMain) +
+			(axis.column ? item.margin.top + item.margin.bottom : item.margin.left + item.margin.right);
 		const withGap = current.length === 0 ? size : size + gap;
 
 		if (current.length > 0 && used + withGap > mainSpace) {
@@ -607,18 +642,36 @@ function resolveFlexible(line: Item[], mainSpace: number, gap: number, axis: Axi
 		return;
 	}
 
-	for (const item of line) {
-		// the *hypothetical* main size, which is the basis already clamped to the
-		// item's own limits -- not the raw basis. Starting from the raw one leaves a
-		// sibling's `min-width` unaccounted for while the free space is handed out
-		// to everyone else, and the trailing clamp then pushes that item past the
-		// container's edge with the space already spent
-		item.mainSize = clamp(item.basis, item.minMain, item.maxMain);
-		item.frozen = false;
-	}
-
+	// CSS resolves this in two halves and both matter. An item that cannot flex --
+	// no factor in the direction there is room to move, or a basis already past the
+	// limit that way -- is *frozen at its hypothetical size*, which is how a
+	// `min-width` is accounted for before the space is handed out. Everything else
+	// flexes from its **basis**, not from its clamped size: growing from the
+	// clamped one pays the minimum twice, so two `flex: 1` columns whose content
+	// minimums differ came out unequal.
+	const total = line.reduce((sum, item) => sum + item.basis, 0);
 	const gaps = gap * (line.length - 1);
-	const marginTotal = line.reduce((sum, item) => sum + outerMain(item, axis) - item.mainSize, 0);
+	const marginTotal = line.reduce(
+		(sum, item) =>
+			sum +
+			(axis.column ? item.margin.top + item.margin.bottom : item.margin.left + item.margin.right),
+		0
+	);
+	const growing = mainSpace - (total + gaps + marginTotal) > 0;
+
+	for (const item of line) {
+		const hypothetical = clamp(item.basis, item.minMain, item.maxMain);
+		const factor = growing ? item.style.flexGrow : item.style.flexShrink;
+		// CSS §9.7.1: freeze an item whose basis was clamped *away* from the
+		// direction there is room to move -- a max pulling it down while growing, a
+		// min pushing it up while shrinking. Written the other way round it froze
+		// everything with a minimum at that minimum, so two `flex: 1` columns never
+		// grew at all
+		const stuck = growing ? item.basis > hypothetical : item.basis < hypothetical;
+
+		item.frozen = factor <= 0 || stuck;
+		item.mainSize = item.frozen ? hypothetical : item.basis;
+	}
 
 	for (let pass = 0; pass < line.length + 1; pass++) {
 		const used = line.reduce((sum, item) => sum + item.mainSize, 0) + gaps + marginTotal;
@@ -674,7 +727,7 @@ interface PlaceOptions {
 	crossSize: number;
 	gap: number;
 	mainSpace: number;
-	results: LayoutResult[];
+	results: { index: number; result: LayoutResult }[];
 	style: Style;
 }
 
@@ -762,6 +815,11 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 
 	const order = axis.reverse ? [...line].reverse() : line;
 
+	// reversing the items moves main-start to the other edge, so the justification
+	// has to move with it: `flex-start` on a `row-reverse` means the right, and
+	// packing the reversed list from the left put it on the left
+	const justify = axis.reverse ? flipJustify(style.justifyContent) : style.justifyContent;
+
 	// every auto margin on the line shares the free space, wherever it sits. The
 	// trailing half used to count towards the denominator and then contribute
 	// nothing, so two adjacent items each pushing away from the other pushed once
@@ -793,7 +851,7 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 			? Array.from({ length: order.length + 1 }, (_, i) =>
 					i === 0 || i === order.length ? 0 : gap
 				)
-			: mainGaps(order.length, free, gap, style.justifyContent);
+			: mainGaps(order.length, free, gap, justify);
 
 	let cursor = gaps[0];
 
@@ -803,7 +861,15 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 
 		const mainStart = cursor + marginMainStart + (autoBefore.get(item) ?? 0);
 
-		const align = item.style.alignSelf === 'auto' ? style.alignItems : item.style.alignSelf;
+		const declared = item.style.alignSelf === 'auto' ? style.alignItems : item.style.alignSelf;
+		// `wrap-reverse` runs the cross axis backwards, so an item asked to sit at
+		// the start of its line sits at what is now the bottom of it
+		const align =
+			axis.crossReverse && (declared === 'flex-start' || declared === 'flex-end')
+				? declared === 'flex-start'
+					? 'flex-end'
+					: 'flex-start'
+				: declared;
 		const marginCrossStart = axis.column ? item.margin.left : item.margin.top;
 		const marginCrossEnd = axis.column ? item.margin.right : item.margin.bottom;
 		const roomCross = Math.max(0, crossSize - marginCrossStart - marginCrossEnd);
@@ -813,6 +879,20 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 			itemCross = roomCross;
 		}
 		itemCross = clamp(itemCross, item.minCross, item.maxCross);
+
+		// re-measured at the size it actually got, *before* the cross offset is
+		// computed from it: a text's height depends on its width, and the first
+		// measure happened at the whole content box before any flexing. Two texts
+		// sharing twenty columns each measured twenty wide and one row tall, then
+		// got ten each and stayed one row
+		if (!axis.column && item.node.measure && !crossIsDeclared(item, axis)) {
+			const remeasured = measure(item.node, item.mainSize, cache);
+			itemCross = clamp(
+				align === 'stretch' ? Math.max(roomCross, remeasured.height) : remeasured.height,
+				item.minCross,
+				item.maxCross
+			);
+		}
 
 		let crossStart = crossOffset + marginCrossStart;
 		if (align === 'flex-end') {
@@ -826,11 +906,54 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 		const childWidth = axis.column ? itemCross : item.mainSize;
 		const childHeight = axis.column ? item.mainSize : itemCross;
 
-		results.push(layoutNode(item.node, childWidth, childHeight, childX, childY, cache));
+		results.push({
+			index: item.index,
+			result: layoutNode(item.node, childWidth, childHeight, childX, childY, cache),
+		});
 
 		cursor = mainStart + item.mainSize + marginMainEnd + (autoAfter.get(item) ?? 0);
 		cursor += gaps[position + 1];
 	}
+}
+
+/**
+ * The same justification against the other edge.
+ *
+ * @param justify - What the container asked for.
+ * @returns Its mirror.
+ */
+function flipJustify(justify: Style['justifyContent']): Style['justifyContent'] {
+	if (justify === 'flex-start') {
+		return 'flex-end';
+	}
+	if (justify === 'flex-end') {
+		return 'flex-start';
+	}
+	return justify;
+}
+
+/**
+ * `align-content` read as a `justify-content`, so the two share one divider.
+ *
+ * `wrap-reverse` runs the cross axis the other way, so the ends swap -- packing
+ * at the "start" of a reversed axis is packing at the bottom of the screen.
+ *
+ * @param align - What the container asked for.
+ * @param axis - Which way the main axis runs.
+ * @returns The equivalent justification.
+ */
+function alignToJustify(align: Style['alignContent'], axis: Axis): Style['justifyContent'] {
+	const flipped = axis.crossReverse;
+	if (align === 'flex-start') {
+		return flipped ? 'flex-end' : 'flex-start';
+	}
+	if (align === 'flex-end') {
+		return flipped ? 'flex-start' : 'flex-end';
+	}
+	if (align === 'stretch') {
+		return 'flex-start';
+	}
+	return align;
 }
 
 /** Whether an item's cross size was asked for rather than derived. */

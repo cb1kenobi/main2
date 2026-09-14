@@ -396,11 +396,20 @@ false` rethrows instead; a function replaces the handler.
   `align-content` were added to the table and are honoured here for that reason.
   `visibility` and `overflow` are deliberately _not_ layout's: hidden content
   still takes its space, and clipping is M2-64's.
-- **Flexing starts from the basis already clamped to the item's own limits.**
-  CSS calls that the hypothetical main size, and starting from the raw basis
-  instead leaves a sibling's `min-width` unaccounted for while the free space is
-  handed out to everyone else -- the trailing clamp then pushes that item past
-  the container's edge with the space already spent.
+- **An item that cannot flex is frozen at its hypothetical size; everything else
+  flexes from its _basis_.** Both halves matter and getting either wrong is
+  visible. Flexing from the raw basis leaves a sibling's `min-width`
+  unaccounted for while the space is handed out to everyone else, and the
+  trailing clamp then pushes that item past the edge with the space already
+  spent. Flexing from the _clamped_ size instead pays the minimum twice, so two
+  `flex: 1` columns whose content minimums differ come out unequal. The freeze
+  condition is CSS §9.7.1 and it is easy to write backwards: freeze an item whose
+  basis was clamped _away_ from the direction there is room to move -- a max
+  pulling it down while growing, a min pushing it up while shrinking.
+- **The automatic minimum is `min(content-based, specified)`.** Reporting the
+  declared size flat meant a box with any children could not shrink at all,
+  which is every real panel. The empty case and the non-empty case are separate
+  branches and were fixed one round apart.
 - **A child's declared minimum counts towards what its parent needs.** Measuring
   a shrink-to-fit container from its children's _content_ minimums alone let it
   compute itself smaller than a child's `min-width` would force at placement
@@ -409,11 +418,12 @@ false` rethrows instead; a function replaces the handler.
   Reporting its declared height as its minimum froze it at that height and
   pushed it out of a container too short to hold it -- which is the one thing
   shrinking exists to prevent.
-- **`justify-content` gaps go through `distribute()` like everything else.** A
-  single `Math.floor()` per gap cannot hold a remainder: `space-evenly` over
-  seven cells and four slots gave three gaps of one and a trailing gap of four,
-  and `space-between` left the last item a cell short of the edge it is defined
-  to touch.
+- **`justify-content` and `align-content` share one divider, and it goes through
+  `distribute()`.** A single `Math.floor()` per gap cannot hold a remainder:
+  `space-evenly` over seven cells and four slots gave three gaps of one and a
+  trailing gap of four, and `space-between` left the last item a cell short of
+  the edge it is defined to touch. The main axis was fixed one round before the
+  cross axis, which had the identical bug in the identical shape.
 - **Every auto margin on a line shares the free space, wherever it sits.** A
   trailing one used to count towards the denominator and then contribute
   nothing, so two adjacent items each pushing away from the other pushed once.
@@ -426,6 +436,30 @@ false` rethrows instead; a function replaces the handler.
   times the depth rather than the node count -- a 5.3x multiplier at eight levels
   deep, on the most expensive operation in the stack. Per call, not persistent:
   content changes between frames and invalidating is the renderer's job.
+- **`insets()` already answers for the axis.** Asking it and then swapping main
+  for cross again gave a row container the _vertical_ inset as its main one, so
+  a `content-box` child with `padding-left` came out three rows tall.
+- **A line's cross size is the largest _clamped_ item on it.** Reading the
+  unclamped value made a line too short for an item with a `min-height`, and the
+  next line started on top of it.
+- **Wrapping counts margins.** A five-wide item with a two-wide margin takes
+  seven, and deciding on five put two of them on a ten-wide line.
+- **Percentage margins resolve against the width, on both axes**, which is what
+  CSS does. Resolving against the main axis made one declaration mean one thing
+  at measure time and another at placement.
+- **Reversing a direction moves main-start to the other edge**, so the
+  justification moves with it: `flex-start` on a `row-reverse` is the right.
+  Reversing only the list packed it on the left. `wrap-reverse` does the same to
+  the cross axis, for `align-content` and for each item's own alignment.
+- **A hidden child still gets a result, and results are matched by index.**
+  `result.children[i]` answers for `node.children[i]` with no caveat, which is
+  what everything above needs to match a box back to its element. Both halves
+  were wrong at different times: hidden children were dropped, and rebuilding the
+  list by node identity collapsed two appearances of one node into one entry.
+- **A text is re-measured at the width it actually got.** Its height depends on
+  its width, and the first measure happens at the whole content box before any
+  flexing -- so two texts sharing twenty columns each measured twenty wide and
+  one row tall, then got ten each and stayed one row.
 - **Pictures cannot check containment, so `checkInvariants()` does.** The picture
   helper paints later nodes over earlier ones, so an overlap is invisible, and it
   bounds-checks against the grid, so anything placed past the edge does not
