@@ -4,6 +4,7 @@ import {
 	effect,
 	flush,
 	hasSinks,
+	sinkCount,
 	setErrorHandler,
 	setScheduler,
 	State,
@@ -320,8 +321,10 @@ describe('effect', () => {
 
 		expect(runs).toBe(1);
 		// nothing was handed back that could unwatch it, so if it were still
-		// watched it would re-run on every change for the life of the process
+		// watched it would re-run on every change for the life of the process --
+		// and the edge itself has to go too, because a source holds its sinks
 		expect(hasSinks(s)).toBe(false);
+		expect(sinkCount(s)).toBe(0);
 
 		s.set(1);
 		flush();
@@ -408,6 +411,40 @@ describe('effect', () => {
 		});
 	});
 
+	it('should not run an effect disposed by another effect in the same flush', () => {
+		const scheduler = manualScheduler();
+		try {
+			const s = new State(0);
+			let bRuns = 0;
+			let stopB = () => {};
+
+			const stopA = effect(() => {
+				if (s.get() > 0) {
+					stopB();
+				}
+			});
+			stopB = effect(() => {
+				s.get();
+				bRuns++;
+			});
+
+			expect(bRuns).toBe(1);
+
+			s.set(1);
+			scheduler.run();
+
+			// the flush snapshots what is pending before it starts, so B was already
+			// in the list when A disposed it. Running it anyway would re-link it to
+			// `s` on the way, quietly undoing the disposal
+			expect(bRuns).toBe(1);
+			expect(sinkCount(s)).toBe(1);
+
+			stopA();
+		} finally {
+			scheduler.restore();
+		}
+	});
+
 	describe('nested effects', () => {
 		it('should dispose a child when the parent re-runs', () => {
 			const outer = new State(0);
@@ -454,7 +491,7 @@ describe('effect', () => {
 			inner.set(1);
 			flush();
 			expect(innerRuns).toBe(1);
-			expect(hasSinks(inner)).toBe(false);
+			expect(sinkCount(inner)).toBe(0);
 		});
 
 		it('should not make a child a dependency of its parent', () => {

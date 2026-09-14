@@ -225,6 +225,13 @@ export function createEffects(): Effects {
 
 		const computed = new Computed<void>(
 			() => {
+				// `flush()` snapshots what is pending before it starts, so an effect
+				// disposed by an earlier effect in the same pass is still in that
+				// snapshot and would run once more -- and the read it makes on the way
+				// would re-link it to its sources, quietly undoing `dispose()`
+				if (disposed) {
+					return;
+				}
 				runCleanups();
 				const outer = currentOwner;
 				currentOwner = children;

@@ -119,6 +119,26 @@ export interface SignalOptions<T> {
 }
 
 /**
+ * Runs a callback with the graph closed to it, the way a notify callback runs.
+ *
+ * `watched` and `unwatched` fire from inside the `incLive`/`decLive` walk, which
+ * is a graph mutation in flight. A callback that wrote a signal from there would
+ * re-enter propagation halfway through a liveness update -- the same hazard the
+ * ban on `notify` exists for, and the proposal freezes both for the same reason.
+ *
+ * @param fn - What to run.
+ */
+function frozen(fn: () => void): void {
+	const previous = notifying;
+	notifying = true;
+	try {
+		fn();
+	} finally {
+		notifying = previous;
+	}
+}
+
+/**
  * Whether a consumer is observed, and so whether the things it reads are.
  *
  * @param consumer - The consumer to ask about.
@@ -136,7 +156,7 @@ function isLive(consumer: Consumer): boolean {
  */
 function incLive(producer: Producer): void {
 	if (++producer.liveCount === 1) {
-		producer.notifyWatched();
+		frozen(() => producer.notifyWatched());
 		for (const source of producer.producerSources()) {
 			incLive(source);
 		}
@@ -150,7 +170,7 @@ function incLive(producer: Producer): void {
  */
 function decLive(producer: Producer): void {
 	if (--producer.liveCount === 0) {
-		producer.notifyUnwatched();
+		frozen(() => producer.notifyUnwatched());
 		for (const source of producer.producerSources()) {
 			decLive(source);
 		}
@@ -216,10 +236,18 @@ function track(producer: Producer): void {
  * @param producer - What changed.
  * @param state - `DIRTY` for the first ring of dependents, `CHECK` beyond it.
  */
-function propagate(producer: Producer, state: NodeState): void {
+function propagate(producer: Producer, state: NodeState, errors: unknown[]): void {
 	for (const sink of producer.sinks) {
 		if (sink.isWatcher) {
-			sink.notify();
+			// a watcher that throws must not take the rest of the walk with it.
+			// Sinks after it in the set would never be marked, so they would keep
+			// serving a value from before the write -- stale with nothing to
+			// un-stale them until something else happens to touch the same source
+			try {
+				sink.notify();
+			} catch (err) {
+				errors.push(err);
+			}
 			continue;
 		}
 
@@ -233,7 +261,7 @@ function propagate(producer: Producer, state: NodeState): void {
 
 		// only a node that was clean has a subgraph that has not heard yet
 		if (wasClean) {
-			propagate(sink as unknown as Producer, CHECK);
+			propagate(sink as unknown as Producer, CHECK, errors);
 		}
 	}
 }
@@ -326,7 +354,18 @@ export class State<T> implements Producer {
 		}
 		this.#value = next;
 		this.version++;
-		propagate(this, DIRTY);
+
+		// the whole subgraph is told before anything is allowed to fail, so one
+		// broken watcher cannot leave the rest of the graph describing a value
+		// that is no longer there
+		const errors: unknown[] = [];
+		propagate(this, DIRTY, errors);
+		if (errors.length === 1) {
+			throw errors[0];
+		}
+		if (errors.length > 1) {
+			throw new AggregateError(errors, 'Watcher notify callbacks threw');
+		}
 	}
 }
 
@@ -685,7 +724,34 @@ export function currentComputed(): Computed<any> | undefined {
  * @returns Its dependents.
  */
 export function introspectSinks(signal: State<any> | Computed<any>): (Computed<any> | Watcher)[] {
-	return [...(signal as unknown as Producer).sinks] as (Computed<any> | Watcher)[];
+	// watchers, plus computeds that are themselves live. The proposal is specific
+	// about this: a computed that read this signal but that nothing watches is not
+	// a sink worth reporting, because nothing is listening through it
+	const sinks: (Computed<any> | Watcher)[] = [];
+	for (const sink of (signal as unknown as Producer).sinks) {
+		if (sink.isWatcher) {
+			sinks.push(sink as unknown as Watcher);
+		} else if ((sink as unknown as Producer).liveCount > 0) {
+			sinks.push(sink as unknown as Computed<any>);
+		}
+	}
+	return sinks;
+}
+
+/**
+ * How many edges point at this signal, live or not.
+ *
+ * Not part of the proposal and not in `Signal.subtle`: `hasSinks()` answers the
+ * proposal's question, which is about liveness, and this answers the one a leak
+ * test needs -- whether anything still holds a reference at all. A source holds
+ * its sinks strongly, so an edge that outlives its owner is a leak even when
+ * nothing is listening through it.
+ *
+ * @param signal - The signal to inspect.
+ * @returns The number of edges.
+ */
+export function sinkCount(signal: State<any> | Computed<any>): number {
+	return (signal as unknown as Producer).sinks.size;
 }
 
 /**
@@ -699,13 +765,16 @@ export function introspectSources(signal: Computed<any> | Watcher): (State<any> 
 }
 
 /**
- * Whether anything currently reads this signal.
+ * Whether anything is listening to this signal.
  *
  * @param signal - The signal to inspect.
- * @returns Whether it has dependents.
+ * @returns Whether it is live.
  */
 export function hasSinks(signal: State<any> | Computed<any>): boolean {
-	return (signal as unknown as Producer).sinks.size > 0;
+	// "live" in the proposal's sense: watched by a `Watcher`, or read by a computed
+	// that is itself (recursively) watched. Being merely read does not count, which
+	// is the same distinction `watched`/`unwatched` draw
+	return (signal as unknown as Producer).liveCount > 0;
 }
 
 /**

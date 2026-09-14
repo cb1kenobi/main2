@@ -437,6 +437,14 @@ false` rethrows instead; a function replaces the handler.
   mistake -- and tracking stopped at the first `await` anyway. Everything else is
   let through, because `effect(() => a.set(b.get()))` is the spelling worth
   encouraging and a concise arrow body returns whatever its last call did.
+- **An unwatched `Computed` that is dropped is not collected.** Edges are strong
+  and bidirectional, so a long-lived `State` keeps every computed that ever read
+  it reachable through its sink set. The proposal solves this with generation
+  numbers; we have `Computed.dispose()` instead, and `effect()` calls it. A bare
+  `new Signal.Computed()` that is read once and dropped leaks its edge until the
+  source dies. Known, and it matters most in exactly this project's target -- a
+  long-running TUI -- so it gets revisited if a real graph ever grows large
+  enough to notice.
 - **Effects come in scopes, and the module-level ones are a default scope.**
   `createEffects()` gives an independent watcher, scheduler, queue, and error
   handler. One global scheduler is a trap the moment there is more than one thing

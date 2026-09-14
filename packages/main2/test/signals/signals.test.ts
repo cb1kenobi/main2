@@ -6,6 +6,7 @@ import {
 	introspectSinks,
 	introspectSources,
 	Signal,
+	sinkCount,
 	State,
 	untrack,
 	unwatched,
@@ -563,20 +564,131 @@ describe('watched and unwatched', () => {
 	});
 });
 
+describe('a watcher that throws', () => {
+	it('should not stop the rest of the graph being told', () => {
+		const s = new State(0);
+		const c = new Computed(() => s.get() * 2);
+
+		const bad = new Watcher(() => {
+			throw new Error('bang');
+		});
+		bad.watch(s);
+		c.get();
+
+		const good = new Watcher(() => {});
+		good.watch(c);
+
+		// the throw reaches the writer, but only after every sink has been marked.
+		// Aborting the walk would leave `c` serving a value from before the write,
+		// with nothing to un-stale it until something else touched `s`
+		expect(() => s.set(5)).toThrow('bang');
+		expect(c.get()).toBe(10);
+	});
+
+	it('should collect more than one into an AggregateError', () => {
+		const s = new State(0);
+		const a = new Watcher(() => {
+			throw new Error('first');
+		});
+		const b = new Watcher(() => {
+			throw new Error('second');
+		});
+		a.watch(s);
+		b.watch(s);
+
+		let thrown: unknown;
+		try {
+			s.set(1);
+		} catch (err) {
+			thrown = err;
+		}
+
+		expect(thrown).toBeInstanceOf(AggregateError);
+		expect((thrown as AggregateError).errors.map((e: Error) => e.message)).toEqual([
+			'first',
+			'second',
+		]);
+	});
+});
+
+describe('watched and unwatched callbacks', () => {
+	it('should not be allowed to touch the graph', () => {
+		const other = new State(1);
+		let readError: unknown;
+
+		const s = new State(0, {
+			[watched]: () => {
+				try {
+					other.get();
+				} catch (err) {
+					readError = err;
+				}
+			},
+		});
+
+		new Watcher(() => {}).watch(s);
+
+		// these fire from inside the liveness walk, which is a graph mutation in
+		// flight -- the same hazard the ban on `notify` exists for
+		expect((readError as Error).message).toMatch(/may not read signals/);
+	});
+
+	it('should not be allowed to write from unwatched', () => {
+		const other = new State(1);
+		let writeError: unknown;
+
+		const s = new State(0, {
+			[unwatched]: () => {
+				try {
+					other.set(9);
+				} catch (err) {
+					writeError = err;
+				}
+			},
+		});
+
+		const w = new Watcher(() => {});
+		w.watch(s);
+		w.unwatch(s);
+
+		expect((writeError as Error).message).toMatch(/may not write signals/);
+		expect(other.get()).toBe(1);
+	});
+});
+
 describe('introspection', () => {
-	it('should report sources and sinks', () => {
+	it('should report sources', () => {
 		const s = new State(1);
 		const c = new Computed(() => s.get());
 
 		expect(hasSources(c)).toBe(false);
-		expect(hasSinks(s)).toBe(false);
+		c.get();
+		expect(introspectSources(c)).toEqual([s]);
+		expect(hasSources(c)).toBe(true);
+	});
 
+	it('should report sinks by liveness rather than by readership', () => {
+		const s = new State(1);
+		const c = new Computed(() => s.get());
 		c.get();
 
-		expect(introspectSources(c)).toEqual([s]);
-		expect(introspectSinks(s)).toEqual([c]);
-		expect(hasSources(c)).toBe(true);
+		// `c` read `s`, but nothing watches `c`, so nothing is listening through
+		// it. The proposal is specific that this is what "has sinks" means, and it
+		// is the same distinction `watched`/`unwatched` draw
+		expect(hasSinks(s)).toBe(false);
+		expect(introspectSinks(s)).toEqual([]);
+
+		// the edge is still there, which is why disposal has to be explicit
+		expect(sinkCount(s)).toBe(1);
+
+		const w = new Watcher(() => {});
+		w.watch(c);
+
 		expect(hasSinks(s)).toBe(true);
+		expect(introspectSinks(s)).toEqual([c]);
+
+		w.unwatch(c);
+		expect(hasSinks(s)).toBe(false);
 	});
 
 	it('should report a watcher as a sink', () => {

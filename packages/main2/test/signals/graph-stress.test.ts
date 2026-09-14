@@ -42,9 +42,12 @@ function evaluate(plan: Plan, states: number[], index: number): number {
 	for (const dep of deps) {
 		total += evaluate(plan, states, dep);
 	}
-	// modulo on purpose: it makes plenty of recomputes land on the same value,
-	// which is what exercises the "recomputed but unchanged" path
-	return total % 97;
+	// a small modulus on purpose. The interesting path is a CHECK node whose
+	// sources all recompute to the values it already saw, so it resolves back to
+	// CLEAN without running -- and that needs collisions to be common. At mod 97
+	// it never happened once across every seed; the arithmetic has to be lossy
+	// enough to collide for the fuzzer to reach the code it exists to test
+	return total % 5;
 }
 
 describe('the reactive graph, against a naive evaluator', () => {
@@ -59,13 +62,28 @@ describe('the reactive graph, against a naive evaluator', () => {
 			const stateSignals = states.map((v) => new State(v));
 			const nodes: (State<number> | Computed<number>)[] = [...stateSignals];
 
-			// each computed reads only earlier nodes, which keeps it a DAG
+			// how often a node that was told "maybe" asked its sources and was told
+			// "no" -- the short-circuit that makes the graph glitch-free, and the
+			// single most load-bearing branch in it. A fuzzer that never reaches it
+			// is not testing what its name says
+			let shortCircuits = 0;
+			let bodyRuns = 0;
+
+			// Each computed reads only earlier nodes, which keeps it a DAG, and picks
+			// them from a sliding window rather than uniformly. Uniform picks build
+			// a wide, shallow graph where most computeds read a state directly --
+			// and a node that reads a state directly is marked DIRTY by a write, not
+			// CHECK, so it never takes the short-circuit. Depth is what creates a
+			// CHECK node with an intermediate above it that can absorb the change.
+			const WINDOW = 4;
 			for (let c = 0; c < computedCount; c++) {
 				const available = nodes.length;
-				const count = 1 + Math.floor(random() * Math.min(3, available));
+				const lowest = Math.max(0, available - WINDOW);
+				const span = available - lowest;
+				const count = 1 + Math.floor(random() * Math.min(3, span));
 				const deps: number[] = [];
 				for (let d = 0; d < count; d++) {
-					const pick = Math.floor(random() * available);
+					const pick = lowest + Math.floor(random() * span);
 					if (!deps.includes(pick)) {
 						deps.push(pick);
 					}
@@ -75,11 +93,12 @@ describe('the reactive graph, against a naive evaluator', () => {
 				const index = stateCount + c;
 				nodes.push(
 					new Computed(() => {
+						bodyRuns++;
 						let total = index;
 						for (const dep of deps) {
 							total += nodes[dep].get();
 						}
-						return total % 97;
+						return total % 5;
 					})
 				);
 			}
@@ -92,9 +111,16 @@ describe('the reactive graph, against a naive evaluator', () => {
 					stateSignals[which].set(value);
 				} else {
 					const which = Math.floor(random() * nodes.length);
-					expect(nodes[which].get(), `node ${which} at step ${step}`).toBe(
-						evaluate(plan, states, which)
-					);
+					const node = nodes[which];
+					const before = node instanceof Computed ? (node as any).state : undefined;
+					const runsBefore = bodyRuns;
+
+					expect(node.get(), `node ${which} at step ${step}`).toBe(evaluate(plan, states, which));
+
+					// told "maybe", asked, and settled without running
+					if (before === 1 && bodyRuns === runsBefore) {
+						shortCircuits++;
+					}
 				}
 			}
 
@@ -102,6 +128,11 @@ describe('the reactive graph, against a naive evaluator', () => {
 			for (let i = 0; i < nodes.length; i++) {
 				expect(nodes[i].get(), `node ${i} at rest`).toBe(evaluate(plan, states, i));
 			}
+
+			// the assertion that keeps this suite honest. Measured at mod 97 this
+			// was zero on every seed: the graph agreed with the evaluator without
+			// the interesting branch ever being taken
+			expect(shortCircuits, 'never reached the CHECK -> CLEAN path').toBeGreaterThan(0);
 		});
 	}
 
