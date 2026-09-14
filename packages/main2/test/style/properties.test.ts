@@ -8,8 +8,10 @@ import {
 	inheritFrom,
 	initialStyle,
 	isKnownProperty,
+	isProperty,
 	isShorthand,
 	kebab,
+	NONE,
 	parseColor,
 	parseDeclaration,
 	parseLength,
@@ -47,25 +49,37 @@ describe('the property table', () => {
 		}
 	});
 
-	it('should inherit the text properties and nothing else', () => {
-		// the CSS rule, because it is the one people already know
-		expect([...INHERITED].sort()).toEqual(
-			[
-				'backgroundColor',
-				'bold',
-				'color',
-				'dim',
-				'inverse',
-				'italic',
-				'overline',
-				'strikethrough',
-				'textAlign',
-				'textOverflow',
-				'textTransform',
-				'underline',
-				'whiteSpace',
-			].sort()
-		);
+	it('should inherit exactly what CSS inherits', () => {
+		// checked against CSS rather than against a transcription of the table --
+		// the previous version of this test asserted the table equalled itself, so
+		// it passed with `background-color` and `text-overflow` wrongly inheriting
+		const cssInherits: PropertyName[] = [
+			'color',
+			'visibility',
+			// the text attributes. CSS reaches the same result for decorations
+			// through line propagation rather than inheritance, which a cell grid
+			// has no box structure to do -- so they inherit here, deliberately
+			'bold',
+			'dim',
+			'italic',
+			'inverse',
+			'underline',
+			'strikethrough',
+			'overline',
+			'textAlign',
+			'textTransform',
+			'whiteSpace',
+		];
+
+		expect([...INHERITED].sort()).toEqual([...cssInherits].sort());
+	});
+
+	it('should not inherit background-color or text-overflow', () => {
+		// both are famously non-inherited in CSS. A container's background showing
+		// through its children is paint order; pushing the value down would make
+		// every descendant *own* that colour, which is a different thing
+		expect(PROPERTIES.backgroundColor.inherits).toBe(false);
+		expect(PROPERTIES.textOverflow.inherits).toBe(false);
 	});
 
 	it('should not inherit anything that decides a box', () => {
@@ -112,6 +126,82 @@ function writeValue(value: unknown): string | undefined {
 	}
 	return undefined;
 }
+
+describe('lengths are frozen', () => {
+	it('should refuse to be mutated in place', () => {
+		const style = declare();
+		expect(() => {
+			(style.width as { value?: number }).value = 999;
+		}).toThrow();
+	});
+
+	it('should not let one style corrupt another', () => {
+		// every `auto` initial was one shared object, so a single in-place write
+		// rewrote `width`, `height`, every min and max, `flex-basis`, and all four
+		// insets, on every style in the process
+		const a = declare();
+		const b = declare();
+
+		try {
+			(a.width as { value?: number }).value = 999;
+		} catch {
+			/* frozen, which is the point */
+		}
+
+		expect(b.width).toEqual(AUTO);
+		expect(a.height).toEqual(AUTO);
+	});
+
+	it('should freeze what the builders return', () => {
+		expect(Object.isFrozen(cells(3))).toBe(true);
+		expect(Object.isFrozen(percent(50))).toBe(true);
+		expect(Object.isFrozen(AUTO)).toBe(true);
+	});
+});
+
+describe('numbers', () => {
+	it('should refuse an integer it cannot represent', () => {
+		// past 2^53-1 a decimal integer comes back as a different integer, which is
+		// the one failure a caller cannot detect. The parser's data types already
+		// carry an entry about this
+		expect(() => parseLength('9007199254740993')).toThrow(StyleError);
+		expect(() => parseDeclaration('padding-top', '9007199254740993')).toThrow(StyleError);
+		expect(() => parseDeclaration('z-index', '9007199254740993')).toThrow(StyleError);
+		expect(() => parseDeclaration('flex-grow', '9007199254740993')).toThrow(StyleError);
+	});
+
+	it('should refuse a hex literal, which is not CSS', () => {
+		// `Number('0x10')` is 16. The parser's own `int` takes hex deliberately,
+		// for CLI arguments; it should not leak in here by accident of reaching for
+		// the same function
+		expect(() => parseLength('0x10')).toThrow(StyleError);
+		expect(() => parseDeclaration('row-gap', '0x5')).toThrow(StyleError);
+		expect(() => parseDeclaration('z-index', '0x10')).toThrow(StyleError);
+	});
+
+	it('should accept the number syntax CSS actually has', () => {
+		expect(parseLength('1e3')).toEqual(cells(1000));
+		expect(parseLength('+5')).toEqual(cells(5));
+	});
+});
+
+describe('booleans', () => {
+	it('should read what the parser reads', () => {
+		// the same vocabulary `transformValue()`'s `bool` uses. A second, narrower
+		// spelling of the same idea is how two parts of one library come to
+		// disagree about what `on` means
+		for (const yes of ['true', 'yes', 'y', 'on', '1', 'TRUE']) {
+			expect(declare({ bold: yes }).bold, yes).toBe(true);
+		}
+		for (const no of ['false', 'no', 'n', 'off', '0', '']) {
+			expect(declare({ bold: no }).bold, no).toBe(false);
+		}
+	});
+
+	it('should refuse anything else', () => {
+		expect(() => declare({ bold: 'sort of' })).toThrow(StyleError);
+	});
+});
 
 describe('lengths', () => {
 	it('should read a bare number as cells', () => {
@@ -197,9 +287,19 @@ describe('colours', () => {
 });
 
 describe('declarations', () => {
-	it('should accept both spellings of a name', () => {
-		expect(parseDeclaration('background-color', 'red')).toEqual([['backgroundColor', palette(1)]]);
-		expect(parseDeclaration('backgroundColor', 'red')).toEqual([['backgroundColor', palette(1)]]);
+	it('should accept both spellings of a name, in any case', () => {
+		for (const spelling of ['background-color', 'backgroundColor', 'Background-Color', 'COLOR']) {
+			const expected = spelling.toLowerCase().includes('background') ? 'backgroundColor' : 'color';
+			expect(parseDeclaration(spelling, 'red')[0][0], spelling).toBe(expected);
+		}
+	});
+
+	it('should recognise a name whatever its case', () => {
+		// lowercasing is what a case-insensitive kebab lookup needs and exactly
+		// what destroys the camelCase one, so both are tried
+		for (const spelling of ['Color', 'COLOR', 'backgroundColor', 'Padding', 'Font-Weight']) {
+			expect(isKnownProperty(spelling), spelling).toBe(true);
+		}
 	});
 
 	it('should refuse an empty value rather than reading it as zero', () => {
@@ -332,6 +432,48 @@ describe('shorthands', () => {
 		// `padding: 1 nonsense` is wrong at padding-right, and saying so is more
 		// use than saying the shorthand failed
 		expect(() => declare({ padding: '1 nonsense' })).toThrow(/Invalid padding/);
+	});
+});
+
+describe('a shorthand resets what it omits', () => {
+	it('should reset the border colour it was not given', () => {
+		// CSS shorthands reset every longhand they cover, which is exactly why
+		// `border: red` famously draws nothing there
+		const style = declare({ 'border-color': 'red', border: 'single' });
+		expect(style.borderStyle).toBe('single');
+		expect(style.borderColor).toBe(DEFAULT_COLOR);
+	});
+
+	it('should reset the wrap flex-flow was not given', () => {
+		const style = declare({ 'flex-wrap': 'wrap', 'flex-flow': 'row' });
+		expect(style.flexDirection).toBe('row');
+		expect(style.flexWrap).toBe('nowrap');
+	});
+
+	it('should reset everything flex covers', () => {
+		const style = declare({ 'flex-basis': '20', flex: 'none' });
+		expect(style.flexBasis).toEqual(AUTO);
+	});
+});
+
+describe('initial values against CSS', () => {
+	it('should have no maximum by default, which auto cannot say', () => {
+		// `max-width: none` is an ordinary declaration and was unwritable when
+		// `auto` stood for both "size to content" and "no limit"
+		expect(PROPERTIES.maxWidth.initial).toEqual(NONE);
+		expect(declare({ 'max-width': 'none' }).maxWidth).toEqual(NONE);
+	});
+
+	it('should start position at static', () => {
+		// only a *positioned* ancestor is a containing block. Defaulting to
+		// `relative` makes every box an anchor an `absolute` descendant stops at
+		expect(declare().position).toBe('static');
+	});
+
+	it('should size the border box by default', () => {
+		// `width: 20` meaning twenty columns on screen is what everybody means in
+		// a terminal, even though CSS says content-box
+		expect(declare().boxSizing).toBe('border-box');
 	});
 });
 

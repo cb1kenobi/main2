@@ -21,16 +21,19 @@
 import {
 	initialStyle,
 	inheritFrom,
+	isProperty,
 	parseDeclaration,
 	type PropertyName,
 	PROPERTIES,
+	type Style,
 } from './properties.js';
 import { expandShorthand, isShorthand } from './shorthand.js';
-import { StyleError } from './value.js';
 
 export {
+	type AlignContent,
 	type AlignItems,
 	type AlignSelf,
+	type BoxSizing,
 	type BorderStyle,
 	type Display,
 	type FlexDirection,
@@ -38,6 +41,7 @@ export {
 	inheritFrom,
 	INHERITED,
 	initialStyle,
+	isProperty,
 	type JustifyContent,
 	kebab,
 	type Overflow,
@@ -50,10 +54,22 @@ export {
 	type TextAlign,
 	type TextOverflow,
 	type TextTransform,
+	type Visibility,
 	type WhiteSpace,
 } from './properties.js';
 export { expandShorthand, isShorthand, SHORTHAND_NAMES } from './shorthand.js';
-export { AUTO, cells, type Length, parseColor, parseLength, percent, StyleError } from './value.js';
+export {
+	AUTO,
+	cells,
+	type Length,
+	NONE,
+	parseBoolean,
+	parseColor,
+	parseInteger,
+	parseLength,
+	percent,
+	StyleError,
+} from './value.js';
 
 /** One declaration, as written: a property or shorthand, and its value. */
 export type Declarations = Record<string, string>;
@@ -103,15 +119,12 @@ export function readDeclarations(
  * @param parent - A parent to inherit from. The initial values, if omitted.
  * @returns The resolved style.
  */
-export function declare(
-	declarations: Declarations = {},
-	parent?: import('./properties.js').Style
-): import('./properties.js').Style {
+export function declare(declarations: Declarations = {}, parent?: Style): Style {
 	const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
 	for (const [name, value] of Object.entries(readDeclarations(declarations))) {
 		style[name as PropertyName] = value;
 	}
-	return style as import('./properties.js').Style;
+	return style as Style;
 }
 
 /**
@@ -121,15 +134,9 @@ export function declare(
  * @returns Whether a declaration of it would be read.
  */
 export function isKnownProperty(name: string): boolean {
-	if (isShorthand(name)) {
-		return true;
-	}
-	try {
-		parseDeclaration(name, '');
-		return true;
-	} catch (err) {
-		// a value that will not parse still means the *name* was recognised; only
-		// "Unknown property" says otherwise
-		return err instanceof StyleError && !err.message.startsWith('Unknown property');
-	}
+	// asked directly rather than by parsing an empty value and reading the error
+	// message, which is what this used to do: that made the answer depend on the
+	// exact wording of a string in another module, and on no property's parser
+	// ever failing for a different reason that happened to read the same way
+	return isShorthand(name) || isProperty(name);
 }

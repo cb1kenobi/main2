@@ -9,13 +9,34 @@ import { type Color, DEFAULT_COLOR, palette, rgb } from '../canvas/style.js';
  * be drawn, so it is not a value this system can hold.
  */
 
-/** A length: whole cells, a share of the parent, or "work it out". */
+/**
+ * A length: whole cells, a share of the parent, "work it out", or "no limit".
+ *
+ * `auto` and `none` are different questions and need different answers.
+ * `width: auto` means size to content; `max-width: none` means unbounded. Using
+ * one sentinel for both makes `max-width: none` -- an ordinary declaration --
+ * inexpressible.
+ */
 export type Length =
 	| { readonly type: 'auto' }
 	| { readonly type: 'cells'; readonly value: number }
+	| { readonly type: 'none' }
 	| { readonly type: 'percent'; readonly value: number };
 
-export const AUTO: Length = { type: 'auto' };
+/**
+ * Frozen, and so is everything `cells()` and `percent()` build.
+ *
+ * `readonly` is a TypeScript fiction at runtime, and one shared `AUTO` is the
+ * initial value of ten properties -- so a single in-place mutation anywhere
+ * downstream (the obvious optimization in a layout resolver) rewrites `width`,
+ * `height`, every `min`/`max`, `flex-basis`, and all four insets, on every style
+ * in the process. `canvas/style.ts` freezes interned styles for exactly this
+ * reason; so does this.
+ */
+export const AUTO: Length = Object.freeze({ type: 'auto' });
+
+/** No limit. The initial value of `max-width` and `max-height`. */
+export const NONE: Length = Object.freeze({ type: 'none' });
 
 /**
  * A length in whole cells.
@@ -26,7 +47,7 @@ export const AUTO: Length = { type: 'auto' };
  * @returns The length.
  */
 export function cells(value: number): Length {
-	return { type: 'cells', value: Math.trunc(value) };
+	return Object.freeze({ type: 'cells', value: Math.trunc(value) });
 }
 
 /**
@@ -36,7 +57,7 @@ export function cells(value: number): Length {
  * @returns The length.
  */
 export function percent(value: number): Length {
-	return { type: 'percent', value };
+	return Object.freeze({ type: 'percent', value });
 }
 
 /**
@@ -52,6 +73,73 @@ export function percent(value: number): Length {
  */
 function blank(text: string): boolean {
 	return text.trim() === '';
+}
+
+/**
+ * A CSS `<number>` and nothing else.
+ *
+ * `Number()` on its own accepts `0x10`, which is not CSS syntax and is not
+ * something a stylesheet author meant -- the parser's own `int` type takes hex
+ * deliberately, for CLI arguments, and it should not leak in here by accident of
+ * reaching for the same function.
+ */
+const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+
+/**
+ * Reads a number, refusing what `Number()` would quietly accept or quietly get
+ * wrong.
+ *
+ * Past 2^53-1 a decimal integer comes back as a *different* integer --
+ * `Number('9007199254740993')` is `...992` -- which is the one failure a caller
+ * cannot detect. The parser's data types already carry an entry about this;
+ * rediscovering it here would have been the second time.
+ *
+ * @param text - The source text.
+ * @returns The number, or `undefined` if it is not one.
+ */
+function readNumber(text: string): number | undefined {
+	const trimmed = text.trim();
+	if (!NUMBER.test(trimmed)) {
+		return undefined;
+	}
+	const value = Number(trimmed);
+	if (!Number.isFinite(value)) {
+		return undefined;
+	}
+	if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+		return undefined;
+	}
+	return value;
+}
+
+/**
+ * What counts as true and what counts as false.
+ *
+ * The same vocabulary `transformValue()`'s `bool` uses, because AGENTS.md
+ * documents it as "strict and symmetric" and a second, narrower spelling of the
+ * same idea in a sibling module is how two parts of one library come to disagree
+ * about what `on` means. The empty string is false rather than an error, which
+ * is that rule's sharpest edge and the one most easily lost.
+ */
+const TRUE = /^(?:true|t|yes|y|on|1)$/i;
+const FALSE = /^(?:false|f|no|n|off|0|)$/i;
+
+/**
+ * Reads a boolean.
+ *
+ * @param input - The source text.
+ * @param name - The property, for the message.
+ * @returns The value.
+ */
+export function parseBoolean(input: string, name: string): boolean {
+	const text = input.trim();
+	if (TRUE.test(text)) {
+		return true;
+	}
+	if (FALSE.test(text)) {
+		return false;
+	}
+	throw new StyleError(`Invalid ${name} "${input}": expected true or false`);
 }
 
 /** Thrown when a declaration cannot be read. Carries what was wrong, for help. */
@@ -169,17 +257,22 @@ export function parseLength(input: string): Length {
 		return AUTO;
 	}
 
+	if (text === 'none') {
+		return NONE;
+	}
+
 	if (text.endsWith('%')) {
 		const digits = text.slice(0, -1);
-		if (blank(digits) || !Number.isFinite(Number(digits))) {
+		const share = blank(digits) ? undefined : readNumber(digits);
+		if (share === undefined) {
 			throw new StyleError(`Invalid percentage "${input}"`);
 		}
-		return percent(Number(digits));
+		return percent(share);
 	}
 
 	const bare = text.endsWith('ch') ? text.slice(0, -2) : text;
-	const value = Number(bare);
-	if (blank(bare) || !Number.isFinite(value)) {
+	const value = blank(bare) ? undefined : readNumber(bare);
+	if (value === undefined) {
 		throw new StyleError(`Invalid length "${input}"`);
 	}
 	if (!Number.isInteger(value)) {
@@ -200,8 +293,8 @@ export function parseLength(input: string): Length {
  * @returns The number.
  */
 export function parseCount(input: string, name: string): number {
-	const value = Number(input.trim());
-	if (blank(input) || !Number.isInteger(value) || value < 0) {
+	const value = blank(input) ? undefined : readNumber(input);
+	if (value === undefined || !Number.isInteger(value) || value < 0) {
 		throw new StyleError(`Invalid ${name} "${input}": expected a whole number of 0 or more`);
 	}
 	return value;
@@ -217,9 +310,24 @@ export function parseCount(input: string, name: string): number {
  * @returns The number.
  */
 export function parseFactor(input: string, name: string): number {
-	const value = Number(input.trim());
-	if (blank(input) || !Number.isFinite(value) || value < 0) {
+	const value = blank(input) ? undefined : readNumber(input);
+	if (value === undefined || value < 0) {
 		throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more`);
+	}
+	return value;
+}
+
+/**
+ * Reads a whole number, positive or negative.
+ *
+ * @param input - The source text.
+ * @param name - The property, for the message.
+ * @returns The number.
+ */
+export function parseInteger(input: string, name: string): number {
+	const value = blank(input) ? undefined : readNumber(input);
+	if (value === undefined || !Number.isInteger(value)) {
+		throw new StyleError(`Invalid ${name} "${input}": expected a whole number`);
 	}
 	return value;
 }

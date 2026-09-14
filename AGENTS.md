@@ -372,6 +372,49 @@ false` rethrows instead; a function replaces the handler.
   everything downstream -- the cascade, the layout engine, invalidation,
   animation -- reads it rather than carrying a list of its own. A property is
   added in one place or it is added wrong.
+- **Every `Length` is frozen, and so is every initial value.** `readonly` is a
+  TypeScript fiction at runtime, and one shared `AUTO` was the initial value of
+  ten properties -- so a single in-place mutation anywhere downstream, which is
+  the obvious optimization in a layout resolver, rewrote `width`, `height`, every
+  `min` and `max`, `flex-basis`, and all four insets on every style in the
+  process. `canvas/style.ts` freezes interned styles for exactly this reason.
+- **`auto` and `none` are different answers.** `width: auto` means size to
+  content; `max-width: none` means unbounded. One sentinel for both made
+  `max-width: none` -- an ordinary declaration -- impossible to write.
+- **A number is read against a CSS `<number>` grammar, not by `Number()`.**
+  `Number('0x10')` is 16, and hex is not CSS syntax; the parser's own `int` takes
+  it deliberately for CLI arguments and should not leak in here by accident of
+  reaching for the same function. An integer past 2^53-1 is refused for the
+  reason the parser's data types already record: it comes back as a _different_
+  integer, which is the one failure a caller cannot detect.
+- **A boolean property reads the same vocabulary as the parser's `bool`** --
+  `yes`, `on`, `1`, and the empty string all mean there what they mean here. A
+  second, narrower spelling of one idea is how two parts of one library come to
+  disagree about what `on` means.
+- **A shorthand resets every longhand it covers, including the ones a given use
+  did not mention.** That is CSS, and it is why `border: red` famously draws
+  nothing there. `border` and `flex-flow` were leaving the omitted half alone, so
+  `border: single` after a `border-color: red` kept the red.
+- **Initial values follow CSS except where a terminal changes the answer, and
+  each exception is written down.** `box-sizing` starts at `border-box`, because
+  `width: 20` meaning twenty columns on screen is what everybody means and a
+  border silently making it twenty-two is the surprise. `display` starts at
+  `flex`. `z-index` starts at `0` rather than `auto`, since the paint order is
+  flat enough that "does not establish a stacking context" has nothing to bite
+  on. `position` starts at `static` and that is _not_ an exception: only a
+  positioned ancestor is a containing block, so defaulting to `relative` would
+  make every box an anchor an `absolute` descendant stops at.
+- **`background-color` and `text-overflow` do not inherit**, as in CSS. A
+  container's background showing through its children is paint order, not the
+  cascade; pushing the value down would make every descendant _own_ that colour.
+  The text decorations do inherit here, which CSS reaches by propagating lines
+  across descendants rather than by inheritance -- a cell grid has no box
+  structure to do that with, so this is the deliberate simplification.
+- **A property name resolves in both spellings and any case.** `background-color`
+  in a stylesheet and `backgroundColor` in a props object are both written.
+  Lowercasing first is what a case-insensitive kebab lookup needs and exactly
+  what destroys the camelCase one, so the two are tried separately rather than
+  funnelled through one normalization that cannot serve both.
 - **One unit, and it is a cell.** A bare number is cells; `ch` is accepted as a
   synonym because people type it. A fractional length is _refused_ rather than
   rounded: rounding silently is how a layout ends up a column out with nobody

@@ -3,9 +3,12 @@ import {
 	AUTO,
 	cells,
 	type Length,
+	NONE,
+	parseBoolean,
 	parseColor,
 	parseCount,
 	parseFactor,
+	parseInteger,
 	parseKeyword,
 	parseLength,
 	StyleError,
@@ -41,9 +44,18 @@ export type JustifyContent =
 	| 'space-around'
 	| 'space-evenly';
 export type AlignItems = 'flex-start' | 'flex-end' | 'center' | 'stretch';
+export type AlignContent =
+	| 'flex-start'
+	| 'flex-end'
+	| 'center'
+	| 'stretch'
+	| 'space-between'
+	| 'space-around';
+export type BoxSizing = 'border-box' | 'content-box';
+export type Visibility = 'visible' | 'hidden';
 export type AlignSelf = AlignItems | 'auto';
-export type Position = 'relative' | 'absolute';
-export type Overflow = 'visible' | 'hidden' | 'scroll';
+export type Position = 'static' | 'relative' | 'absolute';
+export type Overflow = 'visible' | 'hidden' | 'scroll' | 'auto';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
 export type WhiteSpace = 'normal' | 'pre' | 'nowrap';
@@ -71,10 +83,13 @@ export interface Style {
 	justifyContent: JustifyContent;
 	alignItems: AlignItems;
 	alignSelf: AlignSelf;
+	alignContent: AlignContent;
+	order: number;
 	rowGap: number;
 	columnGap: number;
 
 	// box
+	boxSizing: BoxSizing;
 	width: Length;
 	height: Length;
 	minWidth: Length;
@@ -100,6 +115,7 @@ export interface Style {
 	left: Length;
 	zIndex: number;
 	overflow: Overflow;
+	visibility: Visibility;
 
 	// text
 	color: Color;
@@ -133,8 +149,13 @@ interface Definition<K extends PropertyName = PropertyName> {
 	readonly parse: (input: string) => Style[K];
 }
 
-const flag = (name: string) => (input: string) =>
-	parseKeyword(input, ['true', 'false'] as const, name) === 'true';
+/**
+ * A boolean property, read with the same vocabulary the parser's `bool` type
+ * uses -- `yes`, `on`, `1`, and an empty string all mean what they mean there.
+ * A second, narrower spelling of the same idea is how two parts of one library
+ * come to disagree about what `on` means.
+ */
+const flag = (name: string) => (input: string) => parseBoolean(input, name);
 
 /** The table. */
 export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
@@ -194,15 +215,39 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 				'align-self'
 			),
 	},
+	alignContent: {
+		inherits: false,
+		initial: 'stretch',
+		parse: (v) =>
+			parseKeyword(
+				v,
+				['flex-start', 'flex-end', 'center', 'stretch', 'space-between', 'space-around'] as const,
+				'align-content'
+			),
+	},
+	order: { inherits: false, initial: 0, parse: (v) => parseInteger(v, 'order') },
 	rowGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'row-gap') },
 	columnGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'column-gap') },
 
+	// `border-box` rather than CSS's `content-box`. In a terminal, `width: 20`
+	// meaning "twenty columns on screen" is what everybody means; having a border
+	// silently make the box twenty-two wide is the surprise, not the convenience
+	boxSizing: {
+		inherits: false,
+		initial: 'border-box',
+		parse: (v) => parseKeyword(v, ['border-box', 'content-box'] as const, 'box-sizing'),
+	},
 	width: { inherits: false, initial: AUTO, parse: parseLength },
 	height: { inherits: false, initial: AUTO, parse: parseLength },
+	// `auto` rather than CSS 2.1's `0`, matching CSS Sizing 3: a flex item's
+	// automatic minimum size is its min-content size, which is what stops text
+	// shrinking past its longest word
 	minWidth: { inherits: false, initial: AUTO, parse: parseLength },
 	minHeight: { inherits: false, initial: AUTO, parse: parseLength },
-	maxWidth: { inherits: false, initial: AUTO, parse: parseLength },
-	maxHeight: { inherits: false, initial: AUTO, parse: parseLength },
+	// `none`, not `auto`. "No maximum" and "size to content" are different
+	// questions, and one sentinel for both makes `max-width: none` unwritable
+	maxWidth: { inherits: false, initial: NONE, parse: parseLength },
+	maxHeight: { inherits: false, initial: NONE, parse: parseLength },
 	paddingTop: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding') },
 	paddingRight: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding') },
 	paddingBottom: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding') },
@@ -226,10 +271,13 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	},
 	borderColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
 
+	// `static` rather than `relative`, and the difference is not cosmetic: only a
+	// positioned ancestor is a containing block, so defaulting to `relative` would
+	// make every box in the tree an anchor an `absolute` descendant stops at
 	position: {
 		inherits: false,
-		initial: 'relative',
-		parse: (v) => parseKeyword(v, ['relative', 'absolute'] as const, 'position'),
+		initial: 'static',
+		parse: (v) => parseKeyword(v, ['static', 'relative', 'absolute'] as const, 'position'),
 	},
 	top: { inherits: false, initial: AUTO, parse: parseLength },
 	right: { inherits: false, initial: AUTO, parse: parseLength },
@@ -238,22 +286,28 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	zIndex: {
 		inherits: false,
 		initial: 0,
-		parse: (v) => {
-			const value = Number(v.trim());
-			if (v.trim() === '' || !Number.isInteger(value)) {
-				throw new StyleError(`Invalid z-index "${v}": expected a whole number`);
-			}
-			return value;
-		},
+		// `0` rather than CSS's `auto`. `auto` means "do not establish a stacking
+		// context", which matters when contexts nest; the paint order here is flat
+		// enough that the distinction has nothing to bite on yet
+		parse: (v) => parseInteger(v, 'z-index'),
 	},
 	overflow: {
 		inherits: false,
 		initial: 'visible',
-		parse: (v) => parseKeyword(v, ['visible', 'hidden', 'scroll'] as const, 'overflow'),
+		parse: (v) => parseKeyword(v, ['visible', 'hidden', 'scroll', 'auto'] as const, 'overflow'),
+	},
+	// different from `display: none`: this one still takes its space
+	visibility: {
+		inherits: true,
+		initial: 'visible',
+		parse: (v) => parseKeyword(v, ['visible', 'hidden'] as const, 'visibility'),
 	},
 
 	color: { inherits: true, initial: DEFAULT_COLOR, parse: parseColor },
-	backgroundColor: { inherits: true, initial: DEFAULT_COLOR, parse: parseColor },
+	// not inherited, as in CSS. A container's background showing through its
+	// children is paint order, not the cascade -- pushing the value down would make
+	// every descendant *own* that colour, which is a different thing entirely
+	backgroundColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
 	bold: { inherits: true, initial: false, parse: flag('bold') },
 	dim: { inherits: true, initial: false, parse: flag('dim') },
 	italic: { inherits: true, initial: false, parse: flag('italic') },
@@ -272,8 +326,10 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 		parse: (v) =>
 			parseKeyword(v, ['none', 'uppercase', 'lowercase', 'capitalize'] as const, 'text-transform'),
 	},
+	// not inherited, as in CSS: it only means anything on the box doing the
+	// clipping
 	textOverflow: {
-		inherits: true,
+		inherits: false,
 		initial: 'clip',
 		parse: (v) =>
 			parseKeyword(
@@ -353,6 +409,41 @@ const ALIASES: Record<string, PropertyName | ((value: string) => [PropertyName, 
 	},
 };
 
+/**
+ * Whether a name is a property this table holds, in either spelling and in any
+ * case.
+ *
+ * @param name - The property name.
+ * @returns Whether it is known.
+ */
+export function isProperty(name: string): boolean {
+	return name.trim().toLowerCase() in ALIASES || resolveName(name) !== undefined;
+}
+
+/**
+ * The property a name refers to, in either spelling and any case.
+ *
+ * Both spellings, because both are written: `background-color` in a stylesheet
+ * and `backgroundColor` in a props object. Lowercasing first is what a
+ * case-insensitive kebab lookup needs and is exactly what destroys the camelCase
+ * one, so the two are tried separately rather than funnelled through one
+ * normalization that cannot serve both.
+ *
+ * @param name - The property name.
+ * @returns The property, or `undefined` if there is no such thing.
+ */
+function resolveName(name: string): PropertyName | undefined {
+	const trimmed = name.trim();
+
+	const asWritten = camel(trimmed) as PropertyName;
+	if (asWritten in PROPERTIES) {
+		return asWritten;
+	}
+
+	const lowered = camel(trimmed.toLowerCase()) as PropertyName;
+	return lowered in PROPERTIES ? lowered : undefined;
+}
+
 /** `background-color` -> `backgroundColor`. */
 function camel(name: string): string {
 	return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -381,13 +472,15 @@ export function parseDeclaration(name: string, value: string): [PropertyName, un
 		return pairs.map(([prop, raw]) => [prop, PROPERTIES[prop].parse(raw)]);
 	}
 
-	const key = camel(name.trim()) as PropertyName;
-	const definition = PROPERTIES[key];
-	if (!definition) {
+	// case-insensitive like every other lookup here. This was the one path that
+	// was not, so `Color` was an unknown property while `Padding` and
+	// `Font-Weight` were both fine
+	const key = resolveName(name);
+	if (!key) {
 		throw new StyleError(`Unknown property "${name}"`);
 	}
 
-	return [[key, definition.parse(value)]];
+	return [[key, PROPERTIES[key].parse(value)]];
 }
 
 /**

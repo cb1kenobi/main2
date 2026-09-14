@@ -98,6 +98,8 @@ const SHORTHANDS: Record<string, Expander> = {
 	 * No width. A terminal border is one cell and cannot be anything else, so a
 	 * width would be a number with exactly one legal value.
 	 */
+	// `none` is the one ambiguous token: a valid border-style *and* a valid way to
+	// spell "no colour". Style wins, because the first position is the style's
 	border: (v) => {
 		if (v.length === 0 || v.length > 2) {
 			throw new StyleError('Invalid border: expected a style, a colour, or both');
@@ -137,6 +139,13 @@ const SHORTHANDS: Record<string, Expander> = {
 			out.unshift(['borderStyle', 'single']);
 		}
 
+		// a shorthand resets every longhand it covers, including the ones this use
+		// did not mention. That is what makes `border: single` after a
+		// `border-color: red` mean what it looks like it means
+		if (!sawColor) {
+			out.push(['borderColor', 'default']);
+		}
+
 		return out;
 	},
 
@@ -169,11 +178,12 @@ const SHORTHANDS: Record<string, Expander> = {
 		if (v.length === 0 || v.length > 2) {
 			throw new StyleError('Invalid flex-flow: expected a direction, a wrap, or both');
 		}
-		const out: [PropertyName, string][] = [['flexDirection', v[0]]];
-		if (v[1]) {
-			out.push(['flexWrap', v[1]]);
-		}
-		return out;
+		// the omitted half is reset rather than left alone, for the same reason
+		// `border` resets its colour
+		return [
+			['flexDirection', v[0]],
+			['flexWrap', v[1] ?? 'nowrap'],
+		];
 	},
 };
 
