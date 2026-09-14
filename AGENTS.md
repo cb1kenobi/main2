@@ -40,6 +40,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/canvas/`            | Cell buffer, style interning, and the paint diff     |
+| `src/style/`             | The style property set, its values, and shorthands   |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -363,6 +364,39 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Style
+
+- **The property table is the single source of truth.** Every property's initial
+  value, whether it inherits, and how it is read all live in one object, and
+  everything downstream -- the cascade, the layout engine, invalidation,
+  animation -- reads it rather than carrying a list of its own. A property is
+  added in one place or it is added wrong.
+- **One unit, and it is a cell.** A bare number is cells; `ch` is accepted as a
+  synonym because people type it. A fractional length is _refused_ rather than
+  rounded: rounding silently is how a layout ends up a column out with nobody
+  able to say which declaration did it.
+- **A named colour stays a palette index.** The basic sixteen are whatever the
+  user's terminal theme says they are, so resolving `red` to a specific RGB
+  overrides a choice they already made.
+- **Every numeric parser refuses an empty value.** `Number('')` and `Number(' ')`
+  are both `0`, so an empty declaration reads back as a real-looking zero -- the
+  same trap the parser's `number` and `int` data types already carry an entry
+  for. `50%` minus its sign is exactly the string that reaches this.
+- **`font-weight`, `font-style`, and `text-decoration` map onto the attributes a
+  terminal has.** They are the spellings people reach for, and refusing them to
+  insist on `bold: true` would be pedantry. A _numeric_ weight is still an error,
+  because there is no axis between bold and normal to put `600` on.
+- **A border given only a colour is still a border.** CSS draws nothing for a
+  `border-color` with no `border-style`, which surprises everyone; this defaults
+  the style to `single`. It is the one deliberate divergence in the shorthands.
+- **A shorthand reports against the longhand that could not take the value.**
+  Shorthands expand to source text and the longhand parsers do the reading, so
+  `padding: 1 nonsense` fails at `padding-right` rather than at `padding` -- the
+  shorthand could not have said which part was wrong.
+- **Margins take a length and paddings take a count.** `auto` is how a box is
+  centred and how it is pushed to one end, and a negative margin is a real
+  thing; neither is true of padding.
 
 ### Canvas
 
