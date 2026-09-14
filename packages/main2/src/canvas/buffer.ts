@@ -48,6 +48,9 @@ export function cellWidth(cluster: string): number {
  * it lands and on a tab stop the grid does not model, so expanding it here would
  * be guessing and painting it would put a hole in the row.
  */
+// the rule exists to catch a control character reaching a regex by accident;
+// matching them is this one's whole job
+// eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001F\u007F-\u009F]/;
 
 /** The right-hand half of a wide cluster. Never painted, never drawn. */
