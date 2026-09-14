@@ -4,12 +4,31 @@ A framework for building CLI apps in Node.js, and the successor to `cli-kit`.
 The heart of it is a multi-pass hierarchical argument parser built for CLIs
 that lean heavily on subcommands.
 
-**Zero production dependencies is a hard constraint.** Anything the library
-needs — ANSI handling, text wrapping, dotenv, `which`, debug logging — gets
-written here and bundled. Do not add a runtime dependency; if one seems
+Unqualified `src/...` and `test/...` paths in this file mean
+`packages/main2/src/...` and `packages/main2/test/...`.
+
+This is a pnpm workspace with two published packages, and the split is load
+bearing.
+
+| Package          | Name         | Dependencies                                |
+| ---------------- | ------------ | ------------------------------------------- |
+| `packages/main2` | `main2`      | **Zero, and that is a hard constraint**     |
+| `packages/cli`   | `@main2/cli` | Whatever it needs. Provides the `main2` bin |
+
+**Zero production dependencies in `main2` is a hard constraint.** Anything the
+runtime needs — ANSI handling, text wrapping, dotenv, `which`, debug logging,
+and now the layout engine and the template compiler — gets written there and
+bundled. Do not add a runtime dependency to `packages/main2`; if one seems
 necessary, raise it rather than adding it.
 
+`@main2/cli` is the opposite: it is a devDependency of the app rather than part
+of what the app ships, so it may depend on rollup and anything else it needs.
+What it _produces_ has no dependencies. Do not let that licence leak back into
+the runtime.
+
 ## Layout
+
+Paths below are inside `packages/main2/` unless noted.
 
 | Path                     | Contents                                             |
 | ------------------------ | ---------------------------------------------------- |
@@ -18,6 +37,8 @@ necessary, raise it rather than adding it.
 | `src/width/`             | Display width: grapheme clusters, East Asian Width   |
 | `src/wrap/`              | Text wrapping, SGR state, terminal width             |
 | `src/help/`              | The generated help screen and its two-column layout  |
+| `src/terminal/`          | Terminal wrapper, live region, sequences             |
+| `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -30,22 +51,35 @@ necessary, raise it rather than adding it.
 | `test/parser/commander/` | Ported Commander test cases                          |
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
 
-`src/canvas/`, `src/components/`, and `src/i18n/` are empty placeholders. Canvas
-and components are post-1.0.
+At the repository root: `demos/` (runnable examples that import `main2` by
+name, so they need `pnpm build` first), `turbo.json`, `tsconfig.base.json`, and
+the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
+sets its own `outDir`.
+
+`packages/cli/src/` is a skeleton — the bin, `--version`, and the schema the
+filesystem router will replace. Its commands are not written yet.
+
+`src/canvas/` and `src/i18n/` are empty placeholders.
 
 `src/width/east-asian-width.ts` is generated. Regenerate it with
-`node scripts/generate-east-asian-width.mjs <unicode-version>` and then
-`pnpm fmt`; the version is pinned in the script so re-running reproduces what is
-committed.
+`node scripts/generate-east-asian-width.mjs <unicode-version>` from inside
+`packages/main2`, then `pnpm fmt`; the version is pinned in the script so
+re-running reproduces what is committed.
 
 ## Commands
 
+Run from the repository root. `build`, `test`, and `type-check` fan out through
+turborepo; `lint` and `fmt` are repo-wide and run in a single pass.
+
 ```
-pnpm test          # vitest
+pnpm test          # vitest, every package
 pnpm check         # type-check + lint + format check
-pnpm build         # tsdown -> dist/
+pnpm build         # tsdown -> packages/*/dist
 pnpm fmt           # oxfmt --write
 ```
+
+`pnpm --filter main2 test` scopes to one package, as does running the script
+from inside its directory.
 
 Run `pnpm check` before considering work finished. Formatting is oxfmt with
 tabs, single quotes, and a 100-column width — run `pnpm fmt` rather than
@@ -53,12 +87,25 @@ matching it by hand.
 
 ## Scope
 
-1.0 is the parser, a generated help screen, ANSI wrapping, and ANSI strip.
-Nothing else. Titanium CLI is the acceptance test: if it does not need a
-feature, that feature is not in 1.0.
+**The old 1.0 scope is gone.** It was the parser, help, ANSI wrapping, and ANSI
+strip, with Titanium CLI as the acceptance test. All four shipped. The goal is
+now considerably larger: main2 is a component runtime and a toolchain — the
+Next.js for CLIs — and there is no 1.0 without it.
 
-All four are in. What is left for 1.0 is static argv types, the Titanium port,
-and whatever that port turns up.
+What that adds, bottom to top: a cell-addressable canvas that diffs frames,
+cascading stylesheets with real selectors, a flexbox layout engine over whole
+cells, TC39-shaped signals, an element tree, a renderer, compiled templates
+with one IR behind several syntaxes, and a `main2` CLI that builds and packages
+apps. See the "main2 2.0" project in Linear; each layer is its own ticket and
+each ticket carries the decisions behind it.
+
+The acceptance test is now `@main2/cli` itself — a framework whose own
+toolchain is not written in it has not been tested by anyone who had to live
+with it. The Titanium port follows rather than leads, so that it finds product
+problems instead of framework bugs.
+
+What has _not_ changed: the parser, its semantics, and every entry in the list
+below.
 
 ## Deliberate decisions — do not "fix" these
 

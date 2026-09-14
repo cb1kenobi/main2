@@ -29,7 +29,10 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Build
+        run: pnpm build
+
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --tag ${{ github.event.release.prerelease && 'next' || 'latest' }}
+        run: pnpm -r publish --no-git-checks --tag ${{ github.event.release.prerelease && 'next' || 'latest' }}
