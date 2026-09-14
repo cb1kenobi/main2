@@ -16,10 +16,17 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *
  * The child runs the built output, since Node resolves the `.js` specifiers this
  * source is written with only after the build rewrites them.
+ *
+ * None of it runs on Windows, which has no signals to restore on: `kill()` there
+ * is a `TerminateProcess`, so no handler runs, nothing is written on the way out,
+ * and the child reports no signal -- there is nothing left for these assertions
+ * to be about. The pipe cases go with them rather than being kept separately
+ * alive, since they shell out to `head -1`, which cmd.exe does not have.
  */
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const dist = join(root, 'dist', 'terminal.mjs');
+const windows = process.platform === 'win32';
 
 let dir: string;
 
@@ -30,10 +37,17 @@ function fixture(name: string, body: string): string {
 }
 
 beforeAll(() => {
+	if (windows) {
+		return;
+	}
 	if (!existsSync(dist)) {
 		const built = spawnSync('pnpm', ['build'], { cwd: root, encoding: 'utf-8' });
-		if (built.status !== 0) {
-			throw new Error(`build failed:\n${built.stdout}\n${built.stderr}`);
+		// a build that never started has no output to report, so say what stopped
+		// it instead of printing two `undefined`s
+		if (built.error || built.status !== 0) {
+			throw new Error(
+				`build failed:\n${built.error?.message ?? `${built.stdout}\n${built.stderr}`}`
+			);
 		}
 	}
 	dir = mkdtempSync(join(tmpdir(), 'main2-terminal-'));
@@ -73,7 +87,7 @@ function run(
 const SHOW = '[?25h';
 const HIDE = '[?25l';
 
-describe('restoring in a real process', () => {
+describe.skipIf(windows)('restoring in a real process', () => {
 	it('should show the cursor again on a normal exit', async () => {
 		const file = fixture(
 			'exit.mjs',
