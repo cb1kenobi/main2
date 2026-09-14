@@ -41,6 +41,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/canvas/`            | Cell buffer, style interning, and the paint diff     |
 | `src/style/`             | The style property set, its values, and shorthands   |
+| `src/layout/`            | The flexbox subset, over whole cells                 |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -364,6 +365,32 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Layout
+
+- **The layout engine takes a `LayoutNode`, not an element.** Layout is the one
+  layer in the stack testable with no terminal, no renderer, and no reactivity --
+  lay a tree out, render it to a grid of characters, read the result as a picture
+  -- and it keeps that only by not knowing what an element is. The element tree
+  will satisfy the interface; so does a literal in a test.
+- **Every division goes through `distribute()`.** Seven leftover columns across
+  three children means somebody gets three and somebody gets two, and the rule
+  for who has to be stable: a layout that reshuffles its rounding between frames
+  shimmers, and one whose parts do not add up leaves a gap that moves.
+- **`distribute()` floors and carries forward; it does not round.** Rounding
+  sends the remainder backwards half the time, which put the spare cell in the
+  _middle_ of a row of equal columns -- seven across three came out 2, 3, 2 --
+  and contradicted the rule the function exists to keep. Flooring moves the
+  remainder forward every time, so it lands on the last column.
+- **Layout tests are pictures.** `test/layout/helpers.ts` renders a laid-out tree
+  to a grid where each node paints its box with a letter, depth-first. A failing
+  assertion that prints two grids says what went wrong; one that prints
+  `{ x: 3, y: 0, width: 11, height: 2 }` does not, and there is enough arithmetic
+  here for the difference to matter.
+- **A percentage of an unknown size is `auto`.** What CSS does, and what keeps a
+  column layout from resolving heights against nothing.
+- **`min` wins over `max` where they conflict**, as in CSS, which is what stops a
+  box collapsing below its content when a stylesheet says something impossible.
 
 ### Style
 
