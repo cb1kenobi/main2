@@ -57,6 +57,21 @@ interface Producer {
 interface Consumer {
 	/** Each source, and the version of it this consumer last saw. */
 	sources: Map<Producer, number>;
+	/**
+	 * The sources read during the run in progress, or `undefined` when nothing is
+	 * running. `sources` stays whole while a computed evaluates -- the old set
+	 * plus whatever has been read so far -- and this says which of them are still
+	 * wanted when the run ends.
+	 *
+	 * The obvious implementation swaps in an empty map for the duration. That
+	 * breaks liveness: `incLive` and `decLive` walk `producerSources()`, so
+	 * anything that changes a computed's liveness *while it is evaluating* -- an
+	 * effect disposing itself, a watcher added from inside a body -- walks a
+	 * half-built set and leaves the counts wrong. It shows up much later, as an
+	 * `unwatched` that never fires or one that fires while something still
+	 * watches.
+	 */
+	seen: Set<Producer> | undefined;
 	state: NodeState;
 	/** A watcher is notified rather than marked, and is always live. */
 	readonly isWatcher: boolean;
@@ -156,10 +171,13 @@ function isLive(consumer: Consumer): boolean {
  */
 function incLive(producer: Producer): void {
 	if (++producer.liveCount === 1) {
-		frozen(() => producer.notifyWatched());
+		// the walk happens before the callback, so a callback that throws leaves the
+		// counts consistent and only its own error escapes. The other order skips
+		// the walk entirely and strands every source one short
 		for (const source of producer.producerSources()) {
 			incLive(source);
 		}
+		frozen(() => producer.notifyWatched());
 	}
 }
 
@@ -170,10 +188,10 @@ function incLive(producer: Producer): void {
  */
 function decLive(producer: Producer): void {
 	if (--producer.liveCount === 0) {
-		frozen(() => producer.notifyUnwatched());
 		for (const source of producer.producerSources()) {
 			decLive(source);
 		}
+		frozen(() => producer.notifyUnwatched());
 	}
 }
 
@@ -219,6 +237,7 @@ function track(producer: Producer): void {
 	}
 	if (currentConsumer) {
 		currentConsumer.sources.set(producer, producer.version);
+		currentConsumer.seen?.add(producer);
 		addEdge(producer, currentConsumer);
 	}
 }
@@ -395,6 +414,8 @@ export class Computed<T> implements Producer, Consumer {
 	/** @internal */
 	sources: Map<Producer, number> = new Map();
 	/** @internal */
+	seen: Set<Producer> | undefined = undefined;
+	/** @internal */
 	state: NodeState = DIRTY;
 	/** @internal */
 	readonly isWatcher: boolean = false;
@@ -458,12 +479,15 @@ export class Computed<T> implements Producer, Consumer {
 		const previousConsumer = currentConsumer;
 		const previousComputing = computing;
 
-		// the old sources are kept until the run finishes and then swept, rather
-		// than cleared up front: a source read both before and after would
-		// otherwise lose its last live sink and regain it, firing `unwatched` and
-		// `watched` for a dependency that never actually went away
-		const oldSources = this.sources;
-		this.sources = new Map();
+		// marked rather than swapped. `sources` stays whole for the whole run -- the
+		// old set plus whatever has been read so far -- and is swept at the end.
+		// Clearing up front would make a source read both before and after lose its
+		// last live sink and immediately regain it, firing `unwatched` then
+		// `watched` for a dependency that never went away; swapping in an empty map
+		// would leave `producerSources()` half-built, so anything that changes this
+		// computed's liveness mid-run walks the wrong set
+		const seen = new Set<Producer>();
+		this.seen = seen;
 
 		// installing `this` as the tracking context is the mechanism, not an alias
 		// of convenience: every read during `#fn()` registers against whatever is
@@ -484,10 +508,13 @@ export class Computed<T> implements Producer, Consumer {
 			this.#evaluating = false;
 			computing = previousComputing;
 			currentConsumer = previousConsumer;
+			this.seen = undefined;
 			this.state = CLEAN;
 
-			for (const source of oldSources.keys()) {
-				if (!this.sources.has(source)) {
+			// eslint-disable-next-line unicorn/no-useless-spread
+			for (const source of [...this.sources.keys()]) {
+				if (!seen.has(source)) {
+					this.sources.delete(source);
 					removeEdge(source, this);
 				}
 			}
@@ -508,7 +535,17 @@ export class Computed<T> implements Producer, Consumer {
 			return;
 		}
 
-		const changed = !this.#everRun || !!this.#thrown || !this.#equals(this.#value as T, next as T);
+		let changed = !this.#everRun || !!this.#thrown;
+		if (!changed) {
+			try {
+				changed = !this.#equals(this.#value as T, next as T);
+			} catch {
+				// an `equals` that throws has not said the values are the same, and
+				// treating silence as "unchanged" leaves the cache holding the old
+				// value with every dependent told nothing happened
+				changed = true;
+			}
+		}
 		this.#thrown = undefined;
 		this.#value = next;
 		this.#everRun = true;
@@ -580,6 +617,8 @@ export class Watcher implements Consumer {
 	/** @internal */
 	sources: Map<Producer, number> = new Map();
 	/** @internal */
+	seen: Set<Producer> | undefined = undefined;
+	/** @internal */
 	state: NodeState = CLEAN;
 	/** @internal */
 	readonly isWatcher: boolean = true;
@@ -628,6 +667,19 @@ export class Watcher implements Consumer {
 			addEdge(producer, this);
 		}
 		this.#armed = true;
+
+		// A watcher is only told about a node going from clean to dirty, and
+		// propagation stops at a node that is already dirty. So a computed that
+		// went stale while this watcher was disarmed is never announced again: the
+		// next write walks into it, finds it already dirty, and stops -- and the
+		// watcher waits forever. A bare re-arm has to look for itself.
+		//
+		// Only a bare re-arm. A computed is DIRTY from the moment it is
+		// constructed, because it has never run, so checking when signals are
+		// being *added* would announce every newly watched computed as a change.
+		if (signals.length === 0 && this.getPending().length > 0) {
+			this.notify();
+		}
 	}
 
 	/**

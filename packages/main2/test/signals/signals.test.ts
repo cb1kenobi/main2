@@ -656,6 +656,94 @@ describe('watched and unwatched callbacks', () => {
 	});
 });
 
+describe('liveness while a computed is evaluating', () => {
+	it('should not strand a source dropped in the run that gained a watcher', () => {
+		const events: string[] = [];
+		const dropped = new State('d', {
+			[watched]: () => events.push('watched'),
+			[unwatched]: () => events.push('unwatched'),
+		});
+		const keep = new State('k');
+		const useDropped = new State(true);
+
+		const c = new Computed(() => (useDropped.get() ? dropped.get() : keep.get()));
+		const w = new Watcher(() => {});
+		w.watch(c);
+		c.get();
+		expect(events).toEqual(['watched']);
+
+		useDropped.set(false);
+		c.get();
+		expect(events).toEqual(['watched', 'unwatched']);
+
+		// the count has to be back at zero, not below it: a second watcher must
+		// still be able to make it live again
+		const w2 = new Watcher(() => {});
+		w2.watch(dropped);
+		expect(events).toEqual(['watched', 'unwatched', 'watched']);
+
+		w.unwatch(c);
+		w2.unwatch(dropped);
+		expect(events).toEqual(['watched', 'unwatched', 'watched', 'unwatched']);
+	});
+
+	it('should keep the count right when a watched callback throws', () => {
+		const source = new State(1);
+		const c = new Computed(() => source.get(), {
+			[watched]: () => {
+				throw new Error('subscribe failed');
+			},
+		});
+		c.get();
+
+		const w = new Watcher(() => {});
+		expect(() => w.watch(c)).toThrow('subscribe failed');
+
+		// the walk happens before the callback, so the counts are consistent even
+		// though the callback failed -- the alternative strands every source one
+		// short and no later watcher can ever make them live
+		expect(hasSinks(source)).toBe(true);
+		w.unwatch(c);
+		expect(hasSinks(source)).toBe(false);
+	});
+});
+
+describe('re-arming a watcher', () => {
+	it('should notice what went stale while it was disarmed', () => {
+		const s = new State(0);
+		const c = new Computed(() => s.get() * 2);
+		let notices = 0;
+
+		const w = new Watcher(() => notices++);
+		w.watch(c);
+		c.get();
+
+		s.set(1);
+		expect(notices).toBe(1);
+
+		// re-armed without draining, so `c` is still dirty. A write only announces
+		// a node going from clean to dirty, and propagation stops at one already
+		// dirty -- so without a check here the next write walks into `c`, finds it
+		// dirty, stops, and this watcher waits forever
+		w.watch();
+		expect(notices).toBe(2);
+
+		expect(w.getPending()).toEqual([c]);
+	});
+
+	it('should not announce a computed that has simply never run', () => {
+		let notices = 0;
+		const s = new State(0);
+		const c = new Computed(() => s.get());
+
+		const w = new Watcher(() => notices++);
+		// a computed is dirty from the moment it is constructed, and being watched
+		// is not a change
+		w.watch(c);
+		expect(notices).toBe(0);
+	});
+});
+
 describe('introspection', () => {
 	it('should report sources', () => {
 		const s = new State(1);

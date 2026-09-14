@@ -208,11 +208,30 @@ export function createEffects(): Effects {
 		const children: Owner = new Set();
 		const parent = currentOwner;
 
-		const runCleanups = (): void => {
+		/**
+		 * Disposes the children and runs the pending cleanup.
+		 *
+		 * `report` says where a throw goes. On a re-run it is the error handler,
+		 * because the alternative is letting the throw escape the effect body
+		 * before `fn()` has read anything -- which makes the sweep drop every
+		 * dependency the effect had, leaving it alive, watched, and deaf to the
+		 * signals it was watching. A cleanup failing should not silently unsubscribe
+		 * the effect from the world.
+		 *
+		 * @param report - Where to send a throw, or omitted to let it out.
+		 */
+		const runCleanups = (report?: (error: unknown) => void): void => {
 			// a copy, because disposing a child removes it from `children`
 			// eslint-disable-next-line unicorn/no-useless-spread
 			for (const dispose of [...children]) {
-				dispose();
+				try {
+					dispose();
+				} catch (err) {
+					if (!report) {
+						throw err;
+					}
+					report(err);
+				}
 			}
 			children.clear();
 
@@ -220,7 +239,17 @@ export function createEffects(): Effects {
 			// behind to be called a second time on the next run
 			const previous = cleanup;
 			cleanup = undefined;
-			previous?.();
+			if (!previous) {
+				return;
+			}
+			try {
+				previous();
+			} catch (err) {
+				if (!report) {
+					throw err;
+				}
+				report(err);
+			}
 		};
 
 		const computed = new Computed<void>(
@@ -232,13 +261,22 @@ export function createEffects(): Effects {
 				if (disposed) {
 					return;
 				}
-				runCleanups();
+				runCleanups(errorHandler);
 				const outer = currentOwner;
 				currentOwner = children;
 				try {
 					cleanup = asCleanup(fn());
 				} finally {
 					currentOwner = outer;
+				}
+
+				// the body may have disposed this very effect, in which case the
+				// cleanup it just returned belongs to a run nobody will ever tear
+				// down -- `dispose()` has already been and gone
+				if (disposed && cleanup) {
+					const stranded = cleanup;
+					cleanup = undefined;
+					stranded();
 				}
 			},
 			{ [effectBody]: true }
@@ -290,12 +328,23 @@ export function createEffects(): Effects {
 
 		setScheduler(next) {
 			const previous = scheduler;
+			const pending = queued;
 			scheduler = next ?? microtask;
+
 			// a scheduler that was asked and never ran leaves the queue claimed and
 			// the watcher disarmed. Re-arming here is what makes swapping one out --
 			// between tests, or between canvases -- recoverable rather than fatal
 			queued = false;
 			watcher.watch();
+
+			// and the flush the old one was handed may never arrive, so the new one
+			// is asked for it. Without this a swap silently drops whatever was
+			// already dirty, which reads as reactivity having stopped
+			if (pending) {
+				queued = true;
+				scheduler(flush);
+			}
+
 			return previous;
 		},
 	};

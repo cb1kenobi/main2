@@ -437,6 +437,38 @@ false` rethrows instead; a function replaces the handler.
   mistake -- and tracking stopped at the first `await` anyway. Everything else is
   let through, because `effect(() => a.set(b.get()))` is the spelling worth
   encouraging and a concise arrow body returns whatever its last call did.
+- **A recompute marks its sources rather than swapping the map.** `sources`
+  stays whole for the whole run -- the old set plus whatever has been read so
+  far -- and is swept at the end against a per-run `seen` set. Swapping in an
+  empty map is the obvious implementation and it breaks liveness: `incLive` and
+  `decLive` walk `producerSources()`, so anything that changes a computed's
+  liveness _while it is evaluating_ -- an effect disposing itself, a watcher
+  added from inside a body -- walks a half-built set and leaves the counts
+  wrong. It surfaces much later, as an `unwatched` that never fires or one that
+  fires while something is still watching.
+- **A liveness walk happens before its callback, not after.** A `watched` or
+  `unwatched` that throws then leaves the counts consistent and only its own
+  error escapes. The other order skips the walk entirely and strands every
+  source one short, after which no later watcher can make them live again.
+- **A bare `watch()` re-arm looks for what went stale while it was disarmed.** A
+  watcher is only told about a node going from clean to dirty, and propagation
+  stops at a node already dirty -- so a computed left dirty across a re-arm is
+  never announced again: the next write walks into it, finds it dirty, stops,
+  and the watcher waits forever. Only a _bare_ re-arm checks; a computed is
+  dirty from construction, so checking while signals are being added would
+  announce every newly watched computed as a change.
+- **A cleanup that throws on a re-run is reported, not rethrown.** Letting it
+  escape the effect body before `fn()` has read anything makes the sweep drop
+  every dependency, leaving the effect alive, watched, and deaf to the signals
+  it was watching -- a cleanup failing should not silently unsubscribe the effect
+  from the world. At `dispose()` it does throw, because there the caller asked.
+- **Replacing a scheduler hands it any flush the old one was given.** A
+  scheduler that was asked and is then thrown away without running takes the
+  pending work with it, which reads as reactivity having stopped.
+- **A source dropped in the same run that the computed gains a watcher fires
+  `watched` and then `unwatched`.** Known and left alone: the counts end
+  correct, and avoiding the transient means deferring every liveness change to
+  the end of a run, which is a larger redesign than the flicker is worth.
 - **An unwatched `Computed` that is dropped is not collected.** Edges are strong
   and bidirectional, so a long-lived `State` keeps every computed that ever read
   it reachable through its sink set. The proposal solves this with generation

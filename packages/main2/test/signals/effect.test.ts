@@ -656,6 +656,85 @@ describe('setScheduler', () => {
 		stop();
 	});
 
+	it('should hand a queued flush to a scheduler that replaces one', () => {
+		const s = new State(0);
+		const seen: number[] = [];
+		const stop = effect(() => {
+			seen.push(s.get());
+		});
+
+		const abandoned = manualScheduler();
+		s.set(2);
+		expect(seen).toEqual([0]);
+
+		// the old scheduler was asked and is about to be thrown away without ever
+		// running it. Dropping the flush with it reads as reactivity having stopped
+		const replacement = manualScheduler();
+		abandoned.restore();
+		replacement.run();
+		expect(seen).toEqual([0, 2]);
+
+		replacement.restore();
+		stop();
+	});
+
+	it('should keep its dependencies when a cleanup throws', () => {
+		const errors: unknown[] = [];
+		const previousHandler = setErrorHandler((err) => errors.push(err));
+		const scheduler = manualScheduler();
+		try {
+			const s = new State(0);
+			const seen: number[] = [];
+
+			const stop = effect(() => {
+				seen.push(s.get());
+				return () => {
+					throw new Error('cleanup bang');
+				};
+			});
+
+			s.set(1);
+			scheduler.run();
+			expect(seen).toEqual([0, 1]);
+			expect((errors[0] as Error).message).toBe('cleanup bang');
+
+			// the throw must not escape before `fn()` has read anything -- the sweep
+			// would drop every dependency and leave the effect alive, watched, and
+			// deaf to the signal it was watching
+			s.set(2);
+			scheduler.run();
+			expect(seen).toEqual([0, 1, 2]);
+
+			// at dispose the caller asked, so the throw is theirs to see -- it is
+			// only on a re-run, where nothing asked, that it has to be reported
+			// instead of escaping
+			expect(() => stop()).toThrow('cleanup bang');
+		} finally {
+			setErrorHandler(previousHandler);
+			scheduler.restore();
+		}
+	});
+
+	it('should run the cleanup of a body that disposed itself', () => {
+		const events: string[] = [];
+		const s = new State(0);
+
+		let stop = () => {};
+		stop = effect(() => {
+			if (s.get() > 0) {
+				stop();
+			}
+			return () => events.push('cleanup');
+		});
+
+		s.set(1);
+		flush();
+
+		// `dispose()` has already been and gone by the time the body returns, so
+		// the cleanup it hands back belongs to a run nobody would ever tear down
+		expect(events).toEqual(['cleanup', 'cleanup']);
+	});
+
 	it('should let flush be driven by hand', () => {
 		const scheduler = manualScheduler();
 		try {
