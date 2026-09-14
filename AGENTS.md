@@ -38,6 +38,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/help/`              | The generated help screen and its two-column layout  |
 | `src/terminal/`          | Terminal wrapper, live region, sequences             |
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
+| `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -361,6 +362,46 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Signals
+
+- **The read is recorded after the refresh, not before.** `Computed.get()`
+  refreshes and then calls `track()`, because what a consumer records is the
+  producer's _version_ and a computed being read for the first time is about to
+  change it. Recording first stored a version the producer had already left
+  behind, so the consumer compared unequal on every later check and re-ran
+  forever -- a dependent that could never settle. It looks like an ordering
+  nicety and it is the difference between caching and not. Pinned by "should not
+  re-run a dependent when its own value did not change" in
+  `test/signals/signals.test.ts`.
+- **`watched` and `unwatched` are about being observed, not about being read.**
+  A signal read only by a computed that nothing watches is not live and its
+  `watched` never fires. Liveness is counted and propagates transitively through
+  computeds, which is more work than firing on the first reader -- and it is the
+  only version that makes the callbacks usable for what they are for:
+  subscribing to something external for exactly as long as something is
+  rendering. Firing on any reader would subscribe on behalf of a computed that
+  nobody will ever read again.
+- **A recompute sweeps its old dependencies afterwards rather than clearing them
+  first.** Clearing up front is simpler and makes a source that is read both
+  before and after lose its last live sink and immediately regain it, firing
+  `unwatched` then `watched` for a dependency that never went away. Anything
+  that subscribes in those callbacks would tear down and rebuild a subscription
+  on every recompute.
+- **A `Computed` that writes, that reads itself, or a `Watcher` callback that
+  touches the graph all throw.** Each makes the result depend on evaluation
+  order, and laziness is precisely what makes evaluation order unpredictable --
+  the same program gives different answers depending on who read what first.
+  Merely discouraging them means the bug surfaces later, somewhere else.
+- **`flush()` re-arms the watcher even when an effect throws.** The first error
+  is rethrown once every other pending effect has run. Letting the throw escape
+  before the re-arm would leave the watcher disarmed, which silently ends all
+  future reactivity for the whole process -- one bad effect turning into a dead
+  UI is a far worse failure than a loud one.
+- **Coalescing is about how many times an effect runs, not whether it runs.** A
+  signal written to `1` and back to `0` before the flush still re-runs its
+  effects, once, with the value it settled on. Nothing records what a signal held
+  before a burst, and both writes were real changes when they happened.
 
 ### Help
 

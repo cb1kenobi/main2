@@ -56,7 +56,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Hooks](#hooks)
 - [Help](#help)
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `paths`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `signals`, `paths`, `updates`
 
 ---
 
@@ -780,6 +780,100 @@ sits next to everything else that was printed, and rules around it are noise.
 
 `main2/components` also exports `decodeKeys()` and the `padCell()`,
 `truncateCell()`, and `renderBar()` helpers the above are built from.
+
+### `main2/signals`
+
+The reactive core, shaped like the [TC39 Signals proposal][signals] (stage 1)
+rather than invented here — so switching to the native `Signal` when it lands is
+an import change, and anyone who has used signals anywhere already knows this.
+
+```js
+import { Signal, effect } from 'main2/signals';
+
+const count = new Signal.State(0);
+const doubled = new Signal.Computed(() => count.get() * 2);
+
+const stop = effect(() => console.log(doubled.get())); // logs 0 now
+count.set(21); // logs 42 on the next microtask
+stop();
+```
+
+[signals]: https://github.com/tc39/proposal-signals
+
+A `State` is a cell you write. A `Computed` derives from whatever it reads, and
+is **lazy** — it does not run until something reads it, and a computed nobody
+reads never runs however often its inputs change. Dependencies are recorded on
+every run, so a branch that stops reading a signal stops depending on it.
+
+An `effect()` runs immediately and again whenever something it read changed. It
+may return a cleanup, which runs before each re-run and once more on dispose:
+
+```js
+const stop = effect(() => {
+  const off = terminal.onResize(redraw);
+  return off;
+});
+```
+
+Writes are coalesced: a burst settles into one run, on a microtask by default.
+`setScheduler()` replaces that — the renderer hands it the frame loop, because a
+terminal cannot absorb a repaint per microtask.
+
+```js
+import { setScheduler, flush } from 'main2/signals';
+
+const previous = setScheduler((run) => setTimeout(run, 16));
+flush(); // or drive it by hand
+setScheduler(previous);
+```
+
+Coalescing is about how many times an effect runs, not whether it runs: a signal
+written to `1` and back to `0` before the flush re-runs its effects once, with
+the value it settled on.
+
+#### `Signal.subtle`
+
+The sharp edges, under the name the proposal gives them. Reaching for one is a
+signal in itself — ordinary code wants `State`, `Computed`, and `effect()`.
+
+| Export                        | What it is                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `Watcher`                     | Notified that a watched signal may have changed. Never what to do about it |
+| `untrack(fn)`                 | Runs `fn` without recording what it reads                                  |
+| `currentComputed()`           | The `Computed` being evaluated, if any                                     |
+| `watched` / `unwatched`       | Option keys, called when a signal becomes live and stops being             |
+| `introspectSources` / `Sinks` | What a node reads, and what reads it                                       |
+| `hasSources` / `hasSinks`     | The same questions, answered cheaply                                       |
+
+`watched` and `unwatched` are about being **observed**, not about being read: a
+signal read only by a computed that nothing watches is not live, and its
+`watched` never fires. That is what makes them the right place to subscribe to
+something external — a `SIGWINCH` handler, a file watcher — since the
+subscription then lasts exactly as long as something is actually rendering.
+
+A `Watcher` fires at most once until `watch()` is called again, which is what
+turns a burst of writes into one notification. The holder schedules, drains with
+`getPending()`, and re-arms — which is all `effect()` is.
+
+```js
+const w = new Signal.subtle.Watcher(() => queueMicrotask(run));
+w.watch(someComputed);
+
+function run() {
+  for (const pending of w.getPending()) pending.get();
+  w.watch(); // re-arm
+}
+```
+
+#### What it refuses
+
+A `Computed` may not write a signal, may not read itself, and a `Watcher`'s
+notify callback may not touch the graph at all. Each throws rather than being
+merely discouraged: all three make the result depend on evaluation order, and
+laziness is exactly what makes evaluation order unpredictable.
+
+An error thrown by a `Computed` is cached the way a value is, rethrown on every
+read until something it depends on changes.
 
 ### `main2/paths`
 
