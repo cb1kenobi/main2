@@ -91,10 +91,10 @@ function margins(style: Style, available: number | undefined) {
 /** An item during layout: everything resolved, nothing placed yet. */
 interface Item {
 	basis: number;
-	/** Where this child sits in the tree, which is not where it is placed. */
-	index: number;
 	crossSize: number;
 	frozen: boolean;
+	/** Where this child sits in the tree, which is not where it is placed. */
+	index: number;
 	mainSize: number;
 	margin: ReturnType<typeof margins>;
 	maxCross: number | undefined;
@@ -113,6 +113,21 @@ export interface LayoutOptions {
 }
 
 /**
+ * Measurements already taken during one `layout()` call.
+ *
+ * Without it a node's whole subtree is re-measured once per ancestor level:
+ * `makeItem()` measures every child from scratch and `layoutChildren()` runs
+ * once per container, so the work is the node count times the depth rather than
+ * the node count. Measured at eight levels deep that was a 5.3x multiplier, and
+ * measuring is the most expensive thing in the stack.
+ *
+ * Per call rather than persistent: a node's content can change between frames,
+ * and a cache that outlives the pass needs invalidating, which is the renderer's
+ * job and not this module's.
+ */
+type MeasureCache = WeakMap<LayoutNode, Map<number, Measurement>>;
+
+/**
  * Lays out a tree.
  *
  * @param root - The node to lay out.
@@ -120,8 +135,28 @@ export interface LayoutOptions {
  * @returns The laid-out tree.
  */
 export function layout(root: LayoutNode, opts: LayoutOptions): LayoutResult {
-	const result = layoutNode(root, opts.width, opts.height, 0, 0);
-	return result;
+	const cache: MeasureCache = new WeakMap();
+	const { style } = root;
+	const axis = axisOf(style);
+	const inset = insets(style, axis);
+
+	// the root's own declared size is honoured, the way every other node's is.
+	// Nothing read it before, because a child's size is resolved by its parent
+	// before `layoutNode()` is reached -- and the root has no parent to do that,
+	// so `layout(panel, { width: 80 })` gave the panel eighty columns however wide
+	// it said it was
+	const declaredWidth = outerSize(
+		style,
+		resolve(style.width, opts.width),
+		axis.column ? inset.cross : inset.main
+	);
+	const declaredHeight = outerSize(
+		style,
+		resolve(style.height, opts.height),
+		axis.column ? inset.main : inset.cross
+	);
+
+	return layoutNode(root, declaredWidth ?? opts.width, declaredHeight ?? opts.height, 0, 0, cache);
 }
 
 /**
@@ -133,10 +168,43 @@ export function layout(root: LayoutNode, opts: LayoutOptions): LayoutResult {
  * @returns The intrinsic size.
  */
 export function measureNode(node: LayoutNode, availableWidth: number): Measurement {
+	return measure(node, availableWidth, new WeakMap());
+}
+
+/**
+ * The cached measure.
+ *
+ * @param node - The node to measure.
+ * @param availableWidth - The width to measure against.
+ * @param cache - What this pass has measured already.
+ * @returns The intrinsic size.
+ */
+function measure(node: LayoutNode, availableWidth: number, cache: MeasureCache): Measurement {
+	let byWidth = cache.get(node);
+	if (!byWidth) {
+		byWidth = new Map();
+		cache.set(node, byWidth);
+	}
+
+	const hit = byWidth.get(availableWidth);
+	if (hit) {
+		return hit;
+	}
+
+	const result = measureUncached(node, availableWidth, cache);
+	byWidth.set(availableWidth, result);
+	return result;
+}
+
+function measureUncached(
+	node: LayoutNode,
+	availableWidth: number,
+	cache: MeasureCache
+): Measurement {
 	const { style } = node;
 
 	if (style.display === 'none') {
-		return { height: 0, minWidth: 0, width: 0 };
+		return { height: 0, minHeight: 0, minWidth: 0, width: 0 };
 	}
 
 	const axis = axisOf(style);
@@ -151,6 +219,7 @@ export function measureNode(node: LayoutNode, availableWidth: number): Measureme
 		const measured = node.measure(inner);
 		return {
 			height: measured.height + vertical,
+			minHeight: (measured.minHeight ?? measured.height) + vertical,
 			minWidth: (measured.minWidth ?? measured.width) + horizontal,
 			width: measured.width + horizontal,
 		};
@@ -158,8 +227,14 @@ export function measureNode(node: LayoutNode, availableWidth: number): Measureme
 
 	const children = (node.children ?? []).filter((c) => c.style.display !== 'none');
 	if (children.length === 0) {
+		// the automatic minimum is content-based, and a box with no children has no
+		// content -- so it is the insets and nothing more. Reporting the declared
+		// height as the minimum froze the item at that height and pushed it out of
+		// a container too short to hold it, which is the one thing shrinking exists
+		// to prevent
 		return {
 			height: (resolve(style.height, undefined) ?? 0) + vertical,
+			minHeight: vertical,
 			minWidth: horizontal,
 			width: (declaredWidth ?? 0) + horizontal,
 		};
@@ -173,18 +248,40 @@ export function measureNode(node: LayoutNode, availableWidth: number): Measureme
 
 	for (const child of children) {
 		const childMargin = margins(child.style, inner);
-		const measured = measureNode(child, inner);
+		const measured = measure(child, inner, cache);
 		const extraH = childMargin.left + childMargin.right;
 		const extraV = childMargin.top + childMargin.bottom;
 
-		const mainSize = axis.column ? measured.height + extraV : measured.width + extraH;
-		const minMain = axis.column ? measured.height + extraV : (measured.minWidth ?? 0) + extraH;
-		const crossSize = axis.column ? measured.width + extraH : measured.height + extraV;
-		const minCross = axis.column ? (measured.minWidth ?? 0) + extraH : measured.height + extraV;
+		// a child's *declared* minimum counts towards what its parent needs, not
+		// only its content's. Without this a container with no declared size
+		// computed itself smaller than its own child's `min-width` would force at
+		// placement time, and the child ended up outside its parent's box
+		const childInset = insets(child.style, axis);
+		const declaredMinW =
+			outerSize(
+				child.style,
+				resolve(child.style.minWidth, inner),
+				axis.column ? childInset.cross : childInset.main
+			) ?? 0;
+		const declaredMinH =
+			outerSize(
+				child.style,
+				resolve(child.style.minHeight, undefined),
+				axis.column ? childInset.main : childInset.cross
+			) ?? 0;
 
-		mainTotal += mainSize;
+		const mainSize = axis.column ? measured.height + extraV : measured.width + extraH;
+		const minMain = axis.column
+			? Math.max(measured.minHeight ?? measured.height, declaredMinH) + extraV
+			: Math.max(measured.minWidth ?? 0, declaredMinW) + extraH;
+		const crossSize = axis.column ? measured.width + extraH : measured.height + extraV;
+		const minCross = axis.column
+			? Math.max(measured.minWidth ?? 0, declaredMinW) + extraH
+			: Math.max(measured.minHeight ?? measured.height, declaredMinH) + extraV;
+
+		mainTotal += Math.max(mainSize, minMain);
 		minMainTotal += minMain;
-		crossMax = Math.max(crossMax, crossSize);
+		crossMax = Math.max(crossMax, crossSize, minCross);
 		minCrossMax = Math.max(minCrossMax, minCross);
 	}
 
@@ -195,11 +292,15 @@ export function measureNode(node: LayoutNode, availableWidth: number): Measureme
 	const width = axis.column ? crossMax + inset.cross : mainTotal + inset.main;
 	const height = axis.column ? mainTotal + inset.main : crossMax + inset.cross;
 	const minWidth = axis.column ? minCrossMax + inset.cross : minMainTotal + inset.main;
+	const minHeight = axis.column ? minMainTotal + inset.main : minCrossMax + inset.cross;
+
+	const declaredHeight = resolve(style.height, undefined);
 
 	return {
-		height: resolve(style.height, undefined) ?? height,
-		minWidth: declaredWidth === undefined ? minWidth : declaredWidth + horizontal,
-		width: declaredWidth === undefined ? width : declaredWidth + horizontal,
+		height: declaredHeight ?? height,
+		minHeight: declaredHeight ?? minHeight,
+		minWidth: declaredWidth ?? minWidth,
+		width: declaredWidth ?? width,
 	};
 }
 
@@ -211,6 +312,7 @@ export function measureNode(node: LayoutNode, availableWidth: number): Measureme
  * @param availableHeight - The height its parent gave it, if it knows one.
  * @param x - Where the border box starts.
  * @param y - Where the border box starts.
+ * @param cache - Measurements taken so far this pass.
  * @returns The laid-out subtree.
  */
 function layoutNode(
@@ -218,7 +320,8 @@ function layoutNode(
 	availableWidth: number,
 	availableHeight: number | undefined,
 	x: number,
-	y: number
+	y: number,
+	cache: MeasureCache
 ): LayoutResult {
 	const { style } = node;
 
@@ -240,10 +343,9 @@ function layoutNode(
 
 	const innerWidth = Math.max(0, width - horizontal);
 
-	// a node with no height given takes what its content needs
 	const minH = outerSize(style, resolve(style.minHeight, availableHeight), vertical);
 	const maxH = outerSize(style, resolve(style.maxHeight, availableHeight), vertical);
-	const height = clamp(availableHeight ?? measureNode(node, availableWidth).height, minH, maxH);
+	const height = clamp(availableHeight ?? measure(node, availableWidth, cache).height, minH, maxH);
 
 	const innerHeight = Math.max(0, height - vertical);
 
@@ -260,7 +362,7 @@ function layoutNode(
 		return { box, children: [], content, node };
 	}
 
-	const placed = layoutChildren(node, children, content, axis);
+	const placed = layoutChildren(node, children, content, axis, cache);
 	return { box, children: placed, content, node };
 }
 
@@ -271,13 +373,15 @@ function layoutNode(
  * @param children - Its visible children.
  * @param content - The area to place them in.
  * @param axis - Which way the main axis runs.
- * @returns The laid-out children.
+ * @param cache - Measurements taken so far this pass.
+ * @returns The laid-out children, in tree order.
  */
 function layoutChildren(
 	parent: LayoutNode,
 	children: LayoutNode[],
 	content: Box,
-	axis: Axis
+	axis: Axis,
+	cache: MeasureCache
 ): LayoutResult[] {
 	const { style } = parent;
 	const mainSpace = axis.column ? content.height : content.width;
@@ -285,14 +389,14 @@ function layoutChildren(
 	const gap = axis.column ? style.rowGap : style.columnGap;
 
 	// `order` changes where a child is *placed*, not where it lives. The results
-	// stay in tree order so `result.children[i]` still answers for
+	// go back into tree order at the end so `result.children[i]` still answers for
 	// `node.children[i]`; only the placement walk is sorted, and stably, so equal
 	// orders keep their source sequence
-	const items = children.map((child, index) => makeItem(child, axis, content, index));
+	const items = children.map((child, index) => makeItem(child, axis, content, index, cache));
 	const ordered = [...items].sort((a, b) => a.style.order - b.style.order);
 	const lines = style.flexWrap === 'nowrap' ? [ordered] : wrapIntoLines(ordered, mainSpace, gap);
 
-	const results: LayoutResult[] = [];
+	const placed: LayoutResult[] = [];
 	const lineCrossSizes: number[] = [];
 
 	for (const line of lines) {
@@ -334,8 +438,8 @@ function layoutChildren(
 				crossCursor = Math.floor(free / lines.length / 2);
 				break;
 			case 'stretch': {
-				// the leftover is shared out rather than handed to the last line, so
-				// the lines together fill the cross space exactly
+				// shared out rather than handed to the last line, so the lines
+				// together fill the cross space exactly
 				const shares = distribute(
 					free,
 					lineCrossSizes.map(() => 1)
@@ -354,20 +458,21 @@ function layoutChildren(
 		const lineCross = lineCrossSizes[index];
 		placeLine(line, {
 			axis,
+			cache,
 			content,
 			crossOffset: crossCursor,
 			crossSize: lineCross,
 			gap,
 			mainSpace,
-			results,
+			results: placed,
 			style,
 		});
 		crossCursor += lineCross + betweenLines;
 	}
 
 	// tree order, not placement order
-	results.sort((a, b) => children.indexOf(a.node) - children.indexOf(b.node));
-	return results;
+	const byNode = new Map(placed.map((result) => [result.node, result]));
+	return children.map((child) => byNode.get(child)).filter((r): r is LayoutResult => !!r);
 }
 
 /** The main-axis size an item occupies including its margins. */
@@ -383,10 +488,16 @@ function outerCross(item: Item, axis: Axis): number {
 }
 
 /** Resolves a child's sizes before any flexing. */
-function makeItem(node: LayoutNode, axis: Axis, content: Box, index: number): Item {
+function makeItem(
+	node: LayoutNode,
+	axis: Axis,
+	content: Box,
+	index: number,
+	cache: MeasureCache
+): Item {
 	const style = node.style;
 	const margin = margins(style, axis.column ? content.height : content.width);
-	const measured = measureNode(node, Math.max(0, content.width - margin.left - margin.right));
+	const measured = measure(node, Math.max(0, content.width - margin.left - margin.right), cache);
 
 	const inset = insets(style, axis);
 	const mainInset = axis.column ? inset.main : inset.cross;
@@ -410,9 +521,15 @@ function makeItem(node: LayoutNode, axis: Axis, content: Box, index: number): It
 	const contentMain = axis.column ? measured.height : measured.width;
 	const basis = basisResolved ?? contentMain;
 
-	const minMain = axis.column
-		? outerSize(style, resolve(style.minHeight, content.height), mainInset)
-		: (outerSize(style, resolve(style.minWidth, content.width), mainInset) ?? measured.minWidth);
+	// CSS's automatic minimum size, on whichever axis is the main one. Without the
+	// column half, a column of text with no room was crushed to a single row while
+	// the same text in a row was correctly held at its longest word
+	const automaticMin = axis.column ? measured.minHeight : measured.minWidth;
+	const minMain =
+		(axis.column
+			? outerSize(style, resolve(style.minHeight, content.height), mainInset)
+			: outerSize(style, resolve(style.minWidth, content.width), mainInset)) ?? automaticMin;
+
 	const maxMain = axis.column
 		? outerSize(style, resolve(style.maxHeight, content.height), mainInset)
 		: outerSize(style, resolve(style.maxWidth, content.width), mainInset);
@@ -451,7 +568,7 @@ function wrapIntoLines(items: Item[], mainSpace: number, gap: number): Item[][] 
 	let used = 0;
 
 	for (const item of items) {
-		const size = Math.max(item.minMain ?? 0, Math.min(item.basis, item.maxMain ?? item.basis));
+		const size = clamp(item.basis, item.minMain, item.maxMain);
 		const withGap = current.length === 0 ? size : size + gap;
 
 		if (current.length > 0 && used + withGap > mainSpace) {
@@ -483,6 +600,7 @@ function wrapIntoLines(items: Item[], mainSpace: number, gap: number): Item[][] 
  * @param line - The items on one line.
  * @param mainSpace - The space they share.
  * @param gap - The gap between them.
+ * @param axis - Which way the main axis runs.
  */
 function resolveFlexible(line: Item[], mainSpace: number, gap: number, axis: Axis): void {
 	if (line.length === 0) {
@@ -490,7 +608,12 @@ function resolveFlexible(line: Item[], mainSpace: number, gap: number, axis: Axi
 	}
 
 	for (const item of line) {
-		item.mainSize = item.basis;
+		// the *hypothetical* main size, which is the basis already clamped to the
+		// item's own limits -- not the raw basis. Starting from the raw one leaves a
+		// sibling's `min-width` unaccounted for while the free space is handed out
+		// to everyone else, and the trailing clamp then pushes that item past the
+		// container's edge with the space already spent
+		item.mainSize = clamp(item.basis, item.minMain, item.maxMain);
 		item.frozen = false;
 	}
 
@@ -510,10 +633,16 @@ function resolveFlexible(line: Item[], mainSpace: number, gap: number, axis: Axi
 		}
 
 		// shrinking is weighted by the base size, as in CSS: a big item gives up
-		// more than a small one at the same shrink factor
+		// more than a small one at the same shrink factor, and an item whose basis
+		// is zero has nothing to give
 		const weights = movable.map((item) =>
-			free > 0 ? item.style.flexGrow : item.style.flexShrink * Math.max(1, item.basis)
+			free > 0 ? item.style.flexGrow : item.style.flexShrink * item.basis
 		);
+
+		if (weights.every((weight) => weight <= 0)) {
+			break;
+		}
+
 		const shares = distribute(Math.abs(free), weights);
 
 		let clampedAny = false;
@@ -539,6 +668,7 @@ function resolveFlexible(line: Item[], mainSpace: number, gap: number, axis: Axi
 
 interface PlaceOptions {
 	axis: Axis;
+	cache: MeasureCache;
 	content: Box;
 	crossOffset: number;
 	crossSize: number;
@@ -548,9 +678,80 @@ interface PlaceOptions {
 	style: Style;
 }
 
+/**
+ * The space before each item, and after the last one.
+ *
+ * One array rather than a leading offset and a constant between-size, because a
+ * constant cannot hold a remainder: `space-evenly` over seven cells and four
+ * slots gave three gaps of one and a trailing gap of four, and `space-between`
+ * left the last item a cell short of the edge it is defined to touch. Every slot
+ * goes through `distribute()`, which is the rule the rest of this file follows.
+ *
+ * @param count - How many items are on the line.
+ * @param free - The space left over.
+ * @param gap - The gap between items, which is not free space.
+ * @param justify - What the container asked for.
+ * @returns `count + 1` gaps: before each item, then after the last.
+ */
+function mainGaps(
+	count: number,
+	free: number,
+	gap: number,
+	justify: Style['justifyContent']
+): number[] {
+	const ones = (n: number) => Array.from({ length: n }, () => 1);
+	const gaps = Array.from({ length: count + 1 }, (_, i) => (i === 0 || i === count ? 0 : gap));
+
+	switch (justify) {
+		case 'flex-end':
+			gaps[0] = free;
+			break;
+		case 'center': {
+			const halves = distribute(free, [1, 1]);
+			gaps[0] = halves[0];
+			gaps[count] = halves[1];
+			break;
+		}
+		case 'space-between': {
+			if (count > 1) {
+				const shares = distribute(free, ones(count - 1));
+				for (let i = 1; i < count; i++) {
+					gaps[i] += shares[i - 1];
+				}
+			} else {
+				gaps[count] = free;
+			}
+			break;
+		}
+		case 'space-around': {
+			// half a share before each item and half after, so the outer gaps come
+			// out half the inner ones -- which is what "around" means
+			const halves = distribute(free, ones(count * 2));
+			gaps[0] = halves[0];
+			for (let i = 1; i < count; i++) {
+				gaps[i] += halves[i * 2 - 1] + halves[i * 2];
+			}
+			gaps[count] = halves[count * 2 - 1];
+			break;
+		}
+		case 'space-evenly': {
+			const shares = distribute(free, ones(count + 1));
+			for (let i = 0; i <= count; i++) {
+				gaps[i] += shares[i];
+			}
+			break;
+		}
+		default:
+			gaps[count] = free;
+			break;
+	}
+
+	return gaps;
+}
+
 /** Places one line of items and recurses into each. */
 function placeLine(line: Item[], opts: PlaceOptions): void {
-	const { axis, content, crossOffset, crossSize, gap, mainSpace, results, style } = opts;
+	const { axis, cache, content, crossOffset, crossSize, gap, mainSpace, results, style } = opts;
 
 	if (line.length === 0) {
 		return;
@@ -559,62 +760,48 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 	const used = line.reduce((sum, item) => sum + outerMain(item, axis), 0) + gap * (line.length - 1);
 	const free = Math.max(0, mainSpace - used);
 
-	const autoMains = line.filter((item) =>
-		axis.column
-			? item.margin.auto.top || item.margin.auto.bottom
-			: item.margin.auto.left || item.margin.auto.right
-	).length;
+	const order = axis.reverse ? [...line].reverse() : line;
 
-	let leading = 0;
-	let between = gap;
-
-	if (autoMains === 0) {
-		switch (style.justifyContent) {
-			case 'flex-end':
-				leading = free;
-				break;
-			case 'center':
-				leading = Math.floor(free / 2);
-				break;
-			case 'space-between':
-				if (line.length > 1) {
-					between = gap + Math.floor(free / (line.length - 1));
-				}
-				break;
-			case 'space-around':
-				between = gap + Math.floor(free / line.length);
-				leading = Math.floor(free / line.length / 2);
-				break;
-			case 'space-evenly':
-				between = gap + Math.floor(free / (line.length + 1));
-				leading = Math.floor(free / (line.length + 1));
-				break;
-			default:
-				break;
+	// every auto margin on the line shares the free space, wherever it sits. The
+	// trailing half used to count towards the denominator and then contribute
+	// nothing, so two adjacent items each pushing away from the other pushed once
+	const autoSlots: { end: boolean; item: Item }[] = [];
+	for (const item of order) {
+		if (axis.column ? item.margin.auto.top : item.margin.auto.left) {
+			autoSlots.push({ end: false, item });
+		}
+		if (axis.column ? item.margin.auto.bottom : item.margin.auto.right) {
+			autoSlots.push({ end: true, item });
 		}
 	}
 
-	const order = axis.reverse ? [...line].reverse() : line;
-	let cursor = leading;
+	const autoShares = distribute(
+		free,
+		autoSlots.map(() => 1)
+	);
+	const autoBefore = new Map<Item, number>();
+	const autoAfter = new Map<Item, number>();
+	for (const [index, slot] of autoSlots.entries()) {
+		const target = slot.end ? autoAfter : autoBefore;
+		target.set(slot.item, (target.get(slot.item) ?? 0) + autoShares[index]);
+	}
 
-	for (const item of order) {
+	// auto margins take precedence over `justify-content`, as in CSS: once they
+	// have eaten the free space there is none left to justify with
+	const gaps =
+		autoSlots.length > 0
+			? Array.from({ length: order.length + 1 }, (_, i) =>
+					i === 0 || i === order.length ? 0 : gap
+				)
+			: mainGaps(order.length, free, gap, style.justifyContent);
+
+	let cursor = gaps[0];
+
+	for (const [position, item] of order.entries()) {
 		const marginMainStart = axis.column ? item.margin.top : item.margin.left;
 		const marginMainEnd = axis.column ? item.margin.bottom : item.margin.right;
 
-		// an auto margin on the main axis eats the free space, which is how a box
-		// is pushed to one end or centred without touching `justify-content`
-		let autoLead = 0;
-		if (autoMains > 0) {
-			const autoStart = axis.column ? item.margin.auto.top : item.margin.auto.left;
-			const autoEnd = axis.column ? item.margin.auto.bottom : item.margin.auto.right;
-			const count = (autoStart ? 1 : 0) + (autoEnd ? 1 : 0);
-			if (count > 0) {
-				const share = Math.floor(free / autoMains);
-				autoLead = autoStart ? (autoEnd ? Math.floor(share / 2) : share) : 0;
-			}
-		}
-
-		const mainStart = cursor + marginMainStart + autoLead;
+		const mainStart = cursor + marginMainStart + (autoBefore.get(item) ?? 0);
 
 		const align = item.style.alignSelf === 'auto' ? style.alignItems : item.style.alignSelf;
 		const marginCrossStart = axis.column ? item.margin.left : item.margin.top;
@@ -639,9 +826,10 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 		const childWidth = axis.column ? itemCross : item.mainSize;
 		const childHeight = axis.column ? item.mainSize : itemCross;
 
-		results.push(layoutNode(item.node, childWidth, childHeight, childX, childY));
+		results.push(layoutNode(item.node, childWidth, childHeight, childX, childY, cache));
 
-		cursor = mainStart + item.mainSize + marginMainEnd + between;
+		cursor = mainStart + item.mainSize + marginMainEnd + (autoAfter.get(item) ?? 0);
+		cursor += gaps[position + 1];
 	}
 }
 

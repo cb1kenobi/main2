@@ -37,13 +37,16 @@ export function text(content: string, declarations: Declarations = {}): LayoutNo
 			);
 
 			if (style.whiteSpace === 'nowrap' || availableWidth <= 0) {
-				return { height: 1, minWidth: longestWord, width: stringWidth(content) };
+				return { height: 1, minHeight: 1, minWidth: longestWord, width: stringWidth(content) };
 			}
 
 			const wrapped = wrap(content, { width: availableWidth });
 			const lines = wrapped.split('\n');
 			return {
 				height: lines.length,
+				// text is as short as it can be at the width it was given: wrapping
+				// it narrower makes it taller, not shorter
+				minHeight: lines.length,
 				minWidth: longestWord,
 				width: Math.max(0, ...lines.map((line) => stringWidth(line))),
 			};
@@ -121,4 +124,66 @@ export function boxes(
 	};
 	walk(result);
 	return out;
+}
+
+/**
+ * Every invariant a layout has to keep, whatever it was asked for.
+ *
+ * The picture helper cannot check these: it paints later nodes over earlier ones
+ * so an overlap is invisible, and it bounds-checks against the grid so anything
+ * placed past the edge simply does not appear. A fuzzer found five hundred
+ * containment violations that forty-two picture tests had no way to see.
+ *
+ * @param result - The laid-out tree.
+ * @param opts - `overflow` allows a child larger than its parent, which is what
+ * a declared size too big for its container legitimately produces.
+ */
+export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean } = {}): void {
+	const walk = (node: LayoutResult): void => {
+		if (node.box.width < 0 || node.box.height < 0) {
+			throw new Error(`negative box ${JSON.stringify(node.box)}`);
+		}
+
+		const line: LayoutResult[] = [];
+
+		for (const child of node.children) {
+			// a box with no area paints nothing, so where it sits cannot be wrong.
+			// A gap still advances the cursor in a container with no room, which
+			// leaves a zero-size child one column past a zero-width content box
+			const occupies = child.box.width > 0 && child.box.height > 0;
+
+			if (!opts.overflow && occupies) {
+				const fitsX =
+					child.box.x >= node.content.x &&
+					child.box.x + child.box.width <= node.content.x + node.content.width;
+				const fitsY =
+					child.box.y >= node.content.y &&
+					child.box.y + child.box.height <= node.content.y + node.content.height;
+
+				if (!fitsX || !fitsY) {
+					throw new Error(
+						`child ${JSON.stringify(child.box)} escapes content ${JSON.stringify(node.content)}`
+					);
+				}
+			}
+
+			for (const sibling of line) {
+				const apart =
+					child.box.x >= sibling.box.x + sibling.box.width ||
+					sibling.box.x >= child.box.x + child.box.width ||
+					child.box.y >= sibling.box.y + sibling.box.height ||
+					sibling.box.y >= child.box.y + child.box.height;
+				if (!apart && child.box.width > 0 && child.box.height > 0) {
+					throw new Error(
+						`siblings overlap: ${JSON.stringify(child.box)} and ${JSON.stringify(sibling.box)}`
+					);
+				}
+			}
+
+			line.push(child);
+			walk(child);
+		}
+	};
+
+	walk(result);
 }

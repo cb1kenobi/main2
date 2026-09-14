@@ -396,6 +396,41 @@ false` rethrows instead; a function replaces the handler.
   `align-content` were added to the table and are honoured here for that reason.
   `visibility` and `overflow` are deliberately _not_ layout's: hidden content
   still takes its space, and clipping is M2-64's.
+- **Flexing starts from the basis already clamped to the item's own limits.**
+  CSS calls that the hypothetical main size, and starting from the raw basis
+  instead leaves a sibling's `min-width` unaccounted for while the free space is
+  handed out to everyone else -- the trailing clamp then pushes that item past
+  the container's edge with the space already spent.
+- **A child's declared minimum counts towards what its parent needs.** Measuring
+  a shrink-to-fit container from its children's _content_ minimums alone let it
+  compute itself smaller than a child's `min-width` would force at placement
+  time, and the child ended up outside its parent's box.
+- **The automatic minimum is content-based, so a box with no children has none.**
+  Reporting its declared height as its minimum froze it at that height and
+  pushed it out of a container too short to hold it -- which is the one thing
+  shrinking exists to prevent.
+- **`justify-content` gaps go through `distribute()` like everything else.** A
+  single `Math.floor()` per gap cannot hold a remainder: `space-evenly` over
+  seven cells and four slots gave three gaps of one and a trailing gap of four,
+  and `space-between` left the last item a cell short of the edge it is defined
+  to touch.
+- **Every auto margin on a line shares the free space, wherever it sits.** A
+  trailing one used to count towards the denominator and then contribute
+  nothing, so two adjacent items each pushing away from the other pushed once.
+- **`layout()` honours the root's own declared size.** Every other node's is
+  resolved by its parent before `layoutNode()` is reached, and the root has no
+  parent to do that -- so `layout(panel, { width: 80 })` gave the panel eighty
+  columns however wide it said it was.
+- **Measurements are cached for the length of one `layout()` call.** Without it a
+  node's subtree is re-measured once per ancestor level, which is the node count
+  times the depth rather than the node count -- a 5.3x multiplier at eight levels
+  deep, on the most expensive operation in the stack. Per call, not persistent:
+  content changes between frames and invalidating is the renderer's job.
+- **Pictures cannot check containment, so `checkInvariants()` does.** The picture
+  helper paints later nodes over earlier ones, so an overlap is invisible, and it
+  bounds-checks against the grid, so anything placed past the edge does not
+  appear at all. A fuzzer found five hundred containment violations that
+  forty-two picture tests had no way to see.
 - **A percentage of an unknown size is `auto`.** What CSS does, and what keeps a
   column layout from resolving heights against nothing.
 - **`min` wins over `max` where they conflict**, as in CSS, which is what stops a

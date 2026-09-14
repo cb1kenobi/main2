@@ -34,6 +34,15 @@ export interface Measurement {
 	 * cannot go below, and `max-content` is what it asks for.
 	 */
 	minWidth?: number;
+	/**
+	 * The shortest the content can be without losing any of itself.
+	 *
+	 * The column-axis twin of `minWidth`, and it has to exist for the same reason:
+	 * CSS's automatic minimum size applies to whichever axis is the main one, so a
+	 * column of text with no room was being crushed to a single row while the same
+	 * text in a row was correctly protected from shrinking past its longest word.
+	 */
+	minHeight?: number;
 }
 
 /** Where a node ended up, in cells, relative to the canvas origin. */

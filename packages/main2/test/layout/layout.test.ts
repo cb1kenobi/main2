@@ -1,6 +1,6 @@
 import { distribute, layout } from '../../src/layout/index.js';
 import { declare } from '../../src/style/index.js';
-import { box, boxes, picture, text } from './helpers.js';
+import { box, boxes, checkInvariants, picture, text } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
 describe('distribute', () => {
@@ -496,5 +496,167 @@ describe('degenerate sizes', () => {
 			expect(region.width).toBeGreaterThanOrEqual(0);
 			expect(region.height).toBeGreaterThanOrEqual(0);
 		}
+	});
+});
+
+describe('invariants', () => {
+	it('should keep a min-width sibling inside the container', () => {
+		// the flexible resolution started from the raw basis rather than the basis
+		// already clamped to the item's own limits, so a sibling's `min-width` was
+		// not accounted for while the space was handed to everyone else -- and the
+		// trailing clamp then pushed it past the edge with the space already spent
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ 'flex-grow': '1', height: '1' }),
+			box({ 'min-width': '4', 'flex-grow': '0', height: '1' })
+		);
+
+		const result = layout(tree, { height: 1, width: 10 });
+		expect(result.children.map((child) => child.box.width)).toEqual([6, 4]);
+		checkInvariants(result);
+	});
+
+	it('should size a shrink-to-fit parent around its child min-width', () => {
+		// a container with no declared size computed itself from its child's
+		// *content* minimum and ignored the child's declared one, so it came out
+		// zero wide with a six-wide child sitting outside it
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box(
+				{ 'flex-direction': 'row', 'flex-grow': '0', 'flex-shrink': '0', height: '1' },
+				box({ 'min-width': '6', 'flex-grow': '0', 'flex-shrink': '0', height: '1' })
+			)
+		);
+
+		const result = layout(tree, { height: 1, width: 40 });
+		expect(result.children[0].box.width).toBeGreaterThanOrEqual(6);
+		checkInvariants(result);
+	});
+
+	it('should hold a column of text at the height it needs', () => {
+		// the automatic minimum size existed on the row axis and not the column
+		// one, so text in a column was crushed to a single row while the same text
+		// in a row was correctly held at its longest word
+		const tree = box({ 'flex-direction': 'column', width: '3' }, text('one two three'));
+		const result = layout(tree, { height: 1, width: 3 });
+		expect(result.children[0].box.height).toBeGreaterThan(1);
+	});
+
+	it('should honor a declared size on the node it was handed', () => {
+		// every other node's declared size is resolved by its parent, and the root
+		// has no parent -- so `layout(panel, { width: 80 })` gave the panel eighty
+		// columns however wide it said it was
+		const panel = box({ width: '5', height: '2', 'flex-direction': 'row' });
+		expect(layout(panel, { height: 10, width: 20 }).box).toEqual({
+			height: 2,
+			width: 5,
+			x: 0,
+			y: 0,
+		});
+	});
+
+	it('should hold the invariants across a spread of trees', () => {
+		const trees = [
+			box({ 'flex-direction': 'row', gap: '1' }, box({ width: '3' }), box({ 'flex-grow': '1' })),
+			box(
+				{ 'flex-direction': 'column', padding: '1' },
+				box({ height: '2' }),
+				box({ 'flex-grow': '1' })
+			),
+			box(
+				{ 'flex-direction': 'row', 'justify-content': 'space-evenly' },
+				box({ width: '1' }),
+				box({ width: '1' }),
+				box({ width: '1' })
+			),
+			box(
+				{ 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+				box({ width: '4' }),
+				box({ width: '4' }),
+				box({ width: '4' })
+			),
+			box({ 'flex-direction': 'row', border: 'single' }, box({ 'flex-grow': '1' })),
+		];
+
+		for (const [index, tree] of trees.entries()) {
+			for (const [width, height] of [
+				[0, 0],
+				[1, 1],
+				[10, 3],
+				[40, 8],
+			]) {
+				const result = layout(tree, { height, width });
+				expect(() => checkInvariants(result), `tree ${index} at ${width}x${height}`).not.toThrow();
+			}
+		}
+	});
+
+	it('should lay the same tree out identically twice', () => {
+		const tree = box(
+			{ 'flex-direction': 'row', 'justify-content': 'space-around' },
+			box({ 'flex-grow': '1' }),
+			box({ width: '3' }),
+			box({ 'flex-grow': '2' })
+		);
+
+		expect(boxes(layout(tree, { height: 3, width: 17 }))).toEqual(
+			boxes(layout(tree, { height: 3, width: 17 }))
+		);
+	});
+});
+
+describe('justify-content shares its remainder', () => {
+	const three = (justify: string) =>
+		box(
+			{ 'flex-direction': 'row', 'justify-content': justify },
+			box({ width: '1', height: '1' }),
+			box({ width: '1', height: '1' }),
+			box({ width: '1', height: '1' })
+		);
+
+	it('should keep space-evenly gaps within a cell of each other', () => {
+		// seven cells over four slots used to give three gaps of one and a trailing
+		// gap of four, because a constant `Math.floor()` cannot hold a remainder
+		const result = layout(three('space-evenly'), { height: 1, width: 10 });
+		const xs = result.children.map((child) => child.box.x);
+		const gaps = [xs[0], xs[1] - xs[0] - 1, xs[2] - xs[1] - 1, 10 - xs[2] - 1];
+		expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
+	});
+
+	it('should put the last item flush to the edge for space-between', () => {
+		// the defining property of space-between, and it held only when the free
+		// space happened to divide exactly
+		const tree = box(
+			{ 'flex-direction': 'row', 'justify-content': 'space-between' },
+			box({ width: '1', height: '1' }),
+			box({ width: '1', height: '1' }),
+			box({ width: '1', height: '1' }),
+			box({ width: '1', height: '1' })
+		);
+		const result = layout(tree, { height: 1, width: 14 });
+		const last = result.children[3].box;
+		expect(last.x + last.width).toBe(14);
+	});
+});
+
+describe('auto margins', () => {
+	it('should share the free space between two adjacent auto margins', () => {
+		// only the following item's leading margin was honoured; a preceding item's
+		// own trailing auto counted towards the denominator and then did nothing
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '2', height: '1', 'margin-right': 'auto' }),
+			box({ width: '2', height: '1', 'margin-left': 'auto' })
+		);
+
+		expect(picture(tree, 12, 1)).toBe('bbaaaaaaaacc');
+	});
+
+	it('should still centre a single item with auto on both sides', () => {
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '2', height: '1', 'margin-left': 'auto', 'margin-right': 'auto' })
+		);
+		expect(picture(tree, 10, 1)).toBe('aaaabbaaaa');
 	});
 });
