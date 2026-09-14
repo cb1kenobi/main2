@@ -1,8 +1,27 @@
 import { ansi as defaultAnsi, type Ansi } from '../ansi/index.js';
-import { type InputStream, type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
+import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../terminal/live.js';
 import { stringWidth } from '../width/index.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
+import { StringDecoder } from 'node:string_decoder';
+
+/**
+ * Only what a prompt asks of an input stream.
+ *
+ * Events rather than async iteration, which is not a style preference: leaving a
+ * `for await (const chunk of stdin)` loop calls the iterator's `return()`, and
+ * Node's implementation of that *destroys* the stream. Destroying
+ * `process.stdin` leaves the next prompt with nothing to read, and the one that
+ * did it exits through an `AbortError` rather than with its answer.
+ */
+export interface PromptInput {
+	isTTY?: boolean;
+	off?(event: string, listener: (...args: unknown[]) => void): unknown;
+	on(event: string, listener: (...args: unknown[]) => void): unknown;
+	pause?(): unknown;
+	removeListener?(event: string, listener: (...args: unknown[]) => void): unknown;
+	resume?(): unknown;
+}
 
 /**
  * Thrown when a prompt cannot be answered, rather than returning a value that
@@ -45,7 +64,7 @@ export interface PromptOptions {
 	/** The region to draw in. One is made if not given. */
 	region?: LiveRegion;
 	/** Where keys come from. Defaults to the terminal's input. */
-	stdin?: InputStream & AsyncIterable<string | Uint8Array>;
+	stdin?: PromptInput;
 	/** The terminal to draw through. Defaults to the process's. */
 	terminal?: Terminal;
 }
@@ -104,7 +123,7 @@ function valueOf<T>(choice: Choice<T>): T {
  * @param handlers - How to draw, and what each key does.
  * @returns The answer.
  */
-async function run<T>(
+function run<T>(
 	opts: PromptOptions,
 	handlers: {
 		/** The frame to draw. */
@@ -117,48 +136,112 @@ async function run<T>(
 ): Promise<T> {
 	const terminal = opts.terminal ?? opts.region?.terminal ?? defaultTerminal;
 	const region = opts.region ?? createLiveRegion({ terminal });
-	const stdin = (opts.stdin ?? terminal.stdin) as
-		| (InputStream & AsyncIterable<string | Uint8Array>)
-		| undefined;
+	const stdin = (opts.stdin ?? terminal.stdin) as PromptInput | undefined;
 
 	// nobody is there to answer, and waiting on a stdin that will never produce a
 	// keystroke is a hung build with no explanation. The message names the prompt,
 	// because "no TTY" on its own does not say which question went unanswered
 	if (!terminal.isTTY || !stdin?.isTTY) {
-		throw new PromptError(
-			`Cannot prompt for "${opts.message}" because the input is not a terminal`
+		return Promise.reject(
+			new PromptError(`Cannot prompt for "${opts.message}" because the input is not a terminal`)
 		);
 	}
 
 	terminal.setRawMode(true);
 	region.render(handlers.draw());
 
-	try {
-		for await (const chunk of stdin) {
-			for (const k of decodeKeys(String(chunk))) {
-				if (isAbort(k)) {
-					throw new PromptError('Cancelled', true);
-				}
+	return new Promise<T>((resolve, reject) => {
+		// a decoder of its own rather than `setEncoding()` on the stream: a
+		// character may be split across two chunks, and this keeps the half byte
+		// without changing what the stream hands anything else that reads it
+		const decoder = new StringDecoder('utf8');
 
-				const done = await handlers.key(k);
-				if (done) {
-					region.done(handlers.final(done.value));
-					return done.value;
-				}
-			}
+		let settled = false;
 
-			region.render(handlers.draw());
+		// one chunk at a time. `handlers.key` may be async -- a `validate` that asks
+		// a server -- and a chunk read while the last one is still being handled
+		// would apply its keys to a state that has not caught up
+		let queue: Promise<void> = Promise.resolve();
+
+		function detach(): void {
+			const off = stdin!.off ?? stdin!.removeListener;
+			off?.call(stdin, 'data', onData);
+			off?.call(stdin, 'end', onEnd);
+			off?.call(stdin, 'error', onError);
+
+			// the stream is left as it was found: paused, undestroyed, and readable
+			// by whatever reads it next
+			stdin!.pause?.();
+			terminal.setRawMode(false);
 		}
 
-		// stdin ended without an answer, which is the same nobody-is-there problem
-		// arriving later than the check above
-		throw new PromptError('Input ended before the prompt was answered');
-	} catch (err) {
-		region.stop();
-		throw err;
-	} finally {
-		terminal.setRawMode(false);
-	}
+		function fail(err: unknown): void {
+			if (!settled) {
+				settled = true;
+				detach();
+				region.stop();
+				reject(err);
+			}
+		}
+
+		function succeed(value: T): void {
+			if (!settled) {
+				settled = true;
+				detach();
+				region.done(handlers.final(value));
+				resolve(value);
+			}
+		}
+
+		function onData(...args: unknown[]): void {
+			const chunk = args[0] as string | Uint8Array;
+
+			queue = queue
+				.then(async () => {
+					if (settled) {
+						return;
+					}
+
+					const input = typeof chunk === 'string' ? chunk : decoder.write(Buffer.from(chunk));
+
+					for (const k of decodeKeys(input)) {
+						if (settled) {
+							return;
+						}
+
+						if (isAbort(k)) {
+							fail(new PromptError('Cancelled', true));
+							return;
+						}
+
+						const done = await handlers.key(k);
+						if (done) {
+							succeed(done.value);
+							return;
+						}
+					}
+
+					if (!settled) {
+						region.render(handlers.draw());
+					}
+				})
+				.catch(fail);
+		}
+
+		function onEnd(): void {
+			// the same nobody-is-there problem as the check above, arriving later
+			fail(new PromptError('Input ended before the prompt was answered'));
+		}
+
+		function onError(...args: unknown[]): void {
+			fail(args[0]);
+		}
+
+		stdin.on('data', onData);
+		stdin.on('end', onEnd);
+		stdin.on('error', onError);
+		stdin.resume?.();
+	});
 }
 
 /**
@@ -167,7 +250,7 @@ async function run<T>(
  * @param opts - What to ask, and how to check the answer.
  * @returns What was typed, or the default.
  */
-export async function text(opts: TextOptions): Promise<string> {
+export function text(opts: TextOptions): Promise<string> {
 	const ansi = opts.ansi ?? defaultAnsi;
 	let value = '';
 	let cursor = 0;

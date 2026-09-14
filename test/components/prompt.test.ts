@@ -401,3 +401,79 @@ describe('giving up', () => {
 		await expect(answer).rejects.toThrow('Input ended before the prompt was answered');
 	});
 });
+
+describe('leaving stdin alone', () => {
+	// leaving a `for await (const chunk of stdin)` loop calls the iterator's
+	// `return()`, and Node implements that by *destroying* the stream. The first
+	// prompt answered correctly and then took `process.stdin` with it: the demo
+	// died on `AbortError: The operation was aborted` and no second prompt could
+	// ever read a key
+	it('should not destroy stdin when a prompt is answered', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, 'hi', ENTER);
+		await answer;
+
+		expect(stdin.destroyed, 'the prompt destroyed stdin').to.equal(false);
+	});
+
+	it('should not destroy stdin when a prompt is cancelled', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, '\u0003');
+		await answer.catch(() => {});
+
+		expect(stdin.destroyed).to.equal(false);
+	});
+
+	// the failure as it was actually met: one prompt after another
+	it('should ask a second question on the same stdin', async () => {
+		const { ansi, region, stdin } = setup();
+
+		const first = text({ ansi, message: 'One', region });
+		await type(stdin, 'a', ENTER);
+		expect(await first).to.equal('a');
+
+		const second = confirm({ ansi, message: 'Two', region });
+		await type(stdin, 'y');
+		expect(await second).to.equal(true);
+
+		const third = select({ ansi, choices: ['x', 'y'], message: 'Three', region });
+		await type(stdin, DOWN, ENTER);
+		expect(await third).to.equal('y');
+	});
+
+	// nothing of ours may be left listening, or the next reader gets our keys too
+	it('should take its listeners back off', async () => {
+		const { ansi, region, stdin } = setup();
+		const before = stdin.listenerCount('data');
+
+		const answer = text({ ansi, message: 'Name?', region });
+		await type(stdin, 'x');
+		expect(stdin.listenerCount('data')).to.be.greaterThan(before);
+
+		await type(stdin, ENTER);
+		await answer;
+
+		expect(stdin.listenerCount('data')).to.equal(before);
+		expect(stdin.listenerCount('end')).to.equal(0);
+		expect(stdin.listenerCount('error')).to.equal(0);
+	});
+
+	// a character split across two chunks is one key, not two broken ones
+	it('should read a multi-byte character split across chunks', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		const bytes = Buffer.from('日', 'utf8');
+		stdin.write(bytes.subarray(0, 1));
+		await tick();
+		stdin.write(bytes.subarray(1));
+		await tick();
+		await type(stdin, ENTER);
+
+		expect(await answer).to.equal('日');
+	});
+});

@@ -6,6 +6,7 @@ import {
 	type Terminal,
 } from '../../src/terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../../src/terminal/live.js';
+import { PassThrough } from 'node:stream';
 
 /**
  * What is left of a string once the escape sequences are gone.
@@ -93,10 +94,15 @@ export function createStream(opts: { columns?: number; isTTY?: boolean } = {}): 
 	return stream;
 }
 
-export interface FakeInput {
-	[Symbol.asyncIterator](): AsyncIterator<string>;
-	/** Closes stdin, as a pipe that ran out would. */
-	end(): void;
+/**
+ * Stdin, as a real `PassThrough` rather than something shaped like one.
+ *
+ * It has to be real. A hand-written async iterable has no `return()`, and that
+ * is exactly the method Node's stream iterator implements by *destroying* the
+ * stream -- so a fake one cannot show the bug where finishing a prompt left
+ * `process.stdin` destroyed and the next prompt with nothing to read.
+ */
+export interface FakeInput extends PassThrough {
 	isTTY: boolean;
 	rawMode: boolean;
 	/** Sends a chunk to whatever is reading. */
@@ -105,63 +111,24 @@ export interface FakeInput {
 }
 
 /**
- * Stdin as an async iterable of chunks, which is what a prompt reads.
- *
- * Keys are pushed rather than queued up front, so a test can answer one frame
- * and then look at what the next one says.
+ * Builds the stdin a prompt reads.
  *
  * @param opts - Whether it is a terminal.
  * @returns The input.
  */
 export function createInput(opts: { isTTY?: boolean } = {}): FakeInput {
-	const queue: string[] = [];
-	let waiting: ((chunk: IteratorResult<string>) => void) | undefined;
-	let ended = false;
+	const input = new PassThrough() as FakeInput;
 
-	const input: FakeInput = {
-		isTTY: opts.isTTY ?? true,
-		rawMode: false,
+	input.isTTY = opts.isTTY ?? true;
+	input.rawMode = false;
 
-		setRawMode(mode: boolean): FakeInput {
-			input.rawMode = mode;
-			return input;
-		},
+	input.setRawMode = (mode: boolean): FakeInput => {
+		input.rawMode = mode;
+		return input;
+	};
 
-		send(chunk: string): void {
-			if (waiting) {
-				const resolve = waiting;
-				waiting = undefined;
-				resolve({ done: false, value: chunk });
-			} else {
-				queue.push(chunk);
-			}
-		},
-
-		end(): void {
-			ended = true;
-			if (waiting) {
-				const resolve = waiting;
-				waiting = undefined;
-				resolve({ done: true, value: undefined as never });
-			}
-		},
-
-		[Symbol.asyncIterator](): AsyncIterator<string> {
-			return {
-				next(): Promise<IteratorResult<string>> {
-					const chunk = queue.shift();
-					if (chunk !== undefined) {
-						return Promise.resolve({ done: false, value: chunk });
-					}
-					if (ended) {
-						return Promise.resolve({ done: true, value: undefined as never });
-					}
-					return new Promise((resolve) => {
-						waiting = resolve;
-					});
-				},
-			};
-		},
+	input.send = (chunk: string): void => {
+		input.write(chunk);
 	};
 
 	return input;
@@ -217,10 +184,11 @@ export function setup(
  * @param times - How many turns of the microtask queue.
  * @returns Settled.
  */
-export function tick(times = 2): Promise<void> {
-	let done = Promise.resolve();
+export async function tick(times = 2): Promise<void> {
+	// `setImmediate` and not a chain of resolved promises: a real stream delivers
+	// `data` on the macrotask queue, so draining microtasks alone would look at
+	// the prompt before it had seen the keys
 	for (let i = 0; i < times; i++) {
-		done = done.then(() => {});
+		await new Promise((resolve) => setImmediate(resolve));
 	}
-	return done;
 }
