@@ -125,14 +125,26 @@ describe('yargs: declared options', () => {
 			expect(result.argv.foo).to.equal(5);
 		});
 
-		it('should not fall back to a default when the option is given without a value', async () => {
-			// yargs falls back to the default here; an empty value is a value,
-			// and the declared type decides what it means
-			const result = await parse({
-				argv: ['--foo'],
-				schema: { options: { '--foo [v]': { type: 'number', default: 99 } } },
-			});
-			expect(result.argv.foo).to.equal(0);
+		it('should throw rather than fall back when given without a value', async () => {
+			// yargs falls back to the default here. `[v]` says the option may be
+			// left out, not that its value may be, so there is nothing to fall back
+			// from -- the command line is wrong
+			await expect(
+				parse({
+					argv: ['--foo'],
+					schema: { options: { '--foo [v]': { type: 'number', default: 99 } } },
+				})
+			).rejects.toThrow('Missing value for option --foo');
+		});
+
+		it('should reject an explicitly empty value the type cannot read', async () => {
+			// `--foo=` did give a value, and `number` has no reading of an empty one
+			await expect(
+				parse({
+					argv: ['--foo='],
+					schema: { options: { '--foo [v]': { type: 'number', default: 99 } } },
+				})
+			).rejects.toThrow('Invalid number:');
 		});
 
 		it('should apply a default to a flag', async () => {

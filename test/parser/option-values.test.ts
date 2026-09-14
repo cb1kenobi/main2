@@ -84,32 +84,38 @@ describe('option values', () => {
 	});
 
 	describe('missing values', () => {
-		it('should throw when a required option has no value', async () => {
+		// `<>` and `[]` say whether the *option* has to appear, not whether its
+		// value may be left out: `[value]` is an optional option that takes a
+		// value, so using it without one is the same mistake either way
+		it.each([
+			['required', '--name <value>'],
+			['optional', '--name [value]'],
+		])('should throw when a %s option is given no value', async (_kind, format) => {
 			await expect(
-				parse({ argv: ['--name'], schema: { options: { '--name <value>': null } } })
-			).rejects.toThrow('Missing value for required option --name');
+				parse({ argv: ['--name'], schema: { options: { [format]: null } } })
+			).rejects.toThrow('Missing value for option --name');
 		});
 
-		it('should throw when a required option is given an empty value', async () => {
+		// `--name=` did give a value. Whether an empty one is allowed is the data
+		// type's question, and `string` is a type that has an empty value
+		it('should give an empty value to a string option', async () => {
+			for (const format of ['--name <value>', '--name [value]']) {
+				const result = await parse({ argv: ['--name='], schema: { options: { [format]: null } } });
+				expect(result.argv, format).to.deep.equal({ name: '' });
+			}
+		});
+
+		// ...and most types do not have one, so they reject it like any other
+		// value they cannot read
+		it.each([
+			['number', 'Invalid number'],
+			['int', 'Invalid integer'],
+			['date', 'Invalid date'],
+			['json', 'Invalid JSON'],
+		])('should reject an empty value for %s', async (type, message) => {
 			await expect(
-				parse({ argv: ['--name='], schema: { options: { '--name <value>': null } } })
-			).rejects.toThrow('Missing value for required option --name');
-		});
-
-		it('should give an optional string option an empty string', async () => {
-			const result = await parse({
-				argv: ['--name'],
-				schema: { options: { '--name [value]': null } },
-			});
-			expect(result.argv).to.deep.equal({ name: '' });
-		});
-
-		it('should coerce the missing value to the declared type', async () => {
-			const result = await parse({
-				argv: ['--age'],
-				schema: { options: { '--age [value]': { type: 'number' } } },
-			});
-			expect(result.argv).to.deep.equal({ age: 0 });
+				parse({ argv: ['--age='], schema: { options: { '--age [value]': { type } } } })
+			).rejects.toThrow(message);
 		});
 
 		it('should still reject a value of the wrong type', async () => {
@@ -123,16 +129,28 @@ describe('option values', () => {
 	});
 
 	describe('a token that looks like an option', () => {
-		it('should not consume a declared option', async () => {
-			const result = await parse({
-				argv: ['--name', '--age', '20'],
-				schema: {
-					options: { '--name [value]': null, '--age <value>': { type: 'number' } },
-				},
-			});
-			expect(result.argv).to.deep.equal({ name: '', age: 20 });
+		// the protection is unchanged: a declared option is not swallowed as a
+		// value. What changed is how that shows -- `--name` is left with no value,
+		// which is now an error rather than an empty string
+		it.each([
+			['a declared option', ['--name', '--age', '20'], { '--age <value>': { type: 'number' } }],
+			['a declared flag', ['--name', '--silent'], { '--silent': null }],
+			['a declared short option', ['--name', '-s'], { '-s, --silent': null }],
+			['a resolvable short option group', ['--name', '-ab'], { '-a': null, '-b': null }],
+			['the terminator', ['--name', '--', 'rest'], {}],
+		])('should not consume %s', async (_what, argv, options) => {
+			await expect(
+				parse({
+					argv,
+					schema: { options: { '--name [value]': null, ...options } },
+					settings: { allowExtraArguments: true },
+				})
+			).rejects.toThrow('Missing value for option --name');
 		});
 
+		// the same for a required option, which is the same error for the same
+		// reason -- `<>` and `[]` differ on whether the option must appear, not on
+		// whether its value may be left out
 		it('should throw when a required option is followed by a declared option', async () => {
 			await expect(
 				parse({
@@ -141,41 +159,17 @@ describe('option values', () => {
 						options: { '--name <value>': null, '--age <value>': { type: 'number' } },
 					},
 				})
-			).rejects.toThrow('Missing value for required option --name');
+			).rejects.toThrow('Missing value for option --name');
 		});
 
-		it('should not consume a declared flag', async () => {
+		// and the token that was protected is parsed as itself, once the option
+		// ahead of it has a value of its own
+		it('should parse the protected token once the option has a value', async () => {
 			const result = await parse({
-				argv: ['--name', '--silent'],
+				argv: ['--name=', '--silent'],
 				schema: { options: { '--name [value]': null, '--silent': null } },
 			});
 			expect(result.argv).to.deep.equal({ name: '', silent: true });
-		});
-
-		it('should not consume a declared short option', async () => {
-			const result = await parse({
-				argv: ['--name', '-s'],
-				schema: { options: { '--name [value]': null, '-s, --silent': null } },
-			});
-			expect(result.argv).to.deep.equal({ name: '', silent: true });
-		});
-
-		it('should not consume a resolvable short option group', async () => {
-			const result = await parse({
-				argv: ['--name', '-ab'],
-				schema: { options: { '--name [value]': null, '-a': null, '-b': null } },
-			});
-			expect(result.argv).to.deep.equal({ name: '', a: true, b: true });
-		});
-
-		it('should not consume the terminator', async () => {
-			const result = await parse({
-				argv: ['--name', '--', 'rest'],
-				schema: { options: { '--name [value]': null } },
-				settings: { allowExtraArguments: true },
-			});
-			expect(result.argv).to.deep.equal({ name: '' });
-			expect(result._).to.deep.equal(['rest']);
 		});
 
 		it('should consume an undeclared option', async () => {

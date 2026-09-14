@@ -5,6 +5,14 @@
  *   node demos/parser/02-options.js --target cjs -vv --define A=1 --define B=2
  *   node demos/parser/02-options.js --no-color --port 3000
  *   PORT=9000 node demos/parser/02-options.js
+ *
+ * An option that takes a value must be given one, so `--port` on its own is an
+ * error rather than a zero -- `[n]` says the option may be left out, not that
+ * its value may be. `--port=` does give a value, an empty one, which `int` has
+ * no reading of:
+ *
+ *   node demos/parser/02-options.js --port     # Missing value for option --port
+ *   node demos/parser/02-options.js --port=    # Invalid integer:
  *   node demos/parser/02-options.js --help
  */
 import { main2 } from 'main2';

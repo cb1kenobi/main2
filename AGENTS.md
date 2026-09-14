@@ -110,14 +110,27 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `default` passes through untouched, and a negated twin sharing the
   destination writes `false` -- which is why inference types that pair as
   `number | boolean`. See `test/parser/options.test.ts`.
-- **A required option rejects a missing or empty value; an optional one gets
-  an empty string.** `--name` and `--name=` throw for `<value>` and yield `''`
-  (or `0`, per the data type) for `[value]`. Per the data type includes `int`,
-  which used to throw: `number` returns `0` because `Number('')` is `0`, and a
-  counter returns `0` outright, so `int` was the one integer type that failed a
-  parse over the value this rule calls zero -- and `PORT=` in the environment,
-  the same "set and saying nothing" reading a counter already accepts, failed
-  with it. Whitespace still throws for both, matching `bool`.
+- **An option that takes a value must be given one, required or not.** `<>` and
+  `[]` say whether the _option_ has to appear -- `[value]` is an optional option
+  that takes a value -- and neither says the value may be left out, so a bare
+  `--port` throws `Missing value for option --port` either way. This replaces an
+  earlier rule where a valueless use yielded what the data type called empty:
+  that made `--port` a value, and a value from argv outranks everything, so
+  `PORT=321 mycli --port` answered `0` while `PORT=321 mycli` answered `321`.
+- **`--port=` is a value, and an empty one is a value only where the type has
+  one.** `string` has an empty value and gets `''`; `bool` and `count` are flags
+  and read empty as off; every other type rejects it the way `date` and `json`
+  always did. So `--name=` is `''` even on a `<value>` option -- requiredness is
+  about the option appearing, not about what it was given -- while `--port=` on
+  an `int` throws `Invalid integer`. It is the one way to say "deliberately
+  empty", which is why it is not second-guessed.
+- **An empty environment variable is read as unset.** `PORT=` in a shell or a
+  `.env` file is how a variable gets left blank and almost always means "not
+  configured", while an empty value is one most data types now reject -- so
+  honoring it literally would fail a parse over a variable nobody meant to set.
+  It falls through to `default` instead. A counter still ends at `0` for
+  `VERBOSE=`, by way of the flag's own default rather than by coercing the empty
+  string.
 - **An attached value is taken exactly as typed; only the name is trimmed.**
   `--name=value` splits one token, and trimming both halves made the two
   spellings of one thing disagree: a value in the following token was never
@@ -133,9 +146,11 @@ These look like bugs and are not. Each is intentional and covered by tests.
   empty.** An `int` past 2^53-1 used to come back as a different integer --
   `Number('9007199254740993')` is `...992` -- which is the one failure a caller
   cannot detect, so it throws. `number` used to read a whitespace-only value as
-  `0`, because `Number(' ')` is `0`, while `int`, `count`, and `bool` all threw
-  on it; an _empty_ value is deliberately `0` for all of them, but a space is
-  not empty and space around a real number is still that number. A `date` has
+  `0`, because `Number(' ')` is `0`, while `int` threw on it. Space around a real
+  number is still that number, since `Number()` trims -- only a value with
+  nothing else in it is the empty one. `number` rejects an empty or blank
+  value for the same reason `int` does -- `Number('')` and `Number(' ')` are both
+  `0`, and neither is a number somebody wrote. A `date` has
   its calendar checked before the `Date` is built, because `Date` overflows
   instead of refusing and `2024-02-30` arrived as March 1st -- the wrong day
   rather than the error `9999-99-99` already got. Checked arithmetically and not

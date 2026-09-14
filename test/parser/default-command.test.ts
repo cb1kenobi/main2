@@ -435,7 +435,10 @@ describe('default command', () => {
 
 		it('should resolve the option once the command is named instead', async () => {
 			const state = await parse({
-				argv: ['build', '--name', '--verbose'],
+				// `--name=` rather than a bare `--name`, which would be a missing
+				// value: what is being shown here is that naming the command puts
+				// `--verbose` in the chain, so it is protected rather than consumed
+				argv: ['build', '--name=', '--verbose'],
 				schema: {
 					commands: { build: { default: true, options: { '-v, --verbose': null } } },
 					options: { '--name [value]': null },

@@ -508,7 +508,7 @@ describe('options', () => {
 
 		it.each(orders)('should still demand a value for --cheese, %s', async (_label, options) => {
 			await expect(parse({ argv: ['--cheese'], schema: { options } })).rejects.toThrow(
-				'Missing value for required option --cheese'
+				'Missing value for option --cheese'
 			);
 		});
 

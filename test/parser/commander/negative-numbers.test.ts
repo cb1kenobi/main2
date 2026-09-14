@@ -70,8 +70,18 @@ describe('commander: negative numbers', () => {
 	});
 
 	it('should not take a declared digit option as a value', async () => {
+		// `-9` is protected, which is why `-o` is left with no value at all
+		await expect(
+			parse({
+				argv: ['-o', '-9'],
+				schema: { options: { '-o, --optional [value]': {}, '-9': {} } },
+			})
+		).rejects.toThrow('Missing value for option --optional');
+	});
+
+	it('should parse the protected digit option once -o has a value', async () => {
 		const result = await parse({
-			argv: ['-o', '-9'],
+			argv: ['-o=', '-9'],
 			schema: { options: { '-o, --optional [value]': {}, '-9': {} } },
 		});
 		expect(result.argv['9']).to.equal(true);
@@ -80,10 +90,11 @@ describe('commander: negative numbers', () => {
 
 	it('should not take a negative number that expands as a declared group', async () => {
 		// `-1` is declared, so `-123` expands rather than reading as a number,
-		// and the unexpanded remainder is left as a positional value
+		// and the unexpanded remainder is left as a positional value. `-o=` gives
+		// the option its value, so what is being tested here is the expansion
 		await expect(
 			parse({
-				argv: ['-o', '-123'],
+				argv: ['-o=', '-123'],
 				schema: { options: { '-o, --optional [value]': {}, '-1': {} } },
 			})
 		).rejects.toThrow('Unexpected argument "-23"');

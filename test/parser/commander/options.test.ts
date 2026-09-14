@@ -178,25 +178,44 @@ describe('commander: options', () => {
 			expect(result.argv.cheese).to.equal('blue');
 		});
 
-		it('should be an empty string when specified without a value', async () => {
-			// Commander gives true
-			const result = await parse({ argv: ['--cheese'], schema });
+		it('should throw when specified without a value', async () => {
+			// Commander gives true. `[type]` says the option may be left out, not
+			// that its value may be, so using it without one is an error
+			await expect(parse({ argv: ['--cheese'], schema })).rejects.toThrow(
+				'Missing value for option --cheese'
+			);
+		});
+
+		it('should be an empty string when given an empty value', async () => {
+			const result = await parse({ argv: ['--cheese='], schema });
 			expect(result.argv.cheese).to.equal('');
 		});
 
 		it('should not eat a following declared option', async () => {
+			// the protection holds -- `--some-option` is not taken as the value,
+			// which is why `--cheese` is reported as having none
+			await expect(
+				parse({
+					argv: ['--cheese', '--some-option'],
+					schema: { options: { '--cheese [type]': {}, '--some-option': {} } },
+				})
+			).rejects.toThrow('Missing value for option --cheese');
+		});
+
+		it('should parse the protected option once cheese has a value', async () => {
 			const result = await parse({
-				argv: ['--cheese', '--some-option'],
+				argv: ['--cheese=', '--some-option'],
 				schema: { options: { '--cheese [type]': {}, '--some-option': {} } },
 			});
 			expect(result.argv.cheese).to.equal('');
 			expect(result.argv.someOption).to.equal(true);
 		});
 
-		it('should prefer an empty value over a default', async () => {
-			// Commander gives true, its default untouched
+		it('should prefer an explicitly empty value over a default', async () => {
+			// Commander gives true, its default untouched. `--cheese=` is a value,
+			// and a value from argv beats a default
 			const result = await parse({
-				argv: ['--cheese'],
+				argv: ['--cheese='],
 				schema: { options: { '--cheese [type]': { default: 'default' } } },
 			});
 			expect(result.argv.cheese).to.equal('');
@@ -222,7 +241,7 @@ describe('commander: options', () => {
 		it('should error when the value is missing', async () => {
 			await expect(
 				parse({ argv: ['--cheese'], schema: { options: { '--cheese <type>': {} } } })
-			).rejects.toThrow('Missing value for required option --cheese');
+			).rejects.toThrow('Missing value for option --cheese');
 		});
 
 		it('should be satisfied by a default', async () => {
@@ -246,7 +265,7 @@ describe('commander: options', () => {
 					argv: ['--cheese'],
 					schema: { options: { '--cheese <type>': { default: 'default' } } },
 				})
-			).rejects.toThrow('Missing value for required option --cheese');
+			).rejects.toThrow('Missing value for option --cheese');
 		});
 	});
 
@@ -305,10 +324,20 @@ describe('commander: options', () => {
 			expect(result.argv.port).to.equal('2');
 		});
 
-		it('should let a valueless repeat overwrite an earlier value', async () => {
-			// Commander gives true for the second use
+		it('should throw on a valueless repeat', async () => {
+			// Commander gives true for the second use. A second `--donate` with
+			// nothing after it is as much a missing value as a first one
+			await expect(
+				parse({
+					argv: ['--donate', '123', '--donate'],
+					schema: { options: { '--donate [amount]': {} } },
+				})
+			).rejects.toThrow('Missing value for option --donate');
+		});
+
+		it('should let an explicitly empty repeat overwrite an earlier value', async () => {
 			const result = await parse({
-				argv: ['--donate', '123', '--donate'],
+				argv: ['--donate', '123', '--donate='],
 				schema: { options: { '--donate [amount]': {} } },
 			});
 			expect(result.argv.donate).to.equal('');
@@ -316,7 +345,7 @@ describe('commander: options', () => {
 
 		it('should let a later value overwrite an earlier empty', async () => {
 			const result = await parse({
-				argv: ['--donate', '--donate', '123'],
+				argv: ['--donate=', '--donate', '123'],
 				schema: { options: { '--donate [amount]': {} } },
 			});
 			expect(result.argv.donate).to.equal('123');

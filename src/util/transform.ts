@@ -85,17 +85,14 @@ export function transformValue(
 	if (type === 'int' || type === 'count') {
 		// a counter is a flag, and a flag with no value is off: `bool` reads an empty
 		// value as false, so an empty counter is 0 rather than an error. `VERBOSE=` in
-		// the environment means the variable is there and says nothing, which is the
-		// one reading that is not worth failing a parse over.
+		// the environment means the variable is there and says nothing, which for a
+		// flag is a reading it has -- off.
 		//
-		// `int` reads it the same way, because the rule is the data type's and not the
-		// counter's: `--port` and `--port=` on a `[value]` option are documented to
-		// yield "'' or 0, per the data type", and `number` already returns 0 because
-		// `Number('')` is 0. Only `int` threw, so one integer type answered an empty
-		// value with 0 and the other failed the parse -- and `PORT=` in the
-		// environment, which is the same "there and says nothing" reading, failed too.
-		// Whitespace still throws for both, matching `bool`
-		if (!value) {
+		// `int` is not a flag and has no such reading: empty is not an integer, so it
+		// is rejected the way `date` and `json` reject it. That is the whole rule --
+		// an empty value is a value only where the type has one, which is `string`
+		// and the two flag types
+		if (type === 'count' && !value) {
 			return 0;
 		}
 
@@ -128,10 +125,10 @@ export function transformValue(
 	}
 
 	if (type === 'number') {
-		// `Number(' ')` is 0, so a value that is only whitespace parsed as zero while
-		// `int`, `count`, and `bool` all threw on it. An empty value is 0 for all of
-		// them, deliberately -- a space is not empty
-		if (value && !value.trim()) {
+		// `Number('')` and `Number(' ')` are both 0, which would make an empty or
+		// blank value parse as zero where every other valued type rejects it. Neither
+		// is a number somebody wrote
+		if (!value.trim()) {
 			throw new Error(`Invalid number: ${value}`);
 		}
 

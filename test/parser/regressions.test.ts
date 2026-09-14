@@ -966,31 +966,41 @@ describe('regressions', () => {
 			expect(result._).to.deep.equal(['--foo=bar', '-x=1', 'a=b']);
 		});
 
-		// `number` returns 0 for an empty value because `Number('')` is 0, and a
-		// counter returns 0 explicitly, so `int` was the one integer type that failed
-		// the parse over a value the docs say is 0
-		it('should read an empty int value as zero', async () => {
+		// this once read an empty `int` as 0, to match `number` and `count`. That
+		// made `PORT=321 mycli --port` answer 0 while `PORT=321 mycli` answered 321:
+		// a valueless use beat the environment by being written during the walk.
+		// The rule now runs the other way -- an option that takes a value must be
+		// given one, and an empty value is a value only where the type has one
+		it('should reject an empty int rather than read it as zero', async () => {
 			const schema = { options: { '--port [n]': { type: 'int' } } };
 
-			expect((await parse({ argv: ['--port'], schema })).argv.port).to.equal(0);
-			expect((await parse({ argv: ['--port='], schema })).argv.port).to.equal(0);
-			expect(
-				(
-					await parse({
-						argv: [],
-						env: { PORT: '' },
-						schema: { options: { '--port [n]': { env: 'PORT', type: 'int' } } },
-					})
-				).argv.port
-			).to.equal(0);
+			await expect(parse({ argv: ['--port'], schema })).rejects.toThrow(
+				'Missing value for option --port'
+			);
+			await expect(parse({ argv: ['--port='], schema })).rejects.toThrow('Invalid integer:');
+			await expect(parse({ argv: ['--port= '], schema })).rejects.toThrow('Invalid integer:');
 		});
 
-		// an empty value is 0, but whitespace is still not a number, the same way
-		// `bool` reads an empty value as false and throws on whitespace
-		it('should still reject whitespace as an int', async () => {
-			await expect(
-				parse({ argv: ['--port= '], schema: { options: { '--port [n]': { type: 'int' } } } })
-			).rejects.toThrow('Invalid integer:');
+		// the case that started it: a valueless use no longer outranks the
+		// environment, because there is no longer any such thing
+		it('should let the environment answer when argv named the option alone', async () => {
+			const schema = { options: { '--port [n]': { env: 'PORT', type: 'int' } } };
+
+			expect((await parse({ argv: [], env: { PORT: '321' }, schema })).argv.port).to.equal(321);
+			await expect(parse({ argv: ['--port'], env: { PORT: '321' }, schema })).rejects.toThrow(
+				'Missing value for option --port'
+			);
+		});
+
+		// an empty variable is read as unset, so a blank `PORT=` falls through to
+		// the default instead of failing the parse on a value nobody meant to set
+		it('should treat an empty environment variable as unset', async () => {
+			const result = await parse({
+				argv: [],
+				env: { PORT: '' },
+				schema: { options: { '--port [n]': { default: 8080, env: 'PORT', type: 'int' } } },
+			});
+			expect(result.argv.port).to.equal(8080);
 		});
 
 		// every flag read an attached value as a `bool`, so a counter given a number
@@ -1121,19 +1131,17 @@ describe('regressions', () => {
 			expect((result.argv.when as Date).getTime()).to.equal(1718454600000);
 		});
 
-		// `Number(' ')` is 0, so a value that is only whitespace parsed as zero while
-		// `int`, `count`, and `bool` all threw on it. An empty value is 0 for all of
-		// them, deliberately -- a space is not empty
-		it('should reject whitespace as a number', async () => {
+		// `Number('')` and `Number(' ')` are both 0, which would make an empty or
+		// blank value parse as zero where every other valued type rejects it
+		it('should reject an empty or blank number', async () => {
 			const schema = { options: { '--port [n]': { type: 'number' } } };
 
+			await expect(parse({ argv: ['--port='], schema })).rejects.toThrow('Invalid number:');
 			await expect(parse({ argv: ['--port= '], schema })).rejects.toThrow('Invalid number:');
 			await expect(parse({ argv: ['--port=\t'], schema })).rejects.toThrow('Invalid number:');
 
-			// an empty value is still 0, and a real number surrounded by space is
-			// still that number -- `Number()` trims, and only a value with nothing
-			// else in it is the ambiguous one
-			expect((await parse({ argv: ['--port='], schema })).argv.port).to.equal(0);
+			// a real number with space around it is still that number: `Number()`
+			// trims, and only a value with nothing else in it is the empty one
 			expect((await parse({ argv: ['--port= 42 '], schema })).argv.port).to.equal(42);
 		});
 
